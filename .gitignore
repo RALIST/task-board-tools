@@ -3,3 +3,6 @@
 # tb/ has its own git history; will be merged into cli/ in M1.
 # Until then, exclude it from this repo to avoid embedded-repo warnings.
 /tb/
+
+# Runtime flock target — recreated on every CLI invocation.
+board/.board.lock

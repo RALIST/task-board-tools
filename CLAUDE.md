@@ -73,6 +73,7 @@ GUI does not exist yet; planned to live in `gui/` with `wails3 build`.
 - JSON output (M1): empty result → `[]` or `{}`, never prose like "No tasks found.". Stdout = data; stderr = errors/warnings.
 - Single-instance lock for `tb-gui` (M2) — only one GUI process per user; second invocation focuses the existing window.
 - Daemon stale-recovery on startup (M5): tasks left in `AgentStatus: running` after a crash get reconciled by checking PID liveness + replaying JSONL.
+- use `frontend-design` skill for GUI work
 
 ## Critical files (CLI today)
 
