@@ -21,29 +21,29 @@ Marker legend:
 
 ---
 
-## M1 — CLI extensions · ☐
+## M1 — CLI extensions · ☑
 
 **Deliverable**: `cli/` works as drop-in for `tb/`, adds `--json`, agent metadata fields, archive filter, regenerate consistency.
 
 ### Tasks
-1. ☐ `git mv tb cli`
-2. ☐ Create root `go.work` with `use ./cli`
-3. ☐ `cli/task.go`: add `Agent`, `AgentStatus` fields (incl. `cancelled` value); JSON tags on Task; extend `parseTaskFile`
-4. ☐ `cli/edit.go`: add `-a`, `--agent-status` flags; extend `flagsWithValue`; call `regenerateBoard` at the end; use atomic write
-5. ☐ `cli/create.go`: call `regenerateBoard` at the end of `cmdCreate`; use atomic write
-6. ☐ `cli/board.go`: extend `resolveStatus` for `active`, `archive`, `all`; helper to list archive entries; archive write uses atomic helper
-7. ☐ `cli/atomicfs.go` (new): `writeFileAtomic(path, data, perm)` helper (temp + rename); convert callers in `create.go`, `edit.go`, `move.go`, `board.go (archiveTask)`, `scan.go`
-8. ☐ `cli/list.go`: `--json` flag; honour new statuses; archive directory inclusion
-9. ☐ `cli/show.go`: `flag.NewFlagSet` + `reorderArgs`; `--json` flag emits `{metadata, body}`
-10. ☐ `cli/regenerate.go`: `cmdBoard` `--json` mode emits structured BoardSnapshot
-11. ☐ `cli/json_output.go`: new file with `marshalTask`, `marshalBoardSnapshot`, helpers
-12. ☐ `cli/main.go`: usage text update
-13. ☐ Manual smoke tests (build, JSON valid, edit triggers regenerate, archive filter, no non-atomic `os.WriteFile` for `.md` paths)
+1. ☑ `tb/` → `cli/` (history bundled to `../task-board-tools-tb-history.bundle`)
+2. ☑ Create root `go.work` with `use ./cli`
+3. ☑ `cli/task.go`: add `Agent`, `AgentStatus` fields (incl. `cancelled` value); JSON tags on Task; extend `parseTaskFile`
+4. ☑ `cli/edit.go`: add `-a`, `--agent-status` flags; extend `flagsWithValue`; call `regenerateBoard` at the end; use atomic write
+5. ☑ `cli/create.go`: call `regenerateBoard` at the end of `cmdCreate`; use atomic write
+6. ☑ `cli/board.go`: extend `resolveStatus` for `active`, `archive`, `all` (added `resolveStatusFilter`); archive write uses atomic helper; `findTask` now searches archive too
+7. ☑ `cli/atomicfs.go` (new): `writeFileAtomic(path, data, perm)` helper (temp + fsync + rename) with cleanup on error; tests in `atomicfs_test.go`; callers in `create.go`, `edit.go`, `move.go`, `board.go (archiveTask)`, `scan.go` all migrated
+8. ☑ `cli/list.go`: `--json` flag; honours new statuses via `resolveStatusFilter`
+9. ☑ `cli/show.go`: `flag.NewFlagSet` + `reorderArgs`; `--json` flag emits `{metadata, body}`
+10. ☑ `cli/regenerate.go`: `cmdBoard` `--json` mode emits structured `BoardSnapshot`
+11. ☑ `cli/json_output.go`: new file with `marshalTask`, `marshalTasks`, `emitTasksJSON`, `emitShowJSON`, `buildBoardSnapshot`, `emitBoardJSON`
+12. ☑ `cli/main.go`: usage text updated with new status filter values
+13. ☑ Manual smoke tests (build, JSON valid, edit triggers regenerate, archive filter, no non-atomic `os.WriteFile` for `.md` paths)
 
 **Estimate**: 1.5 days.
 
 ### Risks
-- `tb/` rename may break someone's PATH symlink — call out in commit message.
+- `tb/` → `cli/` rename may break someone's PATH symlink — call out in commit message.
 - JSON serialization order shouldn't matter, but use struct tags consistently.
 - Atomic write helper must respect symlinks and permissions of the destination (use `os.Chmod` after rename if needed). For the MVP we only mutate files we created ourselves, so default 0644 is fine.
 
@@ -195,3 +195,4 @@ Settings UI, keyboard shortcuts, system tray. Deferred unless explicitly priorit
 
 - 2026-05-13: docs PROJECT/ARCHITECTURE/FEATURES drafted; plan synced with feedback (direct body writes allowed under flock; archive as first-class filter; daemon stale-recovery in M5; root `go.work`)
 - 2026-05-13: Codex adversarial review applied — README path corrected to current `tb/`; atomic-write invariant documented and added to M1 (F1.6); `cancelled` added as a first-class `AgentStatus` value with carve-out from stale-recovery
+- 2026-05-13: M1 shipped — `tb/` → `cli/` rename (history preserved as bundle outside repo); root `go.work` added; `cli/atomicfs.go` introduced with `writeFileAtomic` + tests; all task `.md` writers migrated; `Agent`/`AgentStatus` fields on `Task` with `tb edit -a` / `--agent-status` + enum validation; `cmdCreate` and `cmdEdit` now regenerate `BOARD.md`; new `resolveStatusFilter` implements `backlog|in-progress|done|archive|active|all` semantics; `findTask` extended to archive so archived tasks can be moved back; `cli/json_output.go` adds `--json` output for `tb ls`, `tb show`, `tb board` (empty results render as `[]` / `{}`)

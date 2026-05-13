@@ -1,8 +1,9 @@
 .DS_Store
 
-# tb/ has its own git history; will be merged into cli/ in M1.
-# Until then, exclude it from this repo to avoid embedded-repo warnings.
-/tb/
+# Compiled CLI binary — built either inside cli/ (`cd cli && go build -o tb .`)
+# or from the repo root via go.work (`go build ./cli` writes ./tb due to `module tools/tb`).
+/cli/tb
+/tb
 
 # Runtime flock target — recreated on every CLI invocation.
 board/.board.lock

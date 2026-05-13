@@ -5,6 +5,8 @@
 **Size:** XL
 **Module:** cli
 **Tags:** milestone-m1,cli,epic
+**Agent:** claude
+**AgentStatus:** success
 **Branch:** —
 
 ## Goal
@@ -28,16 +30,16 @@ CLI is the single source of truth for structured mutations. GUI will exec the CL
 
 ## Acceptance Criteria
 
-- [ ] All M1 sub-tasks (TB-8..TB-15) closed
-- [ ] `cd cli && go build -o tb .` produces a working binary
-- [ ] `go build ./cli` works from repo root via go.work
-- [ ] `tb ls --json` returns `[]` for empty selections and well-formed JSON otherwise
-- [ ] `tb ls --status archive --json | jq .` works
-- [ ] `tb edit 1 -a claude --agent-status queued` writes the new metadata fields
-- [ ] `tb create "X" -m m` and `tb edit X-N -p P1` update BOARD.md without a manual regenerate
-- [ ] `tb show 1 --json` and `tb show --json 1` both work
-- [ ] Existing smoke flow (create → start → done → close) still passes
-- [ ] docs/IMPLEMENTATION.md M1 markers flipped to ☑
+- [x] All M1 sub-tasks (TB-8..TB-15) closed
+- [x] `cd cli && go build -o tb .` produces a working binary
+- [x] `go build ./cli` works from repo root via go.work
+- [x] `tb ls --json` returns `[]` for empty selections and well-formed JSON otherwise
+- [x] `tb ls --status archive --json | jq .` works
+- [x] `tb edit 1 -a claude --agent-status queued` writes the new metadata fields
+- [x] `tb create "X" -m m` and `tb edit X-N -p P1` update BOARD.md without a manual regenerate
+- [x] `tb show 1 --json` and `tb show --json 1` both work
+- [x] Existing smoke flow (create → start → done → close) still passes (verified via TB-25 probe)
+- [x] docs/IMPLEMENTATION.md M1 markers flipped to ☑
 
 ## Related Tasks
 
@@ -47,3 +49,11 @@ CLI is the single source of truth for structured mutations. GUI will exec the CL
 ## Log
 
 - 2026-05-13: Created
+- 2026-05-13: Started — moved to in-progress
+- 2026-05-13: Edited priority=P1
+- 2026-05-13: Moved to archive
+- 2026-05-13: Moved to in-progress
+- 2026-05-13: Edited agent=claude, agentstatus=queued
+- 2026-05-13: Edited agentstatus=success
+- 2026-05-13: M1 shipped — TB-8..TB-15 closed. Codex adversarial review flagged 5 pre-existing/follow-up issues, filed as TB-26..TB-30 (atomic .next-id; lock in cmdRegenerate; archive inclusion in collectAllTasks/findChildren; parseTaskFile header validation; tb assign sugar). Build, vet, tests pass.
+- 2026-05-13: Done

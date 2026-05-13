@@ -34,3 +34,5 @@ The `tb/` directory is still its own git repo today and is `.gitignored` from th
 ## Log
 
 - 2026-05-13: Created
+- 2026-05-13: Started — moved to in-progress
+- 2026-05-13: Done

@@ -33,3 +33,5 @@ GUI will parse task `.md` files without holding the board lock. If the CLI write
 ## Log
 
 - 2026-05-13: Created
+- 2026-05-13: Started — moved to in-progress
+- 2026-05-13: Done

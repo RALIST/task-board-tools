@@ -1,5 +1,8 @@
 # Task Board Tools — Project Overview
 
+## First
+Initial plan: /Users/ralist/.claude/plans/misty-dazzling-raven.md
+
 ## What it is
 
 A minimal task tracker for software projects focused on agentic development workflows: agents deal with board throught CLI (Claude Code, Codex), pick tasks and execute/review them autonomously. The whole board is a directory of plain Markdown files — agents and humans share the same source of truth.
