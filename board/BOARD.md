@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-3 | M3: GUI mutations, DnD, and inline editor | 0/0 | backlog | gui |
+| TB-3 | M3: GUI mutations, DnD, and inline editor | 0/10 | backlog | gui |
 | TB-4 | M4: Agent assignment and manual runs from GUI | 0/0 | backlog | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 0/0 | backlog | gui |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 0/0 | backlog | gui |
@@ -37,6 +37,17 @@
 | TB-28 | collectAllTasks / findChildren: archive inclusion semantics | improvement | P3 | M | cli |
 | TB-29 | parseTaskFile should reject malformed task files | bug | P3 | S | cli |
 | TB-30 | tb assign sugar for paired Agent + AgentStatus writes | feature | P3 | S | cli |
+| TB-31 | CLI wrapper: mutation commands (create/edit/mv/close/regenerate) | feature | P1 | S | gui |
+| TB-32 | BoardService: CreateTask, EditTask, MoveTask, CloseTask, Regenerate via exec tb | feature | P1 | M | gui |
+| TB-33 | BoardService: EditTaskBody direct-write under .board.lock | feature | P1 | M | gui |
+| TB-34 | Drag-and-drop between columns with optimistic UI and conflict revert | feature | P1 | M | gui |
+| TB-35 | CreateTaskDialog: modal form for new tasks | feature | P1 | S | gui |
+| TB-36 | TaskDrawer: inline metadata editing and Archive button | feature | P1 | M | gui |
+| TB-37 | CodeMirror body editor in TaskDrawer | feature | P1 | M | gui |
+| TB-38 | FilterBar with archive column toggle | feature | P1 | M | gui |
+| TB-39 | addChildToSubtasks corrupts task body when '## ' headers appear inside backticks | bug | P2 | S | cli |
+| TB-40 | BoardService.LoadBoard: archive-aware status mode | feature | P1 | S | gui |
+| TB-41 | Frontend Toast.svelte component | feature | P1 | S | gui |
 
 ## Recently Done
 
