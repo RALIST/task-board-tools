@@ -1,12 +1,35 @@
-// Filter store — placeholder for M2. M3 will wire FilterBar into this and
-// add tag/module/priority predicates. The shape is intentionally minimal so
-// stores/board.ts doesn't have to import it yet.
+// Filter store: holds the FilterBar's selection plus the "Show archived"
+// toggle. Multi-select filters are arrays — empty = no constraint, populated
+// = OR within the category. Categories AND together.
 
 import { writable } from 'svelte/store';
 
 export interface BoardFilter {
   search: string;
+  types: string[];
+  priorities: string[];
+  modules: string[];
+  tags: string[];
+  agents: string[];
+  parentEpic: string; // single parent ID, '' = no constraint
   showArchive: boolean;
 }
 
-export const filter = writable<BoardFilter>({ search: '', showArchive: false });
+export const initialFilter: BoardFilter = {
+  search: '',
+  types: [],
+  priorities: [],
+  modules: [],
+  tags: [],
+  agents: [],
+  parentEpic: '',
+  showArchive: false,
+};
+
+export const filter = writable<BoardFilter>({ ...initialFilter });
+
+// clearFilter resets every constraint but keeps the showArchive toggle —
+// users expect the archive column to stay visible while they re-filter.
+export function clearFilter(): void {
+  filter.update((f) => ({ ...initialFilter, showArchive: f.showArchive }));
+}

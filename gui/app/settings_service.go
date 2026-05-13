@@ -156,6 +156,10 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 	}
 	if s.board != nil {
 		s.board.setClient(client)
+		// EditTaskBody needs the absolute board dir for flock + atomic write.
+		// SetBoardDir is a no-op if the BoardService doesn't expose direct
+		// writes, but for M3 it's required.
+		s.board.setBoardDir(info.BoardDir)
 	}
 
 	s.mu.Lock()

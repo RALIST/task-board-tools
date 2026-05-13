@@ -80,20 +80,20 @@ Marker legend:
 
 ---
 
-## M3 — Mutations + DnD + editor · ☐
+## M3 — Mutations + DnD + editor · ☑
 
 **Deliverable**: full CRUD via GUI; DnD reflects status changes.
 
 ### Tasks
-1. ☐ Service `board_service.go`: `CreateTask`, `EditTask`, `MoveTask`, `CloseTask`, `Regenerate` (all via `exec tb`)
-2. ☐ Service `board_service.go`: `EditTaskBody` — direct write under `.board.lock` with rules (see ARCHITECTURE.md "Locking")
-3. ☐ Frontend `Column.svelte`: integrate `svelte-dnd-action`; optimistic moves; revert on error
-4. ☐ Frontend `CreateTaskDialog.svelte`
-5. ☐ Frontend `TaskDrawer.svelte`: editable metadata fields + body editor
-6. ☐ Frontend `FilterBar.svelte`: client-side filtering over `boardStore`
-7. ☐ Frontend `Toast.svelte` for errors
-8. ☐ Filter: "Show archived" toggle adds Archive column
-9. ☐ Manual acceptance tests
+1. ☑ Service `board_service.go`: `CreateTask`, `EditTask`, `MoveTask`, `CloseTask`, `Regenerate` (all via `exec tb`)
+2. ☑ Service `board_service.go`: `EditTaskBody` — direct write under `.board.lock` with rules (see ARCHITECTURE.md "Locking")
+3. ☑ Frontend `Column.svelte`: integrate `svelte-dnd-action`; optimistic moves; revert on error
+4. ☑ Frontend `CreateTaskDialog.svelte`
+5. ☑ Frontend `TaskDrawer.svelte`: editable metadata fields + body editor (CodeMirror 6)
+6. ☑ Frontend `FilterBar.svelte`: client-side filtering over `boardStore`
+7. ☑ Frontend `Toast.svelte` for errors
+8. ☑ Filter: "Show archived" toggle adds Archive column (BoardSnapshot.archive bucket + LoadBoardWithMode)
+9. ☑ Manual acceptance tests — `wails3 dev` runtime smoke: created TB-42 via dialog → toast; edited priority P2→P1 inline → toast; body edit via CodeMirror writes through `EditTaskBody` (.board.lock held, atomic rename, log entry appended, BOARD.md regenerated); two-click Archive sent TB-42 to archive; Show-archived toggle materialized the Archive column; DnD moved TB-5 backlog→in-progress→backlog with both `tb mv` log entries persisted
 
 **Estimate**: 2 days.
 
@@ -197,3 +197,4 @@ Settings UI, keyboard shortcuts, system tray. Deferred unless explicitly priorit
 - 2026-05-13: Codex adversarial review applied — README path corrected to current `tb/`; atomic-write invariant documented and added to M1 (F1.6); `cancelled` added as a first-class `AgentStatus` value with carve-out from stale-recovery
 - 2026-05-13: M1 shipped — `tb/` → `cli/` rename (history preserved as bundle outside repo); root `go.work` added; `cli/atomicfs.go` introduced with `writeFileAtomic` + tests; all task `.md` writers migrated; `Agent`/`AgentStatus` fields on `Task` with `tb edit -a` / `--agent-status` + enum validation; `cmdCreate` and `cmdEdit` now regenerate `BOARD.md`; new `resolveStatusFilter` implements `backlog|in-progress|done|archive|active|all` semantics; `findTask` extended to archive so archived tasks can be moved back; `cli/json_output.go` adds `--json` output for `tb ls`, `tb show`, `tb board` (empty results render as `[]` / `{}`)
 - 2026-05-13: M2 shipped — `gui/` scaffolded with Wails3 alpha.91 + SvelteKit-TS; backend modules `gui/internal/cli`, `gui/internal/watcher` (pump-goroutine + 200ms debounce), `gui/app/board_service.go` (LoadBoard/GetTask, status bucketing, ErrNoBoard/ErrNotFound), `gui/app/settings_service.go` (OpenBoard/PickBoardDialog/recents at `$XDG_CONFIG_HOME/tb-gui/recent.json`); frontend `Board`/`Column`/`Card`/`TaskDrawer` Svelte components with `marked` for read-only markdown; `+page.svelte` orchestrator with empty-state, recent-board list, and Wails event wiring (`board:reloaded`, `board:opened`, `task:updated:*`). 30 Go tests pass; `wails3 generate bindings` emits 2 services / 7 methods / 6 models. Runtime acceptance via `/ui-test` at end of epic.
+- 2026-05-13: M3 shipped (closed) — TB-3 closed after interactive `wails3 dev` smoke (created TB-42 via dialog, edited priority P2→P1 inline, body edit through CodeMirror writes via `EditTaskBody` under `.board.lock`, two-click Archive sent the task to archive, Show-archived toggle materialized the archive column with both archived tasks, DnD moved TB-5 backlog↔in-progress through `tb mv` and persisted log entries on disk). Two real bugs caught during smoke and fixed: (a) TaskDrawer never refreshed `detail` after a mutation because atomic temp+rename triggers `board:reloaded` not `task:updated:<id>` — drawer now subscribes to both events; (b) `svelte-dnd-action` crashed with `originalDragTarget.parentElement undefined` because a `$derived` was swapping the items array mid-drag — Column now keeps a `$state`-backed `items` array re-seeded by `$effect` only when `!dragging`. `gui/internal/cli/mutations.go` adds typed wrappers (`Create`, `Edit`, `Move`, `Close`, `Regenerate`) with `MutationError` classification (binary-not-found / board-not-found / validation / task-not-found / unknown). `gui/app/edit_body.go` implements the only direct-write path: acquires `.board.lock` via `syscall.Flock LOCK_EX`, rejects header/metadata changes via `protectedPrefix`, appends `- YYYY-MM-DD: Edited body via GUI`, writes via temp+fsync+rename, releases the lock BEFORE invoking `tb regenerate` (CLI takes the same flock — would deadlock). `BoardService.LoadBoardWithMode("all")` adds the `archive` bucket to `BoardSnapshot`. Frontend: `Column.svelte` integrates `svelte-dnd-action` with a `dragging` flag that freezes `dndItems` for the duration of a gesture so a `board:reloaded` mid-drag doesn't blow the library's state; `+page.svelte` calls `optimisticMove`/`revert` and pushes a toast on failure. `CreateTaskDialog.svelte` (+ button in topbar). `TaskDrawer.svelte` rewritten: inline metadata edit (priority/type/size/module/tags) → `tb edit`, two-click Archive button → `tb close`, body editor toggle. `BodyEditor.svelte` wraps CodeMirror 6 (markdown lang, line wrapping, history) with `internalChange` flag to avoid keystroke-echo loops; Cmd/Ctrl+S saves. `FilterBar.svelte` filters client-side over the loaded snapshot (types, priorities, modules, tags, agents, parent epic, search) with a "Show archived" toggle that switches the store to `all` mode. `Toast.svelte` is the reusable component (info / success / error). Untrusted markdown is sanitized via `DOMPurify` before `{@html}`. 32 Go tests pass (incl. a real-`tb` integration test that proves flock is held and the protected prefix survives an EditTaskBody round-trip byte-for-byte). `svelte-check` clean (333 files, 0 errors, 0 warnings); production build green.

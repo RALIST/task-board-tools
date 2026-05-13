@@ -1,7 +1,18 @@
 <script lang="ts">
   import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
   import { Events } from '@wailsio/runtime';
-  import { getTask, type Task, type TaskDetail } from '$lib/api';
+  import {
+    closeTask as apiCloseTask,
+    editTask,
+    editTaskBody,
+    getTask,
+    type EditTaskInput,
+    type Task,
+    type TaskDetail,
+  } from '$lib/api';
+  import { pushToast } from '$lib/stores/toast';
+  import BodyEditor from './BodyEditor.svelte';
 
   interface Props {
     taskId: string | null;
@@ -14,15 +25,30 @@
   let loading = $state(false);
   let err = $state<string | null>(null);
 
-  // Fetch + subscribe to task:updated:<id> while the drawer is open. The
-  // effect re-runs whenever taskId changes; the cleanup tears down the
-  // previous subscription.
+  // Editable metadata fields. Initialised from `detail` whenever the task
+  // changes; tracked separately so we can highlight dirty state and submit
+  // only the diff.
+  let formPriority = $state('');
+  let formType = $state('');
+  let formSize = $state('');
+  let formModule = $state('');
+  let formTags = $state('');
+  let saving = $state(false);
+
+  // Editor state.
+  let editMode = $state(false);
+  let bodyDraft = $state(''); // current editor contents (full file, header included)
+  let bodyDirty = $state(false);
+
+  // Archive button two-step confirm.
+  let archivePrompt = $state(false);
+  let archiveTimer: ReturnType<typeof setTimeout> | null = null;
+
   $effect(() => {
     const id = taskId;
     if (!id) {
-      detail = null;
-      err = null;
-      loading = false;
+      detail = null; err = null; loading = false;
+      editMode = false; bodyDirty = false; archivePrompt = false;
       return;
     }
     loading = true;
@@ -35,6 +61,16 @@
           if (cancelled || taskId !== id) return;
           detail = d;
           loading = false;
+          // Reset form to the freshly-loaded values.
+          formPriority = d.metadata.priority ?? '';
+          formType = d.metadata.type ?? '';
+          formSize = d.metadata.size ?? '';
+          formModule = d.metadata.module ?? '';
+          formTags = (d.metadata.tags ?? []).join(', ');
+          // Don't replace bodyDraft while the editor is open — preserve the
+          // user's in-progress buffer. If they Discard, we'll snap it back
+          // to d.body via the Discard handler.
+          if (!editMode) bodyDraft = d.body;
         })
         .catch((e) => {
           if (cancelled || taskId !== id) return;
@@ -44,90 +80,233 @@
     };
 
     fetchOnce();
-    const off = Events.On(`task:updated:${id}`, () => {
-      // Re-fetch on every event; the body may have changed, not just
-      // metadata. We don't show a spinner — replace silently to avoid
-      // flicker.
-      fetchOnce();
-    });
+    // Subscribe to BOTH event shapes:
+    //  - task:updated:<id> fires when the CLI does a direct Write (rare,
+    //    since both CLI and GUI write atomically via temp+rename).
+    //  - board:reloaded fires for atomic writes (Create/Rename) and is
+    //    the dominant refresh signal in practice.
+    const offTask = Events.On(`task:updated:${id}`, () => fetchOnce());
+    const offBoard = Events.On('board:reloaded', () => fetchOnce());
 
     return () => {
       cancelled = true;
-      try { off(); } catch { /* ignore */ }
+      try { offTask(); } catch { /* ignore */ }
+      try { offBoard(); } catch { /* ignore */ }
     };
   });
 
-  function onKeydown(ev: KeyboardEvent) {
-    if (taskId && ev.key === 'Escape') {
-      ev.preventDefault();
-      onClose?.();
+  let metadataDirty = $derived(
+    detail !== null && (
+      (formPriority || '') !== (detail.metadata.priority ?? '') ||
+      (formType || '') !== (detail.metadata.type ?? '') ||
+      (formSize || '') !== (detail.metadata.size ?? '') ||
+      (formModule || '') !== (detail.metadata.module ?? '') ||
+      normalizeTags(formTags) !== normalizeTags((detail.metadata.tags ?? []).join(', '))
+    ),
+  );
+
+  function normalizeTags(s: string): string {
+    return s.split(',').map((t) => t.trim()).filter(Boolean).sort().join(',');
+  }
+
+  function diffPayload(): { payload: EditTaskInput; droppedClears: string[] } {
+    if (!detail) return { payload: {} as EditTaskInput, droppedClears: [] };
+    const m = detail.metadata;
+    const payload: EditTaskInput = {} as EditTaskInput;
+    const droppedClears: string[] = [];
+
+    // The CLI's `tb edit` treats empty-string args as "skip this field" — it
+    // has no clear-field syntax. So if the user blanks Module/Tags (was
+    // non-empty), we can't actually clear them; ignore the diff for that
+    // field and warn via toast.
+    function include(name: keyof EditTaskInput, label: string, next: string, prev: string) {
+      if (next === prev) return;
+      if (next === '' && prev !== '') {
+        droppedClears.push(label);
+        return;
+      }
+      (payload as unknown as Record<string, string>)[name as string] = next;
+    }
+    include('priority', 'priority', formPriority, m.priority ?? '');
+    include('type', 'type', formType, m.type ?? '');
+    include('size', 'size', formSize, m.size ?? '');
+    include('module', 'module', formModule, m.module ?? '');
+
+    const nextTags = normalizeTags(formTags);
+    const prevTags = normalizeTags((m.tags ?? []).join(', '));
+    if (nextTags !== prevTags) {
+      if (nextTags === '' && prevTags !== '') {
+        droppedClears.push('tags');
+      } else {
+        payload.tags = formTags.split(',').map((t) => t.trim()).filter(Boolean).join(',');
+      }
+    }
+    return { payload, droppedClears };
+  }
+
+  async function saveMetadata() {
+    if (!detail || !metadataDirty || saving) return;
+    saving = true;
+    const id = detail.metadata.id;
+    const { payload, droppedClears } = diffPayload();
+
+    if (Object.keys(payload).length === 0) {
+      // The only diff was a field clear we can't represent — surface that
+      // rather than silently no-op'ing.
+      if (droppedClears.length > 0) {
+        pushToast(`Clearing ${droppedClears.join(', ')} from the GUI isn't supported (CLI has no clear flag).`, 'info');
+        resetForm();
+      }
+      saving = false;
+      return;
+    }
+
+    try {
+      await editTask(id, payload);
+      if (droppedClears.length > 0) {
+        pushToast(`Saved ${id}; ${droppedClears.join(', ')} couldn't be cleared from the GUI.`, 'info');
+        resetForm();
+      } else {
+        pushToast(`Saved ${id}`, 'success');
+      }
+    } catch (e) {
+      pushToast(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+      resetForm();
+    } finally {
+      saving = false;
     }
   }
 
+  function resetForm() {
+    if (!detail) return;
+    formPriority = detail.metadata.priority ?? '';
+    formType = detail.metadata.type ?? '';
+    formSize = detail.metadata.size ?? '';
+    formModule = detail.metadata.module ?? '';
+    formTags = (detail.metadata.tags ?? []).join(', ');
+  }
+
+  function startArchive() {
+    if (!detail) return;
+    if (!archivePrompt) {
+      archivePrompt = true;
+      if (archiveTimer) clearTimeout(archiveTimer);
+      archiveTimer = setTimeout(() => { archivePrompt = false; }, 4000);
+      return;
+    }
+    if (archiveTimer) { clearTimeout(archiveTimer); archiveTimer = null; }
+    void doArchive();
+  }
+
+  async function doArchive() {
+    if (!detail) return;
+    const id = detail.metadata.id;
+    try {
+      await apiCloseTask(id);
+      pushToast(`Archived ${id}`, 'success');
+      onClose?.();
+    } catch (e) {
+      pushToast(`Archive failed: ${e instanceof Error ? e.message : String(e)}`);
+      archivePrompt = false;
+    }
+  }
+
+  async function saveBody() {
+    if (!detail) return;
+    try {
+      await editTaskBody(detail.metadata.id, bodyDraft);
+      pushToast(`Body saved`, 'success');
+      bodyDirty = false;
+      editMode = false;
+      // detail will refresh via task:updated event
+    } catch (e) {
+      pushToast(`Body save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async function enterEdit() {
+    if (!detail) return;
+    // Pull the latest body from disk before mounting the editor so the
+    // buffer matches what EditTaskBody will compare against. Avoids the
+    // race where a recent metadata edit mutated the file but the watcher
+    // event hadn't refreshed our `detail.body` yet.
+    try {
+      const d = await getTask(detail.metadata.id);
+      detail = d;
+      bodyDraft = d.body;
+    } catch {
+      bodyDraft = detail.body;
+    }
+    bodyDirty = false;
+    editMode = true;
+  }
+
+  function discardBody() {
+    if (!detail) return;
+    bodyDraft = detail.body;
+    bodyDirty = false;
+    editMode = false;
+  }
+
+  function onKeydown(ev: KeyboardEvent) {
+    if (!taskId) return;
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      tryClose();
+    } else if (editMode && (ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') {
+      ev.preventDefault();
+      void saveBody();
+    }
+  }
+
+  function tryClose() {
+    if (editMode && bodyDirty) {
+      const ok = window.confirm('You have unsaved body edits. Discard them?');
+      if (!ok) return;
+    }
+    onClose?.();
+  }
+
   function onBackdropClick(ev: MouseEvent) {
-    if (ev.target === ev.currentTarget) onClose?.();
+    if (ev.target === ev.currentTarget) tryClose();
   }
 
-  function meta(t: Task): Array<[string, string]> {
-    const rows: Array<[string, string]> = [];
-    if (t.type) rows.push(['Type', t.type]);
-    if (t.priority) rows.push(['Priority', t.priority]);
-    if (t.size) rows.push(['Size', t.size]);
-    if (t.module) rows.push(['Module', t.module]);
-    if (t.status) rows.push(['Status', t.status]);
-    if (t.tags?.length) rows.push(['Tags', t.tags.join(', ')]);
-    if (t.branch) rows.push(['Branch', t.branch]);
-    if (t.parent) rows.push(['Parent', t.parent]);
-    if (t.agent) rows.push(['Agent', t.agent + (t.agentStatus ? ` (${t.agentStatus})` : '')]);
-    return rows;
-  }
-
-  // marked: we sanitize trust because the body content comes from the
-  // user's own filesystem via tb. Disable mangle/headerIds (not needed for
-  // a drawer view) and enable GFM (task lists, tables) for board-style
-  // markdown.
   marked.setOptions({ gfm: true, breaks: false });
 
   function renderMarkdown(src: string): string {
     try {
-      return marked.parse(src, { async: false }) as string;
+      const raw = marked.parse(src, { async: false }) as string;
+      // Sanitize: task bodies are user-authored and may contain raw HTML
+      // (`<img onerror=…>`, `<script>`, etc.). Stripping disallowed tags here
+      // prevents an untrusted task from executing JS in the GUI's privileged
+      // Wails context. KEEP_CONTENT means HTML text inside disallowed tags is
+      // still shown as escaped text.
+      return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
     } catch {
-      // Fall back to escaped pre — never crash the drawer over a parse error.
       return `<pre>${escapeHtml(src)}</pre>`;
     }
   }
-
   function escapeHtml(s: string): string {
-    return s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // Strip the markdown header + metadata block (first ~15 lines) when
-  // rendering the body — those duplicate the right rail.
   function stripFrontmatter(body: string): string {
     const lines = body.split('\n');
-    // Find the first blank line after the metadata block (look ahead at
-    // most 20 lines).
-    let i = 0;
-    for (; i < Math.min(lines.length, 20); i++) {
-      const l = lines[i].trim();
-      if (i > 0 && l === '') {
-        // Look for the next non-metadata line.
-        let j = i + 1;
-        while (j < lines.length && lines[j].trim() === '') j++;
-        if (j >= lines.length) break;
-        const peek = lines[j].trim();
-        if (peek.startsWith('## ') || peek.startsWith('# ')) {
-          // The header line "# TB-N: ..." comes first; stop AFTER metadata,
-          // before the first `## Goal` (or similar) section.
-          if (peek.startsWith('# ')) continue;
-          return lines.slice(j).join('\n');
-        }
+    for (let i = 0; i < Math.min(lines.length, 30); i++) {
+      if (i > 0 && lines[i].trim().startsWith('## ')) {
+        return lines.slice(i).join('\n');
       }
     }
     return body;
+  }
+
+  function meta(t: Task): Array<[string, string]> {
+    const rows: Array<[string, string]> = [];
+    if (t.status) rows.push(['Status', t.status]);
+    if (t.branch) rows.push(['Branch', t.branch]);
+    if (t.parent) rows.push(['Parent', t.parent]);
+    if (t.agent) rows.push(['Agent', t.agent + (t.agentStatus ? ` (${t.agentStatus})` : '')]);
+    return rows;
   }
 </script>
 
@@ -152,7 +331,7 @@
         {:else}
           <h2>{taskId}</h2>
         {/if}
-        <button class="close" type="button" onclick={onClose} aria-label="Close">×</button>
+        <button class="close" type="button" onclick={tryClose} aria-label="Close">×</button>
       </header>
 
       {#if loading && !detail}
@@ -160,14 +339,89 @@
       {:else if err}
         <p class="err">{err}</p>
       {:else if detail}
-        <dl class="meta">
-          {#each meta(detail.metadata) as [k, v]}
-            <dt>{k}</dt><dd>{v}</dd>
-          {/each}
-        </dl>
-        <article class="body markdown">
-          {@html renderMarkdown(stripFrontmatter(detail.body))}
-        </article>
+        <section class="meta-edit">
+          <div class="meta-row">
+            <label>
+              <span>Priority</span>
+              <select bind:value={formPriority}>
+                <option value=""></option>
+                <option>P0</option><option>P1</option><option>P2</option><option>P3</option>
+              </select>
+            </label>
+            <label>
+              <span>Type</span>
+              <select bind:value={formType}>
+                <option value=""></option>
+                <option value="bug">bug</option>
+                <option value="feature">feature</option>
+                <option value="tech-debt">tech-debt</option>
+                <option value="improvement">improvement</option>
+                <option value="spike">spike</option>
+              </select>
+            </label>
+            <label>
+              <span>Size</span>
+              <select bind:value={formSize}>
+                <option value=""></option>
+                <option>S</option><option>M</option><option>L</option><option>XL</option>
+              </select>
+            </label>
+          </div>
+          <div class="meta-row">
+            <label class="grow">
+              <span>Module</span>
+              <input bind:value={formModule} placeholder="module" />
+            </label>
+            <label class="grow">
+              <span>Tags</span>
+              <input bind:value={formTags} placeholder="comma,separated" />
+            </label>
+          </div>
+          <div class="row save-row">
+            <button class="primary" type="button" onclick={saveMetadata} disabled={!metadataDirty || saving}>
+              {saving ? 'Saving…' : (metadataDirty ? 'Save' : 'Saved')}
+            </button>
+          </div>
+        </section>
+
+        {#if meta(detail.metadata).length > 0}
+          <dl class="meta">
+            {#each meta(detail.metadata) as [k, v]}
+              <dt>{k}</dt><dd>{v}</dd>
+            {/each}
+          </dl>
+        {/if}
+
+        <section class="body-section">
+          <div class="body-toolbar">
+            <h3>Body</h3>
+            <div class="toolbar-actions">
+              {#if editMode}
+                <button class="ghost" type="button" onclick={discardBody}>Discard</button>
+                <button class="primary" type="button" onclick={saveBody} disabled={!bodyDirty}>Save body</button>
+              {:else}
+                <button class="ghost" type="button" onclick={enterEdit}>Edit</button>
+              {/if}
+            </div>
+          </div>
+          {#if editMode}
+            <BodyEditor
+              bind:value={bodyDraft}
+              originalBody={detail.body}
+              onDirtyChange={(d) => bodyDirty = d}
+            />
+          {:else}
+            <article class="body markdown">
+              {@html renderMarkdown(stripFrontmatter(detail.body))}
+            </article>
+          {/if}
+        </section>
+
+        <footer class="drawer-footer">
+          <button class="danger" type="button" onclick={startArchive}>
+            {archivePrompt ? 'Click again to archive' : 'Archive'}
+          </button>
+        </footer>
       {/if}
     </aside>
   </div>
@@ -184,7 +438,7 @@
   }
   .drawer {
     background: var(--bg-elev);
-    width: min(640px, 95vw);
+    width: min(720px, 96vw);
     height: 100%;
     overflow-y: auto;
     box-shadow: -8px 0 32px rgba(0, 0, 0, 0.45);
@@ -223,7 +477,62 @@
     border-radius: 4px;
   }
   .close:hover { background: rgba(255, 255, 255, 0.06); color: var(--fg); }
-  .close:focus-visible { outline: 2px solid var(--accent); }
+
+  .meta-edit {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 12px;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .meta-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .meta-edit label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--fg-dim);
+  }
+  .meta-edit input,
+  .meta-edit select {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+    border-radius: 4px;
+    padding: 5px 7px;
+    font: inherit;
+    font-size: 12px;
+  }
+  .save-row { justify-content: flex-end; display: flex; }
+  .primary {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    border-radius: 5px;
+    padding: 5px 14px;
+    cursor: pointer;
+    font-weight: 600;
+    font: inherit;
+    font-size: 12px;
+  }
+  .primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ghost {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--fg);
+    border-radius: 5px;
+    padding: 5px 14px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+  }
+  .ghost:hover { background: rgba(255, 255, 255, 0.06); }
 
   .meta {
     display: grid;
@@ -246,6 +555,23 @@
   }
   .meta dd { margin: 0; word-break: break-word; }
 
+  .body-section { display: flex; flex-direction: column; gap: 8px; }
+  .body-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .body-toolbar h3 {
+    margin: 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+    font-weight: 600;
+  }
+  .toolbar-actions { display: flex; gap: 6px; }
+
   .body {
     background: rgba(255, 255, 255, 0.03);
     padding: 12px 16px;
@@ -255,8 +581,6 @@
     line-height: 1.6;
     overflow-x: auto;
   }
-  /* Bare-minimum markdown styling — enough to read tasks, not enough to be
-   * a content rendering library. M3 can iterate. */
   .markdown :global(h1),
   .markdown :global(h2),
   .markdown :global(h3) {
@@ -268,43 +592,35 @@
   .markdown :global(h2) { font-size: 14px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.06em; }
   .markdown :global(h3) { font-size: 13px; }
   .markdown :global(p) { margin: 0 0 8px; }
-  .markdown :global(ul),
-  .markdown :global(ol) {
-    margin: 0 0 8px;
-    padding-left: 20px;
-  }
+  .markdown :global(ul), .markdown :global(ol) { margin: 0 0 8px; padding-left: 20px; }
   .markdown :global(li) { margin: 2px 0; }
-  .markdown :global(li input[type="checkbox"]) {
-    margin-right: 6px;
-    pointer-events: none; /* read-only */
-  }
-  .markdown :global(code) {
-    background: rgba(255, 255, 255, 0.06);
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-  }
-  .markdown :global(pre) {
-    background: rgba(0, 0, 0, 0.25);
-    padding: 10px 12px;
-    border-radius: 4px;
-    overflow-x: auto;
-    margin: 8px 0;
-  }
-  .markdown :global(pre code) {
-    background: none;
-    padding: 0;
-    border-radius: 0;
-  }
+  .markdown :global(li input[type='checkbox']) { margin-right: 6px; pointer-events: none; }
+  .markdown :global(code) { background: rgba(255, 255, 255, 0.06); padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 12px; }
+  .markdown :global(pre) { background: rgba(0, 0, 0, 0.25); padding: 10px 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }
+  .markdown :global(pre code) { background: none; padding: 0; }
   .markdown :global(a) { color: var(--accent); }
   .markdown :global(strong) { color: var(--fg); }
-  .markdown :global(blockquote) {
-    border-left: 3px solid rgba(255, 255, 255, 0.1);
-    padding-left: 10px;
-    margin: 8px 0;
-    color: var(--fg-dim);
+  .markdown :global(blockquote) { border-left: 3px solid rgba(255, 255, 255, 0.1); padding-left: 10px; margin: 8px 0; color: var(--fg-dim); }
+
+  .drawer-footer {
+    margin-top: 22px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: flex-end;
   }
+  .danger {
+    background: rgba(255, 90, 82, 0.12);
+    color: var(--p0);
+    border: 1px solid rgba(255, 90, 82, 0.3);
+    border-radius: 5px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+  }
+  .danger:hover { background: rgba(255, 90, 82, 0.2); }
+
   .hint { color: var(--fg-dim); font-size: 12px; }
   .err { color: var(--p0); font-size: 12px; }
 </style>

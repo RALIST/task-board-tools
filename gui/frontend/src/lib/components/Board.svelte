@@ -4,16 +4,21 @@
 
   interface Props {
     snapshot: BoardSnapshot;
+    showArchive?: boolean;
     onSelect?: (id: string) => void;
+    onDrop?: (taskId: string, target: 'backlog' | 'in-progress' | 'done') => void;
   }
 
-  let { snapshot, onSelect }: Props = $props();
+  let { snapshot, showArchive = false, onSelect, onDrop }: Props = $props();
 </script>
 
-<section class="board" aria-label="kanban">
-  <Column title="Backlog" tasks={snapshot.backlog} {onSelect} />
-  <Column title="In progress" tasks={snapshot.inProgress} {onSelect} />
-  <Column title="Done" tasks={snapshot.done} {onSelect} />
+<section class="board" class:with-archive={showArchive} aria-label="kanban">
+  <Column title="Backlog" status="backlog" tasks={snapshot.backlog} {onSelect} {onDrop} />
+  <Column title="In progress" status="in-progress" tasks={snapshot.inProgress} {onSelect} {onDrop} />
+  <Column title="Done" status="done" tasks={snapshot.done} {onSelect} {onDrop} />
+  {#if showArchive}
+    <Column title="Archive" status="archive" tasks={snapshot.archive ?? []} draggable={false} {onSelect} />
+  {/if}
 </section>
 
 <style>
@@ -24,11 +29,12 @@
     gap: 10px;
     padding: 12px;
     min-height: 0;
-    /* Below 1024px collapse to a single column for narrow windows. The
-     * minimum window width is 720px but users can resize. */
+  }
+  .board.with-archive {
+    grid-template-columns: repeat(4, 1fr);
   }
   @media (max-width: 1023px) {
-    .board {
+    .board, .board.with-archive {
       grid-template-columns: 1fr;
       overflow-y: auto;
     }

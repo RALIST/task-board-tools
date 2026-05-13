@@ -87,10 +87,10 @@ func TestLoadBoard_EmptyArray(t *testing.T) {
 	}
 	// Slices must be non-nil so the JSON encoder emits [] not null on the
 	// wire (matches the CLI's same invariant).
-	if snap.Backlog == nil || snap.InProgress == nil || snap.Done == nil {
+	if snap.Backlog == nil || snap.InProgress == nil || snap.Done == nil || snap.Archive == nil {
 		t.Fatal("empty board should expose non-nil slices")
 	}
-	if len(snap.Backlog)+len(snap.InProgress)+len(snap.Done) != 0 {
+	if len(snap.Backlog)+len(snap.InProgress)+len(snap.Done)+len(snap.Archive) != 0 {
 		t.Fatal("empty board should have zero tasks")
 	}
 }
@@ -120,6 +120,104 @@ JSON`)
 	}
 	if d.Metadata.ID != "TB-1" || d.Metadata.Title != "Hello" || d.Body != "# Body" {
 		t.Fatalf("decode mismatch: %+v", d)
+	}
+}
+
+func TestLoadBoardWithMode_AllIncludesArchive(t *testing.T) {
+	// Stub asserts the --status arg comes through as `all` and emits archive entries.
+	stub := makeStub(t, `
+if [ "$4" = "all" ]; then
+  cat <<JSON
+[
+  {"id":"TB-1","title":"A","status":"backlog","tags":[]},
+  {"id":"TB-5","title":"E","status":"archive","tags":[]}
+]
+JSON
+else
+  echo '[{"id":"TB-1","title":"A","status":"backlog","tags":[]}]'
+fi
+`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	snap, err := svc.LoadBoardWithMode(context.Background(), "all")
+	if err != nil {
+		t.Fatalf("LoadBoardWithMode(all): %v", err)
+	}
+	if len(snap.Archive) != 1 || snap.Archive[0].ID != "TB-5" {
+		t.Fatalf("archive bucket: %+v", snap.Archive)
+	}
+}
+
+func TestLoadBoardWithMode_DefaultsToActive(t *testing.T) {
+	stub := makeStub(t, `echo '[{"id":"TB-1","title":"A","status":"backlog","tags":[]}]'`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	snap, err := svc.LoadBoardWithMode(context.Background(), "garbage")
+	if err != nil {
+		t.Fatalf("LoadBoardWithMode: %v", err)
+	}
+	if len(snap.Backlog) != 1 {
+		t.Fatalf("expected 1 backlog task, got %d", len(snap.Backlog))
+	}
+}
+
+func TestCreateTask_HappyPath(t *testing.T) {
+	stub := makeStub(t, `echo "Created board/backlog/TB-42.md"`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	res, err := svc.CreateTask(context.Background(), CreateTaskInput{Title: "Hello"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if res.ID != "TB-42" {
+		t.Fatalf("ID: %q", res.ID)
+	}
+}
+
+func TestCreateTask_NoBoard(t *testing.T) {
+	svc := NewBoardService()
+	_, err := svc.CreateTask(context.Background(), CreateTaskInput{Title: "x"})
+	if !errors.Is(err, ErrNoBoard) {
+		t.Fatalf("want ErrNoBoard, got %v", err)
+	}
+}
+
+func TestEditTask_HappyPath(t *testing.T) {
+	stub := makeStub(t, `echo "Updated TB-1"`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+	if err := svc.EditTask(context.Background(), "TB-1", EditTaskInput{Priority: "P0"}); err != nil {
+		t.Fatalf("EditTask: %v", err)
+	}
+}
+
+func TestMoveTask_HappyPath(t *testing.T) {
+	stub := makeStub(t, `echo "Moved TB-1"`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+	if err := svc.MoveTask(context.Background(), "TB-1", "done"); err != nil {
+		t.Fatalf("MoveTask: %v", err)
+	}
+}
+
+func TestCloseTask_HappyPath(t *testing.T) {
+	stub := makeStub(t, `echo "Closed TB-1"`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+	if err := svc.CloseTask(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("CloseTask: %v", err)
+	}
+}
+
+func TestRegenerate_HappyPath(t *testing.T) {
+	stub := makeStub(t, `echo "Regenerated"`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+	if err := svc.Regenerate(context.Background()); err != nil {
+		t.Fatalf("Regenerate: %v", err)
 	}
 }
 

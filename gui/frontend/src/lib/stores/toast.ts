@@ -1,12 +1,15 @@
-// Lightweight toast store. M3 will replace this with a Toast component +
-// queue; for M2 we only need a primitive any error handler can call.
+// Toast store: a small queue of transient notifications with auto-dismiss
+// after 5s. The Toast.svelte component subscribes and renders; pushToast is
+// the only producer the rest of the app calls.
 
 import { writable } from 'svelte/store';
+
+export type ToastKind = 'error' | 'info' | 'success';
 
 export interface Toast {
   id: number;
   message: string;
-  kind: 'error' | 'info';
+  kind: ToastKind;
   ts: number;
 }
 
@@ -15,7 +18,7 @@ let _nextId = 1;
 
 export const toasts = { subscribe: _toasts.subscribe };
 
-export function pushToast(message: string, kind: Toast['kind'] = 'error'): void {
+export function pushToast(message: string, kind: ToastKind = 'error'): void {
   const id = _nextId++;
   _toasts.update((list) => [...list, { id, message, kind, ts: Date.now() }]);
   // Auto-dismiss after 5s. Long enough to read, short enough not to stack.

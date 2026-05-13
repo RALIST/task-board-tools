@@ -35,3 +35,5 @@ Embed a background daemon in the GUI process that auto-picks up any task with `A
 ## Log
 
 - 2026-05-13: Created
+- 2026-05-13: Moved to in-progress
+- 2026-05-13: Moved to backlog

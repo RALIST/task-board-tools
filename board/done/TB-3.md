@@ -50,3 +50,5 @@ Add the write side to the GUI. Mutations go through `exec tb` so the CLI stays t
 - 2026-05-13: Created
 - 2026-05-13: Groomed — fixed corrupted title; aligned acceptance criteria 1:1 with `docs/FEATURES.md` F3.1–F3.6; decomposed into TB-31..TB-38 (CLI wrapper, BoardService mutations, EditTaskBody direct-write, DnD frontend, CreateTaskDialog, drawer metadata edit + archive, CodeMirror body editor, FilterBar + archive column)
 - 2026-05-13: Review fixes from Codex — TB-31/32 drop the JSON-output claim and parse `Created <path>` instead; TB-33 tightens flock test to real-process POSIX integration; TB-37 fixes self-contradictory title-editability wording; TB-38 now depends on new TB-40 (backend archive load); added TB-41 to own the `Toast.svelte` deliverable from `docs/IMPLEMENTATION.md` M3 task 7
+- 2026-05-13: Started — moved to in-progress
+- 2026-05-13: Done

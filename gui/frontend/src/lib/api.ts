@@ -6,8 +6,15 @@
 // instead of poking at the generated `bindings/tools/tb-gui/app` paths.
 
 import {
+  CloseTask,
+  CreateTask,
+  EditTask,
+  EditTaskBody,
   GetTask,
   LoadBoard,
+  LoadBoardWithMode,
+  MoveTask,
+  Regenerate,
 } from '../../bindings/tools/tb-gui/app/boardservice';
 import {
   GetBoardInfo,
@@ -16,16 +23,61 @@ import {
   OpenBoard,
   PickBoardDialog,
 } from '../../bindings/tools/tb-gui/app/settingsservice';
-import type { BoardInfo, BoardSnapshot, RecentBoard, Task, TaskDetail } from '../../bindings/tools/tb-gui/app/models';
+import type {
+  BoardInfo,
+  BoardSnapshot,
+  CreateTaskInput,
+  CreateTaskResult,
+  EditTaskInput,
+  RecentBoard,
+  Task,
+  TaskDetail,
+} from '../../bindings/tools/tb-gui/app/models';
 
-export type { BoardInfo, BoardSnapshot, RecentBoard, Task, TaskDetail };
+export type {
+  BoardInfo,
+  BoardSnapshot,
+  CreateTaskInput,
+  CreateTaskResult,
+  EditTaskInput,
+  RecentBoard,
+  Task,
+  TaskDetail,
+};
 
-export async function loadBoard(): Promise<BoardSnapshot> {
+export type StatusMode = 'active' | 'all';
+
+export async function loadBoard(mode: StatusMode = 'active'): Promise<BoardSnapshot> {
+  if (mode === 'all') return await LoadBoardWithMode('all');
   return await LoadBoard();
 }
 
 export async function getTask(id: string): Promise<TaskDetail> {
   return await GetTask(id);
+}
+
+export async function createTask(input: CreateTaskInput): Promise<CreateTaskResult> {
+  return await CreateTask(input);
+}
+
+export async function editTask(id: string, fields: EditTaskInput): Promise<void> {
+  await EditTask(id, fields);
+}
+
+export async function moveTask(id: string, status: 'backlog' | 'in-progress' | 'done'): Promise<void> {
+  await MoveTask(id, status);
+}
+
+export async function closeTask(id: string): Promise<void> {
+  await CloseTask(id);
+}
+
+export async function editTaskBody(id: string, newBody: string): Promise<void> {
+  await EditTaskBody(id, newBody);
+}
+
+export async function regenerate(): Promise<void> {
+  await Regenerate();
 }
 
 export async function openBoard(projectRoot: string): Promise<void> {
