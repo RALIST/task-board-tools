@@ -98,6 +98,7 @@ One-sentence objective.
 - Metadata block: `**Field:** value` (bold key with colon inside) OR `**Field**: value`. Both forms supported; CLI writes the first form.
 - Only the first 15 lines are scanned for metadata (performance).
 - `Agent` and `AgentStatus` are new optional fields. Missing = unassigned.
+- Valid `AgentStatus` values: `queued`, `running`, `success`, `failed`, `cancelled`. `cancelled` is reserved for user-initiated cancellation; the daemon never writes it from a crash or timeout.
 
 ## Component responsibilities
 
@@ -132,20 +133,42 @@ Exported to the frontend via Wails3 bindings.
 - Stores: `boardStore` (id→task map), `filterStore`, `runsStore`, `selectionStore`.
 - Talks to Wails via auto-generated bindings; listens to events for live updates.
 
-## Locking
+## Locking and atomic writes
 
-All structured CLI mutations acquire `.board.lock` via `syscall.Flock(LOCK_EX)`. The lock is released when the operation returns.
+Two invariants together make multi-writer + lock-free-reader safe:
 
-**GUI direct writes** (used by `EditTaskBody` to update free-form sections like Goal/Acceptance Criteria):
+### Invariant A — Exclusive lock for all task-file mutations
+
+Every writer (CLI subcommand or GUI `EditTaskBody`) holds `.board.lock` via `syscall.Flock(LOCK_EX)` for the duration of read-modify-write. Released on return. This serializes mutations.
+
+### Invariant B — All task-file writes are atomic (temp + rename)
+
+A reader must never observe a half-written `.md` file. Therefore every write to a task file (or to `BOARD.md`, `.next-id`, generated outputs) follows this pattern:
+
+```go
+tmp := destPath + ".tmp." + strconv.Itoa(os.Getpid())
+os.WriteFile(tmp, content, 0644)
+os.Rename(tmp, destPath)  // atomic on POSIX within the same filesystem
+```
+
+This applies to **every** mutation site: `create`, `edit`, `mv`/`start`/`done`, `close`, `scan --apply`, `addTagToTaskFile`, `addChildToSubtasks`, plus GUI's `EditTaskBody`. The existing `regenerate.go` already does this; M1 extends it to the others (see `FEATURES.md` F1.6).
+
+**Why it matters**: GUI readers (`parseTaskFile` over fsnotify events) don't take the lock. With atomic rename, a reader either sees the file as it was before the write or as it is after — never partially written. Without atomic rename, a reader could observe a truncated file (no header, no metadata) and either drop the task from its snapshot or render an empty card. The fsnotify event for the rename arrives once the new content is fully in place.
+
+### GUI direct writes (`EditTaskBody`)
+
+Used only for free-form body content (sections like `## Goal`, `## Acceptance Criteria`, `## Context`):
 1. Open `.board.lock` with `LOCK_EX`.
 2. Read the existing file.
-3. Verify the header (`# PREFIX-NNN: …`) and the metadata block (first 15 lines) are intact in the new content; reject if the caller tried to modify them.
+3. Reject if the caller's new content modifies the header (`# PREFIX-NNN: …`) or the metadata block (first 15 lines).
 4. Append a `## Log` entry: `- YYYY-MM-DD: Edited body via GUI`.
-5. Write atomically: write to `tmp`, `os.Rename` to the final path.
+5. Write atomically (Invariant B).
 6. Release the lock.
 7. Run `exec tb regenerate` to refresh `BOARD.md`.
 
-This keeps two writers (CLI and GUI) safe under the same contract.
+### Reader rules
+
+GUI readers (parser, watcher) do **not** take the lock. They rely on Invariant B. The parser should still tolerate the edge case where a write is in progress on a system whose filesystem semantics are weaker than expected: if `parseTaskFile` returns a task with empty `ID` or empty `Title` (i.e., header line not found in the first 15 lines), the GUI **discards** that read and waits for the next fsnotify event rather than emitting a phantom delete. This keeps M2/M3 robust against filesystems where rename isn't perfectly atomic (e.g., some network mounts).
 
 ## Concurrency model
 
@@ -153,7 +176,7 @@ This keeps two writers (CLI and GUI) safe under the same contract.
 - **CLI ↔ GUI structured ops**: GUI invokes CLI, so it's the same flock. Safe.
 - **CLI ↔ GUI direct body writes**: same flock. Safe.
 - **CLI/GUI ↔ Agents**: agents are external processes; they run their own `tb edit` invocations which acquire flock normally. Safe.
-- **GUI reads** (snapshot): no lock. The parser tolerates partial writes (worst case: stale data for one tick; next watcher event refreshes).
+- **GUI reads** (snapshot): no lock. Safety relies on Invariant B (atomic writes) plus the reader rule above (discard malformed parses).
 
 ## Agent state
 
@@ -175,6 +198,8 @@ JSONL event shapes:
 ```
 
 A run is **complete** when a `finished` event exists. A run with no `finished` event after a process restart is **stale** and is recovered: if the PID from `started` is dead (verified via `os.FindProcess(pid).Signal(syscall.Signal(0))`), the daemon writes a synthetic `finished` event with `status: failed`, `reason: "stale after restart"`, and sets `AgentStatus: failed` via `tb edit`.
+
+**Cancel carve-out**: if the task's current `AgentStatus` is already `cancelled` when the daemon checks, recovery does nothing — cancellation is user-intent and outranks crash inference. Cancel paths are responsible for writing both the JSONL `finished{status: cancelled}` event AND `AgentStatus: cancelled` (via `tb edit`) before the cancelling process exits.
 
 ## Daemon
 

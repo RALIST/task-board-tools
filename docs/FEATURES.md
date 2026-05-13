@@ -50,6 +50,13 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - Documented behavior: `BOARD.md` is always up-to-date after any mutation.
 - **Acceptance**: `tb edit WS-1 -p P0 && grep "P0" board/BOARD.md` — change is visible without a manual `tb regenerate`.
 
+### F1.6 — Atomic task-file writes ☐
+- Every task-file mutation writes via temp file + `os.Rename` (the pattern `regenerate.go` already uses).
+- Sites to convert: `create.go:128` (new task), `create.go:229/252/257/267/273` (`addTagToTaskFile`, `addChildToSubtasks`), `edit.go:116`, `move.go:135` (move destination), `board.go:335` (`archiveTask`), `scan.go:122` (scan-created tasks).
+- Single shared helper `writeFileAtomic(path string, data []byte, perm os.FileMode) error` in `cli/board.go` (or a new `cli/atomicfs.go`).
+- **Why**: M2+ GUI readers do not hold the board lock; they rely on this invariant for safe snapshots (see `docs/ARCHITECTURE.md` → "Locking and atomic writes").
+- **Acceptance**: `grep -nE 'os\.WriteFile\(.*\.md' cli/*.go` returns no hits outside `cli/atomicfs.go` (or wherever the helper lives). Concurrent `tb edit` in a tight loop while a Go reader parses every event produces zero parses with empty header. (Manual test: run the loop for 30s; expect zero "missing header" log entries from a tiny `parseTaskFile` harness.)
+
 ---
 
 ## M2 — Read-only GUI
@@ -141,9 +148,13 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - **Acceptance**: log lines appear in UI within ~1s of agent emitting them.
 
 ### F4.4 — Cancel run ☐
-- Cancel button on a running task → cancels context → process killed.
-- JSONL gets a `finished` event with `status: cancelled`.
-- **Acceptance**: start a long-running agent, click Cancel; process exits; status shows `cancelled`.
+- Cancel button on a running task → cancels context → process killed (SIGTERM, then SIGKILL after 5s grace).
+- Cancel writes BOTH:
+  - JSONL `finished` event with `status: cancelled`
+  - Task `**AgentStatus:** cancelled` via `tb edit <ID> --agent-status cancelled`
+- The order is: kill, write JSONL, write metadata. The metadata write is the last step so `AgentStatus: cancelled` is durable before the daemon's main loop revisits the task.
+- M5 stale-recovery treats `AgentStatus: cancelled` as terminal and never overwrites it.
+- **Acceptance**: start a long-running agent, click Cancel; process exits within ~6s; `tb show <ID>` shows `**AgentStatus:** cancelled`; `.agent-state/<ID>.jsonl` last event is `finished` with `status: cancelled`; restart GUI — the cancel sticks (recovery does not touch it).
 
 ### F4.5 — Run history ☐
 - Drawer shows list of past runs (parsed from JSONL) with timestamps + status.
@@ -163,7 +174,11 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 ### F5.2 — Stale-running recovery ☐
 - On daemon start, scans for tasks with `AgentStatus: running`.
 - Checks last run in JSONL; if no `finished` event and PID is dead → write synthetic `finished{status: failed, reason: "stale after restart"}` event, set `AgentStatus: failed`.
-- **Acceptance**: start an agent, `kill -9` the GUI process, restart GUI; the stale task is marked failed; `.agent-state/<id>.jsonl` has the recovery event.
+- **Carve-outs**:
+  - If `AgentStatus: cancelled` is seen (recovery should only look at `running` tasks, but defensive: never overwrite `cancelled`).
+  - If PID is still alive, leave alone and re-attach to the run (don't kill someone else's process).
+- **Acceptance 1**: start an agent, `kill -9` the GUI process, restart GUI; the stale task is marked failed; `.agent-state/<id>.jsonl` has the recovery event.
+- **Acceptance 2**: cancel a task via F4.4, then `kill -9` the GUI mid-cancel; restart; task remains `cancelled` (recovery does not turn it into `failed`).
 
 ### F5.3 — Concurrency control ☐
 - Worker pool semaphore default = 1.

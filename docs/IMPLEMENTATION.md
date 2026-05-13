@@ -28,22 +28,24 @@ Marker legend:
 ### Tasks
 1. ☐ `git mv tb cli`
 2. ☐ Create root `go.work` with `use ./cli`
-3. ☐ `cli/task.go`: add `Agent`, `AgentStatus` fields; JSON tags on Task; extend `parseTaskFile`
-4. ☐ `cli/edit.go`: add `-a`, `--agent-status` flags; extend `flagsWithValue`; call `regenerateBoard` at the end
-5. ☐ `cli/create.go`: call `regenerateBoard` at the end of `cmdCreate`
-6. ☐ `cli/board.go`: extend `resolveStatus` for `active`, `archive`, `all`; helper to list archive entries
-7. ☐ `cli/list.go`: `--json` flag; honour new statuses; archive directory inclusion
-8. ☐ `cli/show.go`: `flag.NewFlagSet` + `reorderArgs`; `--json` flag emits `{metadata, body}`
-9. ☐ `cli/regenerate.go`: `cmdBoard` `--json` mode emits structured BoardSnapshot
-10. ☐ `cli/json_output.go`: new file with `marshalTask`, `marshalBoardSnapshot`, helpers
-11. ☐ `cli/main.go`: usage text update
-12. ☐ Manual smoke tests (build, JSON valid, edit triggers regenerate, archive filter)
+3. ☐ `cli/task.go`: add `Agent`, `AgentStatus` fields (incl. `cancelled` value); JSON tags on Task; extend `parseTaskFile`
+4. ☐ `cli/edit.go`: add `-a`, `--agent-status` flags; extend `flagsWithValue`; call `regenerateBoard` at the end; use atomic write
+5. ☐ `cli/create.go`: call `regenerateBoard` at the end of `cmdCreate`; use atomic write
+6. ☐ `cli/board.go`: extend `resolveStatus` for `active`, `archive`, `all`; helper to list archive entries; archive write uses atomic helper
+7. ☐ `cli/atomicfs.go` (new): `writeFileAtomic(path, data, perm)` helper (temp + rename); convert callers in `create.go`, `edit.go`, `move.go`, `board.go (archiveTask)`, `scan.go`
+8. ☐ `cli/list.go`: `--json` flag; honour new statuses; archive directory inclusion
+9. ☐ `cli/show.go`: `flag.NewFlagSet` + `reorderArgs`; `--json` flag emits `{metadata, body}`
+10. ☐ `cli/regenerate.go`: `cmdBoard` `--json` mode emits structured BoardSnapshot
+11. ☐ `cli/json_output.go`: new file with `marshalTask`, `marshalBoardSnapshot`, helpers
+12. ☐ `cli/main.go`: usage text update
+13. ☐ Manual smoke tests (build, JSON valid, edit triggers regenerate, archive filter, no non-atomic `os.WriteFile` for `.md` paths)
 
-**Estimate**: 1 day.
+**Estimate**: 1.5 days.
 
 ### Risks
 - `tb/` rename may break someone's PATH symlink — call out in commit message.
 - JSON serialization order shouldn't matter, but use struct tags consistently.
+- Atomic write helper must respect symlinks and permissions of the destination (use `os.Chmod` after rename if needed). For the MVP we only mutate files we created ourselves, so default 0644 is fine.
 
 ---
 
@@ -184,9 +186,12 @@ Settings UI, keyboard shortcuts, system tray. Deferred unless explicitly priorit
 | R8 | `tb` not in PATH from GUI | Service calls fail | Settings panel with explicit path; resolve via `exec.LookPath` at startup with friendly error | planned (M2) |
 | R9 | CodeMirror SSR issues in SvelteKit | M3 blocker | Use `onMount` import; static adapter | planned (M3) |
 | R10 | PID re-use on crash | False positive recovery | Cross-check command name; ok for MVP | accepted |
+| R11 | Non-atomic CLI writes break unlocked GUI reads | Phantom card deletes, malformed cards | M1 F1.6 mandates atomic temp+rename; reader rule discards malformed parses | planned (M1) |
+| R12 | `cancelled` AgentStatus undefined across enum sites | Stale-recovery overwrites cancellation as `failed` | Add `cancelled` to enum everywhere; M5 recovery skips it | planned (M1+M5) |
 
 ---
 
 ## Completed work log
 
 - 2026-05-13: docs PROJECT/ARCHITECTURE/FEATURES drafted; plan synced with feedback (direct body writes allowed under flock; archive as first-class filter; daemon stale-recovery in M5; root `go.work`)
+- 2026-05-13: Codex adversarial review applied — README path corrected to current `tb/`; atomic-write invariant documented and added to M1 (F1.6); `cancelled` added as a first-class `AgentStatus` value with carve-out from stale-recovery

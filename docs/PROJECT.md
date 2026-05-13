@@ -67,7 +67,7 @@ GUI shows epics in a dedicated section with a progress bar.
 | **Prefix** | Project-specific task ID prefix (e.g., `WS`, `PR`). Tasks are `WS-1`, `WS-2`, … |
 | **Epic** | A task with the `epic` tag. Other tasks can declare `**Parent:** WS-N` to belong to it. |
 | **Agent** | One of `claude` (runs `claude -p`) or `codex` (runs `codex exec`). Assigned to a task via the `**Agent:**` metadata field. |
-| **AgentStatus** | One of `queued`, `running`, `success`, `failed`. The daemon watches for `queued` and picks them up. |
+| **AgentStatus** | One of `queued`, `running`, `success`, `failed`, `cancelled`. The daemon watches for `queued` and picks them up. `cancelled` is user-initiated (Cancel button or `tb edit --agent-status cancelled`) and is never overwritten by stale-recovery. |
 | **Run** | A single execution of an agent on a task. Recorded in `board/.agent-state/PREFIX-NNN.jsonl` (one event per line) and `board/.agent-logs/PREFIX-NNN/<run_id>.log`. |
 | **Groom** | An agent run in "grooming" mode: instead of writing code, the agent refines the task's Goal and Acceptance Criteria. |
 | **Daemon** | A goroutine inside the GUI process that scans for queued tasks and runs the assigned agent. MVP only — single-instance. |

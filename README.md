@@ -27,8 +27,10 @@ You want a tracker that:
 
 ## Quick start (CLI today)
 
+The CLI currently lives in `tb/` and has its own git history. It will be renamed to `cli/` and merged into this repo in milestone M1.
+
 ```bash
-cd cli && go build -o tb . && ln -sf "$(pwd)/tb" ~/.local/bin/tb
+cd tb && go build -o tb . && ln -sf "$(pwd)/tb" ~/.local/bin/tb
 
 cd /your/project
 tb init                                # creates ./board and .tb.yaml
@@ -40,22 +42,36 @@ tb board                               # print kanban summary
 
 GUI is in development — see `docs/IMPLEMENTATION.md` for current milestone.
 
-## Repo layout
+## Repo layout (current)
 
 ```
 task-board-tools/
-├── cli/                # tb CLI (existing; will be renamed from tb/ in M1)
-├── gui/                # tb-gui Wails3 app (new; built in M2+)
+├── tb/                 # tb CLI — separate git repo, gitignored here until M1
 ├── docs/               # PROJECT, ARCHITECTURE, FEATURES, IMPLEMENTATION
-├── go.work             # Go workspace (added in M1)
+└── README.md
+```
+
+After M1 lands the layout becomes:
+
+```
+task-board-tools/
+├── cli/                # was tb/ — renamed, merged into this repo
+├── gui/                # tb-gui Wails3 app (M2+)
+├── docs/
+├── go.work             # Go workspace tying cli + gui together
 └── README.md
 ```
 
 ## Build
 
-**CLI** (works today):
+**CLI** (today, in `tb/`):
 ```bash
-cd cli && go build -o tb .
+cd tb && go build -o tb .
+```
+
+**CLI** (after M1, from repo root):
+```bash
+go build -o tb ./cli
 ```
 
 **GUI** (planned for M2):
