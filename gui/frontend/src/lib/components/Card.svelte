@@ -59,6 +59,7 @@
     {#if isEpic}<span class="epic-badge" title="epic">EPIC</span>{/if}
     {#if task.agent}
       <span class={`agent agent-${task.agentStatus || 'idle'}`} title={`${task.agent} • ${task.agentStatus || 'idle'}`}>
+        <span class="agent-glyph">{task.agent === 'codex' ? 'X' : 'C'}</span>
         {task.agent}{task.agentStatus ? ` · ${task.agentStatus}` : ''}
       </span>
     {/if}
@@ -191,6 +192,14 @@
   .agent-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .agent-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
   .agent-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
+  .agent-glyph {
+    display: inline-block;
+    width: 12px;
+    text-align: center;
+    margin-right: 3px;
+    font-weight: 700;
+    color: inherit;
+  }
 
   .tags {
     display: flex;

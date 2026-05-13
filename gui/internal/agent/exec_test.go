@@ -1,0 +1,412 @@
+package agent
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// makeStubScript writes a /bin/sh script under tmp/<name> and returns the
+// containing dir (so callers can prepend it to PATH).
+func makeStubScript(t *testing.T, name, body string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only stub")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	return dir
+}
+
+// withPATH prepends extraDir to PATH for the duration of the test.
+func withPATH(t *testing.T, extraDir string) {
+	t.Helper()
+	orig := os.Getenv("PATH")
+	t.Cleanup(func() { _ = os.Setenv("PATH", orig) })
+	if err := os.Setenv("PATH", extraDir+string(os.PathListSeparator)+orig); err != nil {
+		t.Fatalf("set PATH: %v", err)
+	}
+}
+
+func TestRunExternal_StreamsStdoutAndStderr(t *testing.T) {
+	dir := makeStubScript(t, "fakebin", `
+echo out-1
+echo err-1 1>&2
+echo out-2
+echo err-2 1>&2
+exit 0
+`)
+	withPATH(t, dir)
+
+	var out, errb bytes.Buffer
+	startedPID := 0
+	res, err := runExternal(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Stdout:      &out,
+		Stderr:      &errb,
+		OnStarted:   func(pid, pgid int) { startedPID = pid },
+	}, "fakebin", nil)
+	if err != nil {
+		t.Fatalf("runExternal: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("exit code: %d", res.ExitCode)
+	}
+	if startedPID == 0 {
+		t.Error("OnStarted was not invoked")
+	}
+	if !strings.Contains(out.String(), "out-1") || !strings.Contains(out.String(), "out-2") {
+		t.Errorf("stdout missing lines: %q", out.String())
+	}
+	if !strings.Contains(errb.String(), "err-1") || !strings.Contains(errb.String(), "err-2") {
+		t.Errorf("stderr missing lines: %q", errb.String())
+	}
+}
+
+func TestRunExternal_NonZeroExit(t *testing.T) {
+	dir := makeStubScript(t, "fakebin", `
+echo about-to-fail
+exit 7
+`)
+	withPATH(t, dir)
+
+	var out bytes.Buffer
+	res, err := runExternal(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Stdout:      &out,
+	}, "fakebin", nil)
+	if err != nil {
+		t.Fatalf("non-zero exit should not be an Err: %v", err)
+	}
+	if res.ExitCode != 7 {
+		t.Errorf("exit code: %d, want 7", res.ExitCode)
+	}
+}
+
+func TestRunExternal_BinaryNotFound(t *testing.T) {
+	// Empty PATH so the lookup fails.
+	t.Setenv("PATH", t.TempDir())
+	res, err := runExternal(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+	}, "nope-not-installed-anywhere", nil)
+	if !errors.Is(err, ErrBinaryNotFound) {
+		t.Fatalf("want ErrBinaryNotFound, got %v", err)
+	}
+	if res.ExitCode != -1 {
+		t.Errorf("exit code: %d", res.ExitCode)
+	}
+}
+
+func TestRunExternal_ContextCancelDeliversSIGTERM(t *testing.T) {
+	// Use `exec sleep` so the shell process replaces itself with sleep —
+	// this way SIGTERM delivered to the leader reaches the actual blocking
+	// syscall and we don't have to worry about sh ignoring/proxying signals.
+	dir := makeStubScript(t, "fakebin", `
+echo started
+exec sleep 30
+`)
+	withPATH(t, dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	startedCh := make(chan struct{}, 1)
+	var out bytes.Buffer
+	stdoutWrapper := &flushWriter{wrote: startedCh, buf: &out}
+
+	resCh := make(chan struct {
+		res RunResult
+		err error
+	}, 1)
+	go func() {
+		res, err := runExternal(ctx, RunInput{
+			ProjectRoot: t.TempDir(),
+			Stdout:      stdoutWrapper,
+		}, "fakebin", nil)
+		resCh <- struct {
+			res RunResult
+			err error
+		}{res, err}
+	}()
+
+	select {
+	case <-startedCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stub never wrote 'started' — runner not spawning?")
+	}
+
+	cancel()
+
+	select {
+	case got := <-resCh:
+		if !errors.Is(got.err, context.Canceled) {
+			t.Errorf("want context.Canceled, got %v", got.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runner did not return within 5s after cancel")
+	}
+}
+
+func TestRunExternal_TimeoutEscalatesToSIGKILL(t *testing.T) {
+	// Stub script writes its own PID to a file, then sleeps forever — so
+	// we can verify the process group really died.
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	dir := makeStubScript(t, "fakebin", `
+echo $$ > `+pidFile+`
+echo started
+# Ignore SIGTERM so the runner must escalate to SIGKILL.
+trap '' TERM
+sleep 30
+`)
+	withPATH(t, dir)
+
+	startedCh := make(chan struct{}, 1)
+	var out bytes.Buffer
+	stdoutWrapper := &flushWriter{wrote: startedCh, buf: &out}
+
+	start := time.Now()
+	res, err := runExternal(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Stdout:      stdoutWrapper,
+		Timeout:     500 * time.Millisecond, // short timeout
+	}, "fakebin", nil)
+	elapsed := time.Since(start)
+
+	select {
+	case <-startedCh:
+	default:
+		// The stub may have been killed before draining the pipe — that's
+		// fine, the SIGKILL escalation is the only thing we're checking.
+	}
+
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("want ErrTimeout, got %v", err)
+	}
+	if res.ExitCode != -1 {
+		t.Errorf("exit code: %d", res.ExitCode)
+	}
+	if elapsed > 8*time.Second {
+		t.Errorf("escalation took too long: %v", elapsed)
+	}
+
+	// Verify the stub's PID is no longer alive (process group kill should
+	// have reached it). syscall.Kill(pid, 0) probes liveness.
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Logf("pid file: %v (stub may not have flushed)", err)
+		return
+	}
+	pid := atoi(strings.TrimSpace(string(data)))
+	if pid <= 0 {
+		t.Logf("invalid pid: %q", data)
+		return
+	}
+	// Give the OS a beat to reap.
+	time.Sleep(200 * time.Millisecond)
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Errorf("stub PID %d still alive after timeout — escalation didn't reach pgid", pid)
+	}
+}
+
+func TestRunExternal_OnStartedFiresBeforeFirstLine(t *testing.T) {
+	dir := makeStubScript(t, "fakebin", `
+echo line-1
+echo line-2
+`)
+	withPATH(t, dir)
+
+	var onStartedAt time.Time
+	var firstLineAt time.Time
+	var mu sync.Mutex
+	stdoutWrapper := &timestampedWriter{
+		onWrite: func() {
+			mu.Lock()
+			if firstLineAt.IsZero() {
+				firstLineAt = time.Now()
+			}
+			mu.Unlock()
+		},
+	}
+
+	_, err := runExternal(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Stdout:      stdoutWrapper,
+		OnStarted: func(pid, pgid int) {
+			mu.Lock()
+			onStartedAt = time.Now()
+			mu.Unlock()
+		},
+	}, "fakebin", nil)
+	if err != nil {
+		t.Fatalf("runExternal: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if onStartedAt.IsZero() {
+		t.Fatal("OnStarted never fired")
+	}
+	if firstLineAt.IsZero() {
+		t.Fatal("stdout never written")
+	}
+	if !onStartedAt.Before(firstLineAt) {
+		t.Errorf("OnStarted (%v) should fire before first line (%v)", onStartedAt, firstLineAt)
+	}
+}
+
+func TestRunExternal_EnvWhitelist(t *testing.T) {
+	dir := makeStubScript(t, "fakebin", `
+echo HOME=$HOME
+echo PATH=$PATH
+echo SHOULD_NOT_LEAK=$SHOULD_NOT_LEAK
+echo CUSTOM=$CUSTOM
+`)
+	withPATH(t, dir)
+	t.Setenv("SHOULD_NOT_LEAK", "secret123")
+
+	var out bytes.Buffer
+	res, err := runExternal(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Stdout:      &out,
+		Env:         []string{"CUSTOM=hello"},
+	}, "fakebin", nil)
+	if err != nil {
+		t.Fatalf("runExternal: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("exit: %d", res.ExitCode)
+	}
+	s := out.String()
+	if strings.Contains(s, "secret123") {
+		t.Errorf("non-whitelisted env leaked:\n%s", s)
+	}
+	if !strings.Contains(s, "CUSTOM=hello") {
+		t.Errorf("caller-passed env missing:\n%s", s)
+	}
+}
+
+func TestClaudeRunner_Name(t *testing.T) {
+	if NewClaudeRunner().Name() != "claude" {
+		t.Fatal("name mismatch")
+	}
+}
+
+func TestCodexRunner_Name(t *testing.T) {
+	if NewCodexRunner().Name() != "codex" {
+		t.Fatal("name mismatch")
+	}
+}
+
+func TestClaudeRunner_PassesPromptViaDashP(t *testing.T) {
+	// Capture argv by writing it to a file; we can't fake exec.LookPath
+	// easily so we substitute the "claude" name itself via a stub on PATH.
+	argFile := filepath.Join(t.TempDir(), "argv")
+	dir := makeStubScript(t, "claude", `
+printf '%s\n' "$@" > `+argFile+`
+echo ok
+`)
+	withPATH(t, dir)
+
+	var out bytes.Buffer
+	r := NewClaudeRunner()
+	res, err := r.Run(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Prompt:      "do the thing",
+		Stdout:      &out,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("exit: %d", res.ExitCode)
+	}
+	data, err := os.ReadFile(argFile)
+	if err != nil {
+		t.Fatalf("argv file: %v", err)
+	}
+	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(args) != 2 || args[0] != "-p" || args[1] != "do the thing" {
+		t.Fatalf("argv: %#v", args)
+	}
+}
+
+func TestCodexRunner_PassesPromptPositionally(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "argv")
+	dir := makeStubScript(t, "codex", `
+printf '%s\n' "$@" > `+argFile+`
+echo ok
+`)
+	withPATH(t, dir)
+
+	var out bytes.Buffer
+	r := NewCodexRunner()
+	res, err := r.Run(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Prompt:      "do the thing",
+		Stdout:      &out,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("exit: %d", res.ExitCode)
+	}
+	data, err := os.ReadFile(argFile)
+	if err != nil {
+		t.Fatalf("argv file: %v", err)
+	}
+	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(args) != 2 || args[0] != "exec" || args[1] != "do the thing" {
+		t.Fatalf("argv: %#v", args)
+	}
+}
+
+// --- helpers ---
+
+func atoi(s string) int {
+	n := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return -1
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
+
+type flushWriter struct {
+	wrote chan<- struct{}
+	buf   *bytes.Buffer
+	once  sync.Once
+}
+
+func (w *flushWriter) Write(p []byte) (int, error) {
+	w.once.Do(func() {
+		select {
+		case w.wrote <- struct{}{}:
+		default:
+		}
+	})
+	return w.buf.Write(p)
+}
+
+type timestampedWriter struct {
+	onWrite func()
+}
+
+func (w *timestampedWriter) Write(p []byte) (int, error) {
+	if w.onWrite != nil {
+		w.onWrite()
+	}
+	return len(p), nil
+}

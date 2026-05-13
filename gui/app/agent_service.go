@@ -1,0 +1,180 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+
+	"tools/tb-gui/internal/cli"
+)
+
+// Supported agent identifiers. The empty string and the literal "none" both
+// mean "clear the field"; everything else is rejected up front so the CLI
+// never sees garbage.
+const (
+	AgentClaude = "claude"
+	AgentCodex  = "codex"
+	AgentNone   = "none"
+)
+
+// ErrAgentNotSupported is returned by AssignAgent when the caller passes an
+// agent name we don't know how to spawn. Mapped on the wire to a non-blocking
+// toast in the GUI.
+var ErrAgentNotSupported = errors.New("agent not supported (allowed: claude, codex, none)")
+
+// ErrNoAgent is returned by RunAgent / GroomTask when the task has no agent
+// assigned. The drawer hides Run/Cancel in that case, so this is the
+// belt-and-braces server-side check.
+var ErrNoAgent = errors.New("no agent assigned to task")
+
+// ErrAlreadyRunning is returned by RunAgent when an active run for the task
+// is already tracked in AgentService.active. The frontend disables Run when
+// AgentStatus ∈ {queued, running}, so this only fires for racing callers.
+var ErrAlreadyRunning = errors.New("agent run already in progress")
+
+// ErrNotRunning is returned by CancelRun when there's no in-flight run for
+// the task. Idempotent semantics — the second cancel on a finished run
+// returns this cleanly.
+var ErrNotRunning = errors.New("no agent run in progress")
+
+// Emitter is the contract AgentService needs to forward Wails events to the
+// frontend. *application.App.Event satisfies it in production; tests pass an
+// in-memory implementation. Defined narrowly here (Name + payload only) so
+// the service is decoupled from Wails3 plumbing.
+type Emitter interface {
+	Emit(name string, data ...any)
+}
+
+// AgentService coordinates agent assignment and (in later subtasks) run
+// orchestration. It composes the CLI client from BoardService for `tb edit`
+// calls and a separate Emitter for Wails events. Its active-run table is
+// kept here so CancelRun (TB-48) can mutate live state without reaching
+// across packages.
+type AgentService struct {
+	board   *BoardService
+	emitter Emitter
+
+	// factory is the Runner selector. Nil in production (defaultRunnerFactory
+	// applies); tests override via SetRunnerFactoryForTesting.
+	factory runnerFactory
+
+	// active holds in-flight runs keyed by task ID. Populated by RunAgent,
+	// drained by the post-run handler or CancelRun. Guarded by mu.
+	mu     sync.Mutex
+	active map[string]*activeRun
+}
+
+// AgentServiceOptions configures NewAgentService.
+type AgentServiceOptions struct {
+	Board   *BoardService
+	Emitter Emitter
+}
+
+// NewAgentService returns a ready service. Emitter is allowed to be nil
+// during tests; production wiring always passes the app's event bus.
+func NewAgentService(opts AgentServiceOptions) *AgentService {
+	return &AgentService{
+		board:   opts.Board,
+		emitter: opts.Emitter,
+		active:  make(map[string]*activeRun),
+	}
+}
+
+// ServiceName satisfies the Wails service contract.
+func (s *AgentService) ServiceName() string { return "AgentService" }
+
+// AssignAgent sets the task's `**Agent:**` metadata to the given agent name,
+// or clears it when agent is "" / "none". Validation happens in the service
+// (not in the CLI client) so the frontend can branch on ErrAgentNotSupported
+// without parsing stderr.
+//
+// The mutation is delegated through `tb edit -a <agent>` (or `-a none` to
+// clear). Persistence is end-to-end: after this call returns nil,
+// `tb show <id>` reports the new value, watchers see a `task:updated:<id>`
+// event, and a process restart preserves the assignment.
+func (s *AgentService) AssignAgent(ctx context.Context, id, agent string) error {
+	if s.board == nil {
+		return ErrNoBoard
+	}
+	c := s.board.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+
+	norm, err := normalizeAgent(agent)
+	if err != nil {
+		return err
+	}
+
+	// `tb edit` accepts "none" verbatim to clear the field; the CLI's enum
+	// validator (cli/edit.go) handles both. We pass "none" rather than ""
+	// so an empty Agent field on EditInput continues to mean "skip".
+	return c.Edit(ctx, id, cli.EditInput{Agent: norm})
+}
+
+// normalizeAgent maps free-form user input to a canonical CLI argument.
+// Returns ErrAgentNotSupported for anything outside the allowed set.
+func normalizeAgent(agent string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(agent))
+	switch trimmed {
+	case "", AgentNone:
+		return AgentNone, nil
+	case AgentClaude, AgentCodex:
+		return trimmed, nil
+	default:
+		return "", fmt.Errorf("%w: %q", ErrAgentNotSupported, agent)
+	}
+}
+
+// --- activeRun (used by RunAgent/CancelRun in TB-47/TB-48) ---
+
+// activeRun tracks an in-flight agent run. The mutex guards Cancelled
+// against the post-run handler; the Done channel lets CancelRun wait for
+// the goroutine to exit before declaring success.
+//
+// Field-level docs live on the embedded type; see TB-47 for the contract.
+type activeRun struct {
+	RunID  string
+	TaskID string
+	Agent  string
+	Mode   string
+
+	// Pid/Pgid are populated by the Runner's OnStarted callback after
+	// cmd.Start() succeeds. Pgid is the leader's PID (matches Pid because
+	// the runner sets Setpgid=true).
+	Pid  int
+	Pgid int
+
+	// Cancel cancels the runner's exec context. The runner converts that
+	// into a single SIGTERM and exits; CancelRun escalates to SIGKILL via
+	// Pgid if the process doesn't go quietly.
+	Cancel context.CancelFunc
+
+	// Cancelled is set by CancelRun before it kills the process, so the
+	// post-run handler can skip its own finished/Wails/AgentStatus writes.
+	// Guarded by mu.
+	Cancelled bool
+
+	// Done is closed by the post-run handler (or the cancel handler) when
+	// all post-run writes have completed. CancelRun waits on this so its
+	// caller knows the run is fully torn down.
+	Done chan struct{}
+
+	mu sync.Mutex
+}
+
+// mark... helpers keep the locking patterns explicit at call sites.
+
+func (r *activeRun) markCancelled() {
+	r.mu.Lock()
+	r.Cancelled = true
+	r.mu.Unlock()
+}
+
+func (r *activeRun) wasCancelled() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.Cancelled
+}

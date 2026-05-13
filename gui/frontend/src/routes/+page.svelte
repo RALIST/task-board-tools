@@ -32,6 +32,7 @@
   import { filter } from '$lib/stores/filter';
   import { closeTask, openTask, selectedTaskId } from '$lib/stores/selection';
   import { pushToast } from '$lib/stores/toast';
+  import { registerAgentEventHandlers } from '$lib/stores/runs';
 
   let projectRoot = $state('');
   let recents = $state<RecentBoard[]>([]);
@@ -77,6 +78,12 @@
       const id = name.replace(/^task:updated:/, '');
       if (id) await patchTask(id);
     }));
+
+    // Agent run lifecycle — populate runsStore from Wails events so any
+    // drawer / log panel re-renders without re-reading the JSONL.
+    offEvents.push(
+      registerAgentEventHandlers((name, handler) => Events.On(name, handler as any)),
+    );
   });
 
   onDestroy(() => {

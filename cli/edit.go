@@ -60,15 +60,16 @@ func cmdEdit(args []string) {
 	}
 	if *agent != "" {
 		*agent = strings.ToLower(*agent)
-		if !validAgents[*agent] {
-			fmt.Fprintf(os.Stderr, "error: invalid agent %q — use: claude, codex\n", *agent)
+		// "none" is the clear sentinel — see applyClearable below.
+		if *agent != "none" && !validAgents[*agent] {
+			fmt.Fprintf(os.Stderr, "error: invalid agent %q — use: claude, codex, none\n", *agent)
 			os.Exit(1)
 		}
 	}
 	if *agentStatus != "" {
 		*agentStatus = strings.ToLower(*agentStatus)
-		if !validAgentStatuses[*agentStatus] {
-			fmt.Fprintf(os.Stderr, "error: invalid agent-status %q — use: queued, running, success, failed, cancelled\n", *agentStatus)
+		if *agentStatus != "none" && !validAgentStatuses[*agentStatus] {
+			fmt.Fprintf(os.Stderr, "error: invalid agent-status %q — use: queued, running, success, failed, cancelled, none\n", *agentStatus)
 			os.Exit(1)
 		}
 	}
@@ -124,9 +125,16 @@ func cmdEdit(args []string) {
 	lines := strings.Split(string(data), "\n")
 
 	// Apply each change.
+	// `Agent` and `AgentStatus` accept the sentinel "none" to mean "clear
+	// the field"; for those a value of "none" deletes the metadata line
+	// instead of writing it. Every other field is set verbatim.
 	var applied []string
 	for field, value := range changes {
-		lines = setField(lines, field, value)
+		if value == "none" && (field == "Agent" || field == "AgentStatus") {
+			lines = clearField(lines, field)
+		} else {
+			lines = setField(lines, field, value)
+		}
 		applied = append(applied, fmt.Sprintf("%s=%s", strings.ToLower(field), value))
 	}
 
@@ -144,6 +152,19 @@ func cmdEdit(args []string) {
 	}
 
 	fmt.Printf("Updated %s: %s\n", taskID, strings.Join(applied, ", "))
+}
+
+// clearField removes the metadata line for `field` from lines (if present).
+// Used by `tb edit -a none` and `tb edit --agent-status none` to drop a
+// field rather than overwrite it with a sentinel value.
+func clearField(lines []string, field string) []string {
+	for i, line := range lines {
+		trimmed := strings.TrimPrefix(line, "- ")
+		if _, ok := extractFieldAny(trimmed, field); ok {
+			return append(lines[:i], lines[i+1:]...)
+		}
+	}
+	return lines
 }
 
 // setField replaces **Field:** value in lines, or inserts it before **Branch:** if missing.

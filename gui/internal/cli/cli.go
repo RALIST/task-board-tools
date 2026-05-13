@@ -108,6 +108,11 @@ func NewClient(opts Options) (*Client, error) {
 // BinaryPath returns the resolved absolute path to the `tb` binary.
 func (c *Client) BinaryPath() string { return c.binaryPath }
 
+// Cwd returns the project root the client was constructed with. Empty when
+// the client inherits the caller's cwd. Exposed so AgentService can pass
+// the same project root to spawned agent processes.
+func (c *Client) Cwd() string { return c.cwd }
+
 // Run executes `tb args...` and returns its stdout.
 //
 // Stderr is forwarded to the logger and (on non-zero exit) attached to an

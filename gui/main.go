@@ -31,11 +31,17 @@ func main() {
 	logger := slog.Default()
 	boardService := tbapp.NewBoardService()
 
-	// emitterShim adapts *application.App's event bus to watcher.Emitter.
-	// Constructed after the app exists so we can capture it by reference.
+	// emitterShim adapts *application.App's event bus to watcher.Emitter
+	// and AgentService.Emitter. Constructed after the app exists so we can
+	// capture it by reference.
 	var appRef *application.App
 	emitter := emitterShim{getApp: func() *application.App { return appRef }}
 	w := watcher.New(emitter, logger)
+
+	agentService := tbapp.NewAgentService(tbapp.AgentServiceOptions{
+		Board:   boardService,
+		Emitter: emitter,
+	})
 
 	settingsService := tbapp.NewSettingsService(tbapp.SettingsOptions{
 		Logger:  logger,
@@ -50,6 +56,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(boardService),
 			application.NewService(settingsService),
+			application.NewService(agentService),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:      "com.taskboard.tbgui",

@@ -17,6 +17,13 @@ import {
   Regenerate,
 } from '../../bindings/tools/tb-gui/app/boardservice';
 import {
+  AssignAgent,
+  CancelRun,
+  GetRunLog,
+  ListRuns,
+  RunAgent,
+} from '../../bindings/tools/tb-gui/app/agentservice';
+import {
   GetBoardInfo,
   GetProjectRoot,
   ListRecentBoards,
@@ -30,6 +37,7 @@ import type {
   CreateTaskResult,
   EditTaskInput,
   RecentBoard,
+  Run as BoundRun,
   Task,
   TaskDetail,
 } from '../../bindings/tools/tb-gui/app/models';
@@ -78,6 +86,34 @@ export async function editTaskBody(id: string, newBody: string): Promise<void> {
 
 export async function regenerate(): Promise<void> {
   await Regenerate();
+}
+
+// --- Agent service wrappers ---
+
+export async function assignAgent(id: string, agent: string): Promise<void> {
+  await AssignAgent(id, agent);
+}
+
+export async function runAgent(id: string): Promise<string> {
+  return await RunAgent(id);
+}
+
+export async function cancelRun(id: string): Promise<void> {
+  await CancelRun(id);
+}
+
+export async function listRuns(id: string): Promise<BoundRun[]> {
+  return await ListRuns(id);
+}
+
+export async function getRunLog(taskID: string, runID: string): Promise<string> {
+  return await GetRunLog(taskID, runID);
+}
+
+export type AgentName = 'claude' | 'codex' | 'none' | '';
+
+export function isRunLogNotFoundError(err: unknown): boolean {
+  return errorString(err).includes('run log not found');
 }
 
 export async function openBoard(projectRoot: string): Promise<void> {

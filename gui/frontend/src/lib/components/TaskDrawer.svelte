@@ -3,16 +3,29 @@
   import DOMPurify from 'dompurify';
   import { Events } from '@wailsio/runtime';
   import {
+    assignAgent,
+    cancelRun,
     closeTask as apiCloseTask,
     editTask,
     editTaskBody,
     getTask,
+    listRuns,
+    runAgent,
+    type AgentName,
     type EditTaskInput,
     type Task,
     type TaskDetail,
   } from '$lib/api';
   import { pushToast } from '$lib/stores/toast';
+  import {
+    runsForTask,
+    selectedRunID,
+    setRunsForTask,
+    upsertRun,
+    type Run,
+  } from '$lib/stores/runs';
   import BodyEditor from './BodyEditor.svelte';
+  import AgentRunLog from './AgentRunLog.svelte';
 
   interface Props {
     taskId: string | null;
@@ -44,11 +57,29 @@
   let archivePrompt = $state(false);
   let archiveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Cancel-run two-step confirm (same UX pattern as Archive).
+  let cancelPrompt = $state(false);
+  let cancelTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Agent dropdown's current selection — derived from detail.metadata.agent
+  // but stored separately so the user can pick "claude" without immediately
+  // firing AssignAgent until the dropdown commits.
+  let formAgent = $state<AgentName>('');
+  let agentSaving = $state(false);
+  let runStarting = $state(false);
+
+  // Past-run subscription. runsStore is keyed by run_id; we project the
+  // task's slice via runsForTask. Hydrated on every taskId change.
+  let runs: Run[] = $state([]);
+  let runsUnsub: (() => void) | null = null;
+
   $effect(() => {
     const id = taskId;
     if (!id) {
       detail = null; err = null; loading = false;
       editMode = false; bodyDirty = false; archivePrompt = false;
+      cancelPrompt = false; runs = [];
+      runsUnsub?.(); runsUnsub = null;
       return;
     }
     loading = true;
@@ -67,6 +98,7 @@
           formSize = d.metadata.size ?? '';
           formModule = d.metadata.module ?? '';
           formTags = (d.metadata.tags ?? []).join(', ');
+          formAgent = (d.metadata.agent ?? '') as AgentName;
           // Don't replace bodyDraft while the editor is open — preserve the
           // user's in-progress buffer. If they Discard, we'll snap it back
           // to d.body via the Discard handler.
@@ -78,6 +110,23 @@
           loading = false;
         });
     };
+
+    // Hydrate past runs from disk and subscribe to live store updates.
+    listRuns(id).then((list) => {
+      if (cancelled || taskId !== id) return;
+      setRunsForTask(id, list as Run[]);
+    }).catch(() => { /* empty list is fine */ });
+
+    const taskRunsStore = runsForTask(id);
+    runsUnsub?.();
+    runsUnsub = taskRunsStore.subscribe((list) => {
+      if (taskId !== id) return;
+      runs = list;
+      // Default selectedRunID to the most recent run if none is selected.
+      if ($selectedRunID == null || !list.find((r) => r.runId === $selectedRunID)) {
+        selectedRunID.set(list[0]?.runId ?? null);
+      }
+    });
 
     fetchOnce();
     // Subscribe to BOTH event shapes:
@@ -92,8 +141,103 @@
       cancelled = true;
       try { offTask(); } catch { /* ignore */ }
       try { offBoard(); } catch { /* ignore */ }
+      runsUnsub?.();
+      runsUnsub = null;
     };
   });
+
+  // Selected run lookup for the status pill source-of-truth (per F4.3 the
+  // pill comes from the live Run record, not from currentTask.agentStatus
+  // which lags by one tb edit).
+  let selectedRun = $derived(runs.find((r) => r.runId === $selectedRunID) ?? null);
+  let liveStatus = $derived(selectedRun?.status ?? '');
+
+  async function onAgentChange() {
+    if (!detail) return;
+    const id = detail.metadata.id;
+    const target = (formAgent || 'none') as AgentName;
+    const prev = (detail.metadata.agent ?? '') as AgentName;
+    if (target === prev || (target === 'none' && prev === '')) return;
+    agentSaving = true;
+    try {
+      await assignAgent(id, target);
+      pushToast(target === 'none' ? `Cleared agent for ${id}` : `Assigned ${target} to ${id}`, 'success');
+    } catch (e) {
+      pushToast(`Assign failed: ${e instanceof Error ? e.message : String(e)}`);
+      // Snap dropdown back to disk state on failure.
+      formAgent = (detail.metadata.agent ?? '') as AgentName;
+    } finally {
+      agentSaving = false;
+    }
+  }
+
+  async function onRunClick() {
+    if (!detail) return;
+    const id = detail.metadata.id;
+    runStarting = true;
+    try {
+      const runId = await runAgent(id);
+      // Optimistically insert a queued row so the UI is responsive even
+      // before the Wails event arrives (avoids a flicker).
+      upsertRun({
+        runId,
+        taskId: id,
+        agent: detail.metadata.agent ?? '',
+        mode: 'implement',
+        status: 'queued',
+        queuedAt: new Date().toISOString(),
+      });
+      selectedRunID.set(runId);
+      pushToast(`Started run on ${id}`, 'success');
+    } catch (e) {
+      pushToast(`Run failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      runStarting = false;
+    }
+  }
+
+  function startCancel() {
+    if (!detail) return;
+    if (!cancelPrompt) {
+      cancelPrompt = true;
+      if (cancelTimer) clearTimeout(cancelTimer);
+      cancelTimer = setTimeout(() => { cancelPrompt = false; }, 4000);
+      return;
+    }
+    if (cancelTimer) { clearTimeout(cancelTimer); cancelTimer = null; }
+    void doCancel();
+  }
+
+  async function doCancel() {
+    if (!detail) return;
+    const id = detail.metadata.id;
+    try {
+      await cancelRun(id);
+      pushToast(`Cancelled run on ${id}`, 'info');
+    } catch (e) {
+      pushToast(`Cancel failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      cancelPrompt = false;
+    }
+  }
+
+  function pickRun(runID: string) {
+    selectedRunID.set(runID);
+  }
+
+  function fmtRelative(iso: string): string {
+    if (!iso) return '—';
+    const t = Date.parse(iso);
+    if (!t) return iso;
+    const delta = Date.now() - t;
+    const m = Math.round(delta / 60_000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.round(h / 24);
+    return `${d}d ago`;
+  }
 
   let metadataDirty = $derived(
     detail !== null && (
@@ -392,6 +536,63 @@
           </dl>
         {/if}
 
+        <section class="agent-section">
+          <header class="agent-head">
+            <h3>Agent</h3>
+            {#if liveStatus}
+              <span class={`pill pill-${liveStatus}`}>{liveStatus}</span>
+            {/if}
+          </header>
+          <div class="agent-controls">
+            <label class="agent-dropdown">
+              <span>Assigned</span>
+              <select
+                aria-label="Agent"
+                disabled={agentSaving}
+                bind:value={formAgent}
+                onchange={onAgentChange}>
+                <option value="">(none)</option>
+                <option value="claude">claude</option>
+                <option value="codex">codex</option>
+              </select>
+            </label>
+            <div class="agent-buttons">
+              <button
+                class="primary"
+                type="button"
+                disabled={!formAgent || runStarting || liveStatus === 'queued' || liveStatus === 'running'}
+                title={!formAgent ? 'Assign an agent first' : (liveStatus === 'running' ? 'Already running' : '')}
+                onclick={onRunClick}>
+                {runStarting ? 'Starting…' : 'Run agent'}
+              </button>
+              {#if liveStatus === 'running'}
+                <button class="danger" type="button" onclick={startCancel}>
+                  {cancelPrompt ? 'Click again to cancel' : 'Cancel'}
+                </button>
+              {/if}
+            </div>
+          </div>
+
+          {#if runs.length > 0}
+            <ul class="run-list" aria-label="Past runs">
+              {#each runs as r}
+                <li>
+                  <button
+                    type="button"
+                    class:active={$selectedRunID === r.runId}
+                    onclick={() => pickRun(r.runId)}>
+                    <span class="when">{fmtRelative(r.startedAt || r.queuedAt)}</span>
+                    <span class={`pill pill-${r.status || 'idle'}`}>{r.status || 'idle'}</span>
+                    <span class="agent">{r.agent}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+
+          <AgentRunLog runId={$selectedRunID} taskId={detail.metadata.id} />
+        </section>
+
         <section class="body-section">
           <div class="body-toolbar">
             <h3>Body</h3>
@@ -620,6 +821,98 @@
     font-size: 12px;
   }
   .danger:hover { background: rgba(255, 90, 82, 0.2); }
+
+  .agent-section {
+    margin: 18px 0;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .agent-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .agent-head h3 {
+    margin: 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+    font-weight: 600;
+  }
+  .agent-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .agent-dropdown {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--fg-dim);
+  }
+  .agent-dropdown select {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+    border-radius: 4px;
+    padding: 5px 7px;
+    font: inherit;
+    font-size: 12px;
+  }
+  .agent-buttons {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+  }
+  .pill {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pill-queued { background: rgba(255, 184, 108, 0.18); color: var(--p1); }
+  .pill-running { background: rgba(74, 141, 248, 0.18); color: var(--p2); }
+  .pill-success { background: rgba(80, 200, 120, 0.18); color: #50c878; }
+  .pill-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
+  .pill-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
+  .pill-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
+  .run-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 132px;
+    overflow-y: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .run-list li { display: block; }
+  .run-list button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 4px 6px;
+    background: none;
+    border: 0;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    border-radius: 3px;
+  }
+  .run-list button:hover { background: rgba(255, 255, 255, 0.04); }
+  .run-list button.active { background: rgba(74, 141, 248, 0.12); }
+  .run-list .when { color: var(--fg-dim); font-family: ui-monospace, monospace; }
+  .run-list .agent { color: var(--fg-dim); }
 
   .hint { color: var(--fg-dim); font-size: 12px; }
   .err { color: var(--p0); font-size: 12px; }
