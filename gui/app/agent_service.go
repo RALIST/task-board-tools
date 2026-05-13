@@ -162,6 +162,11 @@ type activeRun struct {
 	// caller knows the run is fully torn down.
 	Done chan struct{}
 
+	// finishOnce gates the cancel-finish helper so a race between user
+	// CancelRun and daemon shutdown does not write the JSONL finished
+	// line twice. The first caller wins; the second is a no-op.
+	finishOnce sync.Once
+
 	mu sync.Mutex
 }
 

@@ -6,9 +6,6 @@ import (
 	"log/slog"
 	"syscall"
 	"time"
-
-	"tools/tb-gui/internal/agent"
-	"tools/tb-gui/internal/cli"
 )
 
 // cancelGracePeriod is how long CancelRun waits after SIGTERM before
@@ -67,41 +64,14 @@ func (s *AgentService) CancelRun(ctx context.Context, id string) error {
 		slog.Warn("agent: cancel signal failed", "task", id, "err", err)
 	}
 
-	// Step 3 — JSONL finished{cancelled}.
-	if err := agent.AppendEvent(boardDir, id, agent.Event{
-		TS:       time.Now().UTC().Format(time.RFC3339),
-		RunID:    ar.RunID,
-		TaskID:   ar.TaskID,
-		Event:    agent.EvFinished,
-		Status:   agent.StatusCancelled,
-		ExitCode: -1,
-		Reason:   "user cancelled",
-	}); err != nil {
-		slog.Warn("agent: cancel JSONL append failed", "task", id, "err", err)
+	// Steps 3-5 — JSONL finished{cancelled} + Wails emit + tb edit.
+	// The shared helper guards against a racing daemon-shutdown caller
+	// via ar.finishOnce; the AgentStatus write happens LAST so a crash
+	// between the JSONL append and the edit leaves a durable cancel
+	// intent for M5 stale-recovery to reconcile.
+	if err := s.finishCancelled(c, ar, boardDir, "user cancelled"); err != nil {
+		return fmt.Errorf("CancelRun: %w", err)
 	}
-
-	// Step 4 — Wails emit.
-	s.emit("agent:run-finished", map[string]any{
-		"run_id":    ar.RunID,
-		"task_id":   ar.TaskID,
-		"status":    string(agent.StatusCancelled),
-		"exit_code": -1,
-		"reason":    "user cancelled",
-	})
-
-	// Step 5 — AgentStatus: cancelled. Done last so a crash between 4 and
-	// 5 leaves the durable JSONL record for M5's stale-recovery.
-	if err := c.Edit(context.Background(), id, cli.EditInput{AgentStatus: "cancelled"}); err != nil {
-		// Surface the error — the JSONL is durable but the metadata
-		// field is now stale. The caller can decide whether to retry.
-		return fmt.Errorf("CancelRun: write AgentStatus cancelled: %w", err)
-	}
-
-	// Drop the in-flight entry — a second CancelRun should return
-	// ErrNotRunning idempotently.
-	s.mu.Lock()
-	delete(s.active, id)
-	s.mu.Unlock()
 	return nil
 }
 

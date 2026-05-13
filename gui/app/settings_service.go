@@ -52,13 +52,23 @@ type Switcher interface {
 	Switch(boardDir string) error
 }
 
+// BoardActivator is the post-OpenBoard hook the daemon registers so it
+// can run stale-recovery + startup-scan against the freshly attached
+// board. SettingsService calls Deactivate first (to drain any previous
+// board) and then Activate. Production wiring is *daemon.Daemon.
+type BoardActivator interface {
+	Activate(ctx context.Context, boardDir string) error
+	Deactivate() error
+}
+
 // SettingsService manages project root selection, recent-board persistence,
 // and the native folder picker. It also coordinates BoardService and the
 // watcher whenever the active board changes.
 type SettingsService struct {
-	logger *slog.Logger
-	board  *BoardService
-	wch    Switcher
+	logger    *slog.Logger
+	board     *BoardService
+	wch       Switcher
+	activator BoardActivator
 
 	mu      sync.RWMutex
 	info    BoardInfo
@@ -66,6 +76,9 @@ type SettingsService struct {
 
 	// recentsPath is the absolute path to recent.json. Configurable for tests.
 	recentsPath string
+	// prefsPath is the absolute path to preferences.json. Configurable for
+	// tests; empty falls back to defaultPreferencesPath.
+	prefsPath string
 }
 
 // SettingsOptions tunes SettingsService construction.
@@ -73,8 +86,10 @@ type SettingsOptions struct {
 	Logger      *slog.Logger
 	Board       *BoardService
 	Watcher     Switcher
+	Activator   BoardActivator
 	CLIPath     string // override for tests; empty = PATH lookup
 	RecentsPath string // override for tests; empty = $XDG_CONFIG_HOME/tb-gui/recent.json
+	PrefsPath   string // override for tests; empty = $XDG_CONFIG_HOME/tb-gui/preferences.json
 }
 
 // NewSettingsService returns a SettingsService. Until OpenBoard is called the
@@ -93,7 +108,9 @@ func NewSettingsService(opts SettingsOptions) *SettingsService {
 		logger:      logger.With("component", "settings"),
 		board:       opts.Board,
 		wch:         opts.Watcher,
+		activator:   opts.Activator,
 		recentsPath: recents,
+		prefsPath:   opts.PrefsPath,
 		cliPath:     opts.CLIPath,
 	}
 }
@@ -160,6 +177,19 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 		// SetBoardDir is a no-op if the BoardService doesn't expose direct
 		// writes, but for M3 it's required.
 		s.board.setBoardDir(info.BoardDir)
+	}
+
+	// Daemon activation runs AFTER BoardService + watcher are pointed at
+	// the new board so the recovery + scan it triggers reads consistent
+	// state. Deactivate first to drain any prior activation (board
+	// switch); failures are logged but don't block the open.
+	if s.activator != nil {
+		if err := s.activator.Deactivate(); err != nil {
+			s.logger.Warn("daemon: deactivate before reactivate", "err", err)
+		}
+		if err := s.activator.Activate(ctx, info.BoardDir); err != nil {
+			s.logger.Warn("daemon: activation failed; board still open", "err", err)
+		}
 	}
 
 	s.mu.Lock()

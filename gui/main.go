@@ -9,6 +9,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	tbapp "tools/tb-gui/app"
+	"tools/tb-gui/internal/daemon"
 	"tools/tb-gui/internal/watcher"
 )
 
@@ -36,17 +37,37 @@ func main() {
 	// capture it by reference.
 	var appRef *application.App
 	emitter := emitterShim{getApp: func() *application.App { return appRef }}
-	w := watcher.New(emitter, logger)
 
 	agentService := tbapp.NewAgentService(tbapp.AgentServiceOptions{
 		Board:   boardService,
 		Emitter: emitter,
 	})
 
+	// Build the daemon BEFORE the watcher so we can tee watcher events
+	// into both the Wails app bus and the daemon's sink. The settings
+	// service (below) gets a BoardActivator hook that drives daemon
+	// Activate/Deactivate on OpenBoard.
+	settingsForPrefs := tbapp.NewSettingsService(tbapp.SettingsOptions{Logger: logger})
+	maxWorkers := settingsForPrefs.GetMaxWorkers()
+	recovery := tbapp.NewRecoveryService(boardService, agentService, daemon.PidAliveForRecovery, logger)
+	d := daemon.New(daemon.Options{
+		Board:      &boardAdapter{b: boardService},
+		Agent:      &agentAdapter{s: agentService},
+		Recovery:   recovery,
+		Logger:     logger,
+		MaxWorkers: maxWorkers,
+	})
+
+	// Watcher emits to both the Wails app and the daemon sink (TB-58).
+	sink := daemon.NewEventSink(d, logger)
+	tee := daemon.TeeEmitter{A: emitter, B: sink}
+	w := watcher.New(teeShim{tee: tee}, logger)
+
 	settingsService := tbapp.NewSettingsService(tbapp.SettingsOptions{
-		Logger:  logger,
-		Board:   boardService,
-		Watcher: w,
+		Logger:    logger,
+		Board:     boardService,
+		Watcher:   w,
+		Activator: d,
 	})
 
 	app := application.New(application.Options{
@@ -98,6 +119,17 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = w.Run(ctx) }()
+
+	// Start the daemon's watcher-event reader. The daemon itself stays
+	// inert until SettingsService.OpenBoard calls Activate via the
+	// BoardActivator hook.
+	sink.Start(ctx)
+	defer sink.Close()
+	defer func() {
+		if err := d.Close(); err != nil {
+			slog.Warn("daemon: shutdown error", "err", err)
+		}
+	}()
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

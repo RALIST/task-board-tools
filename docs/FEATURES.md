@@ -165,29 +165,29 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ## M5 — Daemon auto-pickup
 
-### F5.1 — Queued-task daemon ☐
+### F5.1 — Queued-task daemon ☑
 - Daemon goroutine starts on app launch, stops on shutdown.
-- Picks up any task with `**AgentStatus:** queued`.
+- Picks up any task with `**AgentStatus:** queued` via two paths: (a) startup scan after `SettingsService.OpenBoard` activates the daemon, and (b) the watcher event sink, which sees the atomic-rename `board:reloaded` event from `tb edit --agent-status queued`.
 - Default worker pool: 1.
 - **Acceptance**: `tb edit WS-2 -a claude --agent-status queued` in terminal; daemon picks it up within 5s.
 
-### F5.2 — Stale-running recovery ☐
-- On daemon start, scans for tasks with `AgentStatus: running`.
-- Checks last run in JSONL; if no `finished` event and PID is dead → write synthetic `finished{status: failed, reason: "stale after restart"}` event, set `AgentStatus: failed`.
+### F5.2 — Stale-running recovery ☑
+- On daemon activation, scans for tasks with `AgentStatus: running`.
+- Checks last run in JSONL; if no `finished` event and PID is dead → write synthetic `finished{status: failed, reason: "stale after restart"}` event, set `AgentStatus: failed`. The pid-liveness probe accepts npm-shebang scripts (`node` argv containing `/path/to/claude`) so a Node-wrapped agent is recognised as alive.
 - **Carve-outs**:
   - If `AgentStatus: cancelled` is seen, OR the latest JSONL event for the latest run is `finished{status: cancelled}`, reconcile to `cancelled` and never overwrite as `failed`. JSONL intent outranks `.md` state during recovery.
-  - If PID is still alive, leave the task alone — **M5 does not re-attach to live runs**. The owning process (or a future M5+ enhancement) is responsible for continuing the run. Conservative: avoids killing someone else's process and avoids surprising re-stream of stale output.
+  - If PID is still alive, leave the task alone — **M5 does not re-attach to live runs**. Re-attach (resume streaming output of a still-running agent) is intentionally deferred beyond M5. Conservative: avoids killing someone else's process and avoids surprising re-stream of stale output.
 - **Acceptance 1**: start an agent, `kill -9` the GUI process, restart GUI; the stale task is marked failed; `.agent-state/<id>.jsonl` has the recovery event.
 - **Acceptance 2**: cancel a task via F4.4, then `kill -9` the GUI mid-cancel; restart; task remains `cancelled` (recovery does not turn it into `failed`).
 
-### F5.3 — Concurrency control ☐
-- Worker pool semaphore default = 1.
-- Configurable via settings (1–4).
-- Dedup: a task already running cannot be re-enqueued.
+### F5.3 — Concurrency control ☑
+- N worker goroutines read a buffered channel of task IDs (N = `max_workers`, default 1, persisted at `$XDG_CONFIG_HOME/tb-gui/preferences.json`, clamped to `[1, 4]` on read).
+- Configurable via settings (1–4); no hot-reload — the value is read at daemon construction.
+- Dedup: an in-memory active-set keyed by `task_id`, cross-checked with `AgentService.HasActiveRun`, prevents the startup scan, watcher sink, and manual UI run paths from spawning the same task twice.
 - **Acceptance**: queue 3 tasks at once; they run sequentially (default config).
 
-### F5.4 — Graceful shutdown ☐
-- App close cancels context, waits 5s for runners to flush, then exits.
+### F5.4 — Graceful shutdown ☑
+- App close cancels the daemon's root context (propagated as the parent of the runner ctx — see TB-54 ctx plumbing). Workers' in-flight runs observe ctx cancellation, the shared `finishCancelled(reason: "shutdown")` helper writes the JSONL `finished{cancelled}` line + Wails emit + `tb edit --agent-status cancelled`. `Daemon.Close()` waits up to 5s for workers to flush; whatever remains is reconciled by next-start recovery.
 - **Acceptance**: close GUI during a run; `.agent-state` file has a coherent `finished` event (status either success/failed/cancelled, not orphaned).
 
 ---

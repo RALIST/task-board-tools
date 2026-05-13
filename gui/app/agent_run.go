@@ -70,6 +70,11 @@ func (s *AgentService) setRunnerFactory(f runnerFactory) {
 //	6. Stream stdout/stderr to JSONL + log file + Wails events
 //	7. Post-run handler: writes finished record unless Cancelled was set
 //	   by TB-48; closes activeRun.Done either way
+//
+// TB-54 narrowed s.mu to guard only active map insert/delete: the JSONL
+// queued write, Wails emit, and tb edit run outside the mutex with
+// rollback semantics on failure (entry is removed if a setup step errors
+// out before the runner goroutine is spawned).
 func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) {
 	if s.board == nil {
 		return "", ErrNoBoard
@@ -100,20 +105,41 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 		return "", ErrAlreadyRunning
 	}
 
-	// Don't allow two concurrent in-flight maps for the same task. This
-	// also covers the gap between the AgentStatus check above and the map
-	// insert below — two RunAgent goroutines racing for the same task.
-	s.mu.Lock()
-	if _, busy := s.active[id]; busy {
-		s.mu.Unlock()
-		return "", ErrAlreadyRunning
-	}
-
 	runID := agent.GenerateRunID()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	// Step 1 — JSONL queued. Done while holding s.mu so the in-flight
-	// table observation and the JSONL event stay in causal order.
+	// Pre-build activeRun outside the lock; its Done channel must exist
+	// before the runner goroutine starts.
+	runCtx, cancel := context.WithCancel(context.Background())
+	ar := &activeRun{
+		RunID:  runID,
+		TaskID: id,
+		Agent:  agentName,
+		Mode:   agent.ModeImplement.String(),
+		Cancel: cancel,
+		Done:   make(chan struct{}),
+	}
+
+	// Insert placeholder under s.mu only — the rest is I/O outside the
+	// mutex. On any I/O failure before the goroutine launches we roll
+	// back the map entry.
+	s.mu.Lock()
+	if _, busy := s.active[id]; busy {
+		s.mu.Unlock()
+		cancel()
+		return "", ErrAlreadyRunning
+	}
+	s.active[id] = ar
+	s.mu.Unlock()
+
+	rollback := func() {
+		s.mu.Lock()
+		delete(s.active, id)
+		s.mu.Unlock()
+		cancel()
+	}
+
+	// Step 1 — JSONL queued.
 	if err := agent.AppendEvent(boardDir, id, agent.Event{
 		TS:     now,
 		RunID:  runID,
@@ -122,7 +148,7 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 		Agent:  agentName,
 		Mode:   agent.ModeImplement.String(),
 	}); err != nil {
-		s.mu.Unlock()
+		rollback()
 		return "", fmt.Errorf("RunAgent: append queued: %w", err)
 	}
 
@@ -135,17 +161,95 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 	})
 
 	// Step 3 — AgentStatus: queued. Synchronous tb edit so a frontend
-	// re-render after RunAgent's return sees the right state. In M4 the
-	// gap between queued and running is ~10ms; M5 widens it once the
-	// daemon owns the spawn.
+	// re-render after RunAgent's return sees the right state.
 	if err := c.Edit(ctx, id, cli.EditInput{AgentStatus: "queued"}); err != nil {
-		s.mu.Unlock()
+		rollback()
 		return "", fmt.Errorf("RunAgent: AgentStatus queued: %w", err)
 	}
 
-	// Step 4 — register activeRun. The context lives until the runner
-	// goroutine's post-run handler runs to completion.
-	runCtx, cancel := context.WithCancel(context.Background())
+	// Step 4 — kick off the run.
+	go s.runGoroutine(runCtx, runner, c, ar, boardDir, detail)
+
+	return runID, nil
+}
+
+// RunQueuedAgentSync is the daemon-only blocking executor for a task that
+// is already AgentStatus=queued (typically because RunAgent was called or
+// because the CLI flipped the field externally). Unlike RunAgent it:
+//
+//   - accepts queued/running tasks without rejecting them,
+//   - uses the caller-supplied ctx as the runner ctx parent so that
+//     daemon shutdown cancellation reaches exec.CommandContext,
+//   - blocks until the run reaches terminal status, returning
+//     ("success" | "failed" | "cancelled", nil) on success and the
+//     setup error otherwise.
+//
+// The function does NOT write a fresh "queued" JSONL event — the caller
+// (RunAgent or the CLI) already did. It records `started` with `pid` AND
+// `agent` (TB-60 needs the latter for the pidAlive cross-check), spawns
+// the runner, and finalises through the same postRun / finishCancelled
+// paths as the manual M4 flow.
+func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (string, error) {
+	if s.board == nil {
+		return "", ErrNoBoard
+	}
+	c := s.board.snapshot()
+	if c == nil {
+		return "", ErrNoBoard
+	}
+	boardDir, err := s.board.resolveBoardDir(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	detail, err := s.board.GetTask(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	agentName := strings.ToLower(strings.TrimSpace(detail.Metadata.Agent))
+	if agentName == "" {
+		return "", ErrNoAgent
+	}
+	runner, err := s.runnerFor(agentName)
+	if err != nil {
+		return "", err
+	}
+	if detail.Metadata.AgentStatus != "queued" {
+		return "", fmt.Errorf("RunQueuedAgentSync: %q is not queued (got %q)", id, detail.Metadata.AgentStatus)
+	}
+
+	// Two queue sources to reconcile:
+	//   - Drawer "Run" button via RunAgent (writes a queued JSONL event)
+	//   - CLI: `tb edit X --agent-status queued` (no JSONL trail because
+	//     the CLI doesn't know about the JSONL schema)
+	// When findQueuedRunID returns ErrNoQueuedRun, the daemon owns the
+	// queued lifecycle: synthesise a fresh run_id + JSONL queued event +
+	// agent:run-queued emit so the frontend's run history surfaces it.
+	runID, err := findQueuedRunID(boardDir, id)
+	if errors.Is(err, ErrNoQueuedRun) {
+		runID = agent.GenerateRunID()
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err := agent.AppendEvent(boardDir, id, agent.Event{
+			TS:     now,
+			RunID:  runID,
+			TaskID: id,
+			Event:  agent.EvQueued,
+			Agent:  agentName,
+			Mode:   agent.ModeImplement.String(),
+		}); err != nil {
+			return "", fmt.Errorf("RunQueuedAgentSync: append synthetic queued: %w", err)
+		}
+		s.emit("agent:run-queued", map[string]any{
+			"run_id":  runID,
+			"task_id": id,
+			"agent":   agentName,
+			"mode":    string(agent.ModeImplement),
+		})
+	} else if err != nil {
+		return "", fmt.Errorf("RunQueuedAgentSync: find queued run: %w", err)
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
 	ar := &activeRun{
 		RunID:  runID,
 		TaskID: id,
@@ -154,13 +258,63 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 		Cancel: cancel,
 		Done:   make(chan struct{}),
 	}
+
+	s.mu.Lock()
+	if _, busy := s.active[id]; busy {
+		s.mu.Unlock()
+		cancel()
+		return "", ErrAlreadyRunning
+	}
 	s.active[id] = ar
 	s.mu.Unlock()
 
-	// Step 4b — kick off the run.
-	go s.runGoroutine(runCtx, runner, c, ar, boardDir, detail)
+	// Watch the parent ctx: if it cancels before the runner exits (i.e.
+	// daemon shutdown), mark the run as cancelled BEFORE the runner
+	// returns so postRun defers to finishCancelled.
+	ctxCancelled := make(chan struct{})
+	// Defer close so even a panic in runGoroutine releases the watcher
+	// goroutine. Without this, an unexpected panic in the run body
+	// would leak the ctx-watcher goroutine waiting on ctx.Done().
+	defer close(ctxCancelled)
+	go func() {
+		select {
+		case <-ctx.Done():
+			ar.markCancelled()
+			killActiveRun(ar)
+		case <-ctxCancelled:
+		}
+	}()
 
-	return runID, nil
+	// Block on the run. runGoroutine is the same body the M4 manual path
+	// uses; it closes ar.Done when finished and calls postRun (which
+	// no-ops if ar was cancelled).
+	s.runGoroutine(runCtx, runner, c, ar, boardDir, detail)
+
+	// If we got cancelled mid-flight (shutdown), record the
+	// finished{cancelled} line and AgentStatus.
+	if ar.wasCancelled() {
+		// CancelRun may also be racing finishCancelled. The helper is
+		// idempotent via ar.finishOnce.
+		_ = s.finishCancelled(c, ar, boardDir, "shutdown")
+		return "cancelled", nil
+	}
+
+	// Re-read AgentStatus from disk — postRun wrote it.
+	final, err := s.board.GetTask(context.Background(), id)
+	if err != nil {
+		return "", err
+	}
+	return final.Metadata.AgentStatus, nil
+}
+
+// HasActiveRun reports whether AgentService is tracking an in-flight run
+// for the given task. The daemon's active-set dedup (TB-55) cross-checks
+// this so a manual UI run is never duplicated by the daemon.
+func (s *AgentService) HasActiveRun(taskID string) bool {
+	s.mu.Lock()
+	_, ok := s.active[taskID]
+	s.mu.Unlock()
+	return ok
 }
 
 // runGoroutine owns steps 5–7 of the lifecycle. It is invoked from
@@ -242,11 +396,16 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 				slog.Warn("agent: AgentStatus running failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
 			}
 			ts := time.Now().UTC().Format(time.RFC3339)
+			// TB-54 schema change: `agent` is recorded on `started` so TB-60's
+			// pidAlive cross-check has an unambiguous source of the expected
+			// command name. Older JSONL files (pre-M5) may not have it; the
+			// recovery reader falls back to the queued event's `agent`.
 			if err := agent.AppendEvent(boardDir, ar.TaskID, agent.Event{
 				TS:     ts,
 				RunID:  ar.RunID,
 				TaskID: ar.TaskID,
 				Event:  agent.EvStarted,
+				Agent:  ar.Agent,
 				PID:    pid,
 			}); err != nil {
 				slog.Warn("agent: append started failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
@@ -265,45 +424,59 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 	s.postRun(c, ar, boardDir, res, runErr)
 }
 
-// postRun writes the terminal record unless CancelRun has flipped
-// activeRun.Cancelled — TB-48 owns the cancel-path writes.
+// postRun writes the terminal record via the shared finishOnce-gated
+// helper. The cancel-path writers (`CancelRun`, daemon shutdown) call
+// the same gate so whichever caller arrives first owns the on-disk
+// terminal record — the others see a no-op.
 func (s *AgentService) postRun(c *cli.Client, ar *activeRun, boardDir string, res agent.RunResult, runErr error) {
 	if ar.wasCancelled() {
-		// TB-48 has already written (or is about to write) the cancelled
-		// record. Leave the in-flight entry alone — CancelRun removes it
-		// after its own writes succeed.
+		// A cancel path is in flight — let it own the finished record.
+		// The finishOnce gate prevents a double-write even if a race
+		// brings us through anyway, but skipping here also avoids
+		// emitting a spurious "agent:run-finished{success}" the cancel
+		// path would shadow with "cancelled" milliseconds later.
 		return
 	}
-
 	status, reason, exitCode := mapRunnerOutcome(res, runErr)
+	s.recordTerminal(c, ar, boardDir, agent.Status(status), reason, exitCode)
+}
 
-	ts := time.Now().UTC().Format(time.RFC3339)
-	if err := agent.AppendEvent(boardDir, ar.TaskID, agent.Event{
-		TS:       ts,
-		RunID:    ar.RunID,
-		TaskID:   ar.TaskID,
-		Event:    agent.EvFinished,
-		Status:   agent.Status(status),
-		ExitCode: exitCode,
-		Reason:   reason,
-	}); err != nil {
-		slog.Warn("agent: append finished failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
-	}
-	s.emit("agent:run-finished", map[string]any{
-		"run_id":    ar.RunID,
-		"task_id":   ar.TaskID,
-		"status":    status,
-		"exit_code": exitCode,
-		"reason":    reason,
+// recordTerminal is the one-and-only writer of the terminal JSONL
+// `finished` line + Wails emit + `tb edit --agent-status …`. Gated by
+// `ar.finishOnce` so any of the three callers — postRun, CancelRun
+// (TB-48), daemon shutdown (TB-62) — produces exactly one record per
+// activeRun. Subsequent callers observe the no-op.
+//
+// AgentStatus write happens LAST so a crash between the JSONL line and
+// the edit leaves the durable intent for next-start recovery.
+func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir string, status agent.Status, reason string, exitCode int) {
+	ar.finishOnce.Do(func() {
+		ts := time.Now().UTC().Format(time.RFC3339)
+		if err := agent.AppendEvent(boardDir, ar.TaskID, agent.Event{
+			TS:       ts,
+			RunID:    ar.RunID,
+			TaskID:   ar.TaskID,
+			Event:    agent.EvFinished,
+			Status:   status,
+			ExitCode: exitCode,
+			Reason:   reason,
+		}); err != nil {
+			slog.Warn("agent: append finished failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
+		}
+		s.emit("agent:run-finished", map[string]any{
+			"run_id":    ar.RunID,
+			"task_id":   ar.TaskID,
+			"status":    string(status),
+			"exit_code": exitCode,
+			"reason":    reason,
+		})
+		if err := c.Edit(context.Background(), ar.TaskID, cli.EditInput{AgentStatus: string(status)}); err != nil {
+			slog.Warn("agent: AgentStatus write failed", "task", ar.TaskID, "run", ar.RunID, "status", status, "err", err)
+		}
+		s.mu.Lock()
+		delete(s.active, ar.TaskID)
+		s.mu.Unlock()
 	})
-
-	if err := c.Edit(context.Background(), ar.TaskID, cli.EditInput{AgentStatus: status}); err != nil {
-		slog.Warn("agent: AgentStatus write failed", "task", ar.TaskID, "run", ar.RunID, "status", status, "err", err)
-	}
-
-	s.mu.Lock()
-	delete(s.active, ar.TaskID)
-	s.mu.Unlock()
 }
 
 // mapRunnerOutcome implements the error → status mapping table from TB-47.
