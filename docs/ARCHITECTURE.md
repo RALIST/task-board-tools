@@ -188,34 +188,29 @@ Hybrid storage:
 | `.agent-state/PREFIX-NNN.jsonl` | append-only JSONL | Full run history: queued → started → stdout lines → finished |
 | `.agent-logs/PREFIX-NNN/<run_id>.log` | one file per run | Full stdout/stderr text for inspection |
 
-JSONL event shapes:
+JSONL event shapes (every event carries `task_id` so a log-trawler needs no cross-file index):
 
 ```jsonl
-{"ts":"2026-05-13T10:00:00Z","run_id":"r_abc","event":"queued","agent":"claude","mode":"implement"}
-{"ts":"2026-05-13T10:00:05Z","run_id":"r_abc","event":"started","pid":12345}
-{"ts":"2026-05-13T10:00:10Z","run_id":"r_abc","event":"stdout","line":"Reading task..."}
-{"ts":"2026-05-13T10:02:30Z","run_id":"r_abc","event":"finished","status":"success","exit_code":0}
+{"ts":"2026-05-13T10:00:00Z","run_id":"r_abc","task_id":"TB-1","event":"queued","agent":"claude","mode":"implement"}
+{"ts":"2026-05-13T10:00:05Z","run_id":"r_abc","task_id":"TB-1","event":"started","pid":12345,"agent":"claude"}
+{"ts":"2026-05-13T10:00:10Z","run_id":"r_abc","task_id":"TB-1","event":"stdout","line":"Reading task..."}
+{"ts":"2026-05-13T10:02:30Z","run_id":"r_abc","task_id":"TB-1","event":"finished","status":"success","exit_code":0}
 ```
 
-A run is **complete** when a `finished` event exists. A run with no `finished` event after a process restart is **stale** and is recovered: if the PID from `started` is dead (verified via `os.FindProcess(pid).Signal(syscall.Signal(0))`), the daemon writes a synthetic `finished` event with `status: failed`, `reason: "stale after restart"`, and sets `AgentStatus: failed` via `tb edit`.
+A run is **complete** when a `finished` event exists. A run with no `finished` event after a process restart is **stale** and is recovered: the daemon verifies the PID from `started` via `pidAlive(pid, expectedAgent)` — `os.FindProcess(pid).Signal(syscall.Signal(0))` (`ESRCH` → dead) plus a command-name cross-check (`ps -o comm=` / `ps -o args=`) that tolerates npm shebang wrappers (e.g. `node /usr/local/bin/claude`). If dead, the daemon writes a synthetic `finished` event with `status: failed`, `reason: "stale after restart"`, and sets `AgentStatus: failed` via `tb edit`. If alive, the daemon leaves the task alone — **M5 does not re-attach to live runs.**
 
-**Cancel carve-out**: if the task's current `AgentStatus` is already `cancelled` when the daemon checks, recovery does nothing — cancellation is user-intent and outranks crash inference. Cancel paths are responsible for writing both the JSONL `finished{status: cancelled}` event AND `AgentStatus: cancelled` (via `tb edit`) before the cancelling process exits.
+**Cancel carve-out**: recovery honors cancellation intent expressed in *either* the task's `.md` or the JSONL trail. If `AgentStatus` is already `cancelled` *or* the latest JSONL event for the latest `run_id` is `finished{status: cancelled}`, recovery reconciles to `cancelled` (writing `AgentStatus=cancelled` if the `.md` is out of sync) and never appends a `failed` line. This defends the M4 5-step cancel ordering (kill → JSONL → Wails → `tb edit`) against a `kill -9` of the GUI between the JSONL write and the `tb edit`.
 
 ## Daemon
 
-A goroutine inside the GUI process. Starts on `App.OnStartup`, stops on `App.OnShutdown`.
+A goroutine inside the GUI process. Constructed in `main` before `app.Run()`; *activated* by the `SettingsService.OpenBoard` hook once a project root is selected. Stops on app shutdown.
 
-1. **On start**: stale-recovery scan (above), then queue scan.
-2. **Queue scan**: read all tasks with `AgentStatus: queued`, enqueue.
-3. **Watcher integration**: subscribe to watcher events; on `task:updated:<id>`, re-parse and check if it newly became queued.
-4. **Worker pool**: bounded by `semaphore` (default 1, configurable). Dedup by `task_id` — a task being run cannot be enqueued again.
-5. **Per-run**:
-   - Generate `run_id` (`r_<8 hex chars>`).
-   - Set `AgentStatus: running` via `tb edit`.
-   - Spawn agent process with `exec.CommandContext(ctx, …)`.
-   - Tee stdout/stderr to `.agent-logs/PREFIX-NNN/<run_id>.log` AND emit Wails events.
-   - On exit: write `finished` JSONL event; set `AgentStatus: success|failed` via `tb edit`.
-6. **Shutdown**: cancel context, wait up to 5s for runners to flush JSONL, then return. Hard-kill leaves stale-running state that recovery handles on next start.
+1. **On board activation**: stale-recovery scan → watcher event sink registered → startup queue scan. The ordering is load-bearing: registering the sink before the scan closes the race where an edit lands between scan-read and subscription-attached.
+2. **Queue scan**: read tasks with `AgentStatus: queued` via in-process `BoardService.LoadBoard("active")`, enqueue via `tryEnqueue` (dedup).
+3. **Watcher integration**: a second `watcher.Emitter` implementation (tee/fan-out wired in `main.go`) forwards events to a daemon-side channel without changing the watcher's public API. The daemon handles both `task:updated:<id>` (in-place Write — `tb` direct writes) AND `board:reloaded` (atomic Rename — the CLI's mandated path). Atomic CLI edits trigger Rename → `board:reloaded`, so a daemon that only watched `task:updated:<id>` would miss them.
+4. **Worker pool**: N workers (N = `MaxWorkers`, default 1, configurable 1–4 via `$XDG_CONFIG_HOME/tb-gui/preferences.json`) read a buffered task-ID channel. In-memory active-set keyed by `task_id` plus `AgentService.HasActiveRun` cross-check prevents duplicate enqueue.
+5. **Per-run**: workers call an internal blocking executor `AgentService.RunQueuedAgentSync(ctx, id)` (distinct from public `RunAgent` which still serves the drawer Run button). The executor accepts an `AgentStatus=queued` task, writes `started`+pid+agent JSONL, sets `AgentStatus: running` via `tb edit`, spawns the runner with the caller-supplied ctx (so daemon shutdown cancellation propagates), tees stdout/stderr to log file + Wails events, writes `finished` + terminal `AgentStatus` on exit, returns the terminal status. Blocks until terminal.
+6. **Shutdown**: cancel root context; workers' cancel-finish helper writes `finished{status: cancelled, reason: "shutdown"}` JSONL events. Wait up to 5s; whatever didn't drain is reconciled by next-start recovery.
 
 ## Single instance
 

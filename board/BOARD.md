@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-5 | M5: Agent daemon with autopickup and crash recovery | 0/0 | backlog | gui |
+| TB-5 | M5: Agent daemon with autopickup and crash recovery | 0/10 | backlog | gui |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 0/0 | backlog | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 0/0 | backlog | gui |
 
@@ -36,6 +36,18 @@
 | TB-29 | parseTaskFile should reject malformed task files | bug | P3 | S | cli |
 | TB-30 | tb assign sugar for paired Agent + AgentStatus writes | feature | P3 | S | cli |
 | TB-39 | addChildToSubtasks corrupts task body when '## ' headers appear inside backticks | bug | P2 | S | cli |
+| TB-53 | Daemon skeleton + Wails OnStartup/OnShutdown lifecycle wiring | feature | P1 | S | gui |
+| TB-54 | Worker pool calling an internal blocking executor on AgentService | feature | P1 | M | gui |
+| TB-55 | Daemon active-set dedup keyed by task_id | feature | P1 | S | gui |
+| TB-56 | Settings field max_workers (1-4) wired to daemon semaphore | feature | P1 | S | gui |
+| TB-57 | Daemon initial queue scan on startup (AgentStatus=queued → enqueue) | feature | P1 | S | gui |
+| TB-58 | Watcher event sink: enqueue on task changes via emitter fan-out | feature | P1 | M | gui |
+| TB-59 | pidAlive(pid, name) probe with command-name cross-check (R10 mitigation) | feature | P1 | S | gui |
+| TB-60 | Stale-running recovery: scan AgentStatus=running, JSONL replay, synthetic finished+failed | feature | P1 | M | gui |
+| TB-61 | Stale-recovery cancelled carve-out: never overwrite AgentStatus=cancelled | feature | P1 | S | gui |
+| TB-62 | Graceful shutdown: ctx cancel + 5s grace + JSONL flush | feature | P1 | M | gui |
+| TB-63 | GUI tag header overflows when too many tags — collapse to popular + dropdown | bug | P1 | M | gui |
+| TB-64 | GUI "Open project" button only works once, subsequent clicks do nothing | bug | P1 | S | gui |
 
 ## Recently Done
 

@@ -175,8 +175,8 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - On daemon start, scans for tasks with `AgentStatus: running`.
 - Checks last run in JSONL; if no `finished` event and PID is dead → write synthetic `finished{status: failed, reason: "stale after restart"}` event, set `AgentStatus: failed`.
 - **Carve-outs**:
-  - If `AgentStatus: cancelled` is seen (recovery should only look at `running` tasks, but defensive: never overwrite `cancelled`).
-  - If PID is still alive, leave alone and re-attach to the run (don't kill someone else's process).
+  - If `AgentStatus: cancelled` is seen, OR the latest JSONL event for the latest run is `finished{status: cancelled}`, reconcile to `cancelled` and never overwrite as `failed`. JSONL intent outranks `.md` state during recovery.
+  - If PID is still alive, leave the task alone — **M5 does not re-attach to live runs**. The owning process (or a future M5+ enhancement) is responsible for continuing the run. Conservative: avoids killing someone else's process and avoids surprising re-stream of stale output.
 - **Acceptance 1**: start an agent, `kill -9` the GUI process, restart GUI; the stale task is marked failed; `.agent-state/<id>.jsonl` has the recovery event.
 - **Acceptance 2**: cancel a task via F4.4, then `kill -9` the GUI mid-cancel; restart; task remains `cancelled` (recovery does not turn it into `failed`).
 
