@@ -237,3 +237,19 @@ If isolation is needed later, the `Runner` interface is the seam — a `Sandboxe
 - `cli/`: `go build -o tb .` → static binary, no CGo.
 - `gui/`: `wails3 build` → app bundle. Requires CGo, Node/pnpm. Mac: `.app`, Linux: AppImage / static binary, Windows: not in MVP.
 - CI: build both with workspace.
+
+## Toolchain (M2+)
+
+Pinned versions confirmed by `wails3 doctor` (see `board/in-progress/TB-16.md` log for full output):
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Wails CLI | `v3.0.0-alpha.91` | Alpha. Pin in `gui/go.mod` until v3 stable. |
+| Go | `1.26.2+` (darwin/arm64 verified) | `1.26.x` series — newer minors should work; revisit if doctor fails after a Go bump. |
+| Node | `v20+` with `npm` `11.x` (or `pnpm`) | SvelteKit frontend toolchain. |
+| CGo | `gcc` (Xcode CLI tools) or `clang` | Required for Wails3 native windowing — `cli/` itself stays CGo-free. |
+| Xcode CLI tools | `2416+` | macOS only; provides system frameworks Wails3 links against. |
+
+**OS support (MVP):** macOS 13+ and Linux (GTK/WebKit2 — distro packages cover this). Windows is out of MVP scope (risk #3 in `IMPLEMENTATION.md`: `syscall.Flock` is POSIX-only); we ship `tb` (CLI) on Windows but not `tb-gui`.
+
+If `wails3 doctor` ever fails on a newer Go release, pin Wails3 to `v3.0.0-alpha.91` in `gui/go.mod` and re-run; do not silently bump the alpha tag without re-running doctor.

@@ -1,0 +1,286 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"testing"
+	"time"
+)
+
+// fakeSwitcher captures Switch calls; satisfies the Switcher interface.
+type fakeSwitcher struct {
+	mu     sync.Mutex
+	called []string
+	err    error
+}
+
+func (f *fakeSwitcher) Switch(boardDir string) error {
+	f.mu.Lock()
+	f.called = append(f.called, boardDir)
+	f.mu.Unlock()
+	return f.err
+}
+
+func (f *fakeSwitcher) calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.called...)
+}
+
+// fixtureBoard creates a temp project with .tb.yaml + board/.next-id and the
+// four status dirs. Returns the project root.
+func fixtureBoard(t *testing.T, prefix string) string {
+	t.Helper()
+	root := t.TempDir()
+	cfg := "board: board\n"
+	if prefix != "" {
+		cfg += "prefix: " + prefix + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(root, ".tb.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	board := filepath.Join(root, "board")
+	for _, d := range []string{"backlog", "in-progress", "done", "archive"} {
+		if err := os.MkdirAll(filepath.Join(board, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(board, ".next-id"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// stubTbBinary writes a fake `tb` binary into a temp dir and returns its path.
+func stubTbBinary(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("posix shell stub")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "tb")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho '[]'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return stub
+}
+
+func TestReadBoardInfo_HappyPath(t *testing.T) {
+	root := fixtureBoard(t, "TB")
+	info, err := readBoardInfo(root)
+	if err != nil {
+		t.Fatalf("readBoardInfo: %v", err)
+	}
+	if info.ProjectRoot != root {
+		t.Errorf("projectRoot: got %q", info.ProjectRoot)
+	}
+	if info.Prefix != "TB" {
+		t.Errorf("prefix: got %q", info.Prefix)
+	}
+	if !filepath.IsAbs(info.BoardDir) {
+		t.Errorf("boardDir not absolute: %q", info.BoardDir)
+	}
+	if info.WIPLimit != 2 {
+		t.Errorf("wipLimit default: got %d", info.WIPLimit)
+	}
+}
+
+func TestReadBoardInfo_DefaultsPrefix(t *testing.T) {
+	root := fixtureBoard(t, "")
+	info, err := readBoardInfo(root)
+	if err != nil {
+		t.Fatalf("readBoardInfo: %v", err)
+	}
+	if info.Prefix != "PR" {
+		t.Errorf("default prefix should be PR, got %q", info.Prefix)
+	}
+}
+
+func TestReadBoardInfo_NoTbYaml(t *testing.T) {
+	root := t.TempDir()
+	_, err := readBoardInfo(root)
+	if !errors.Is(err, ErrNoTbYaml) {
+		t.Fatalf("want ErrNoTbYaml, got %v", err)
+	}
+}
+
+func TestOpenBoard_HappyPath(t *testing.T) {
+	root := fixtureBoard(t, "TB")
+	stub := stubTbBinary(t)
+	recents := filepath.Join(t.TempDir(), "recent.json")
+
+	board := NewBoardService()
+	sw := &fakeSwitcher{}
+	svc := NewSettingsService(SettingsOptions{
+		Board:       board,
+		Watcher:     sw,
+		CLIPath:     stub,
+		RecentsPath: recents,
+	})
+
+	if err := svc.OpenBoard(context.Background(), root); err != nil {
+		t.Fatalf("OpenBoard: %v", err)
+	}
+
+	if got := svc.GetProjectRoot(); got != root {
+		t.Errorf("GetProjectRoot: got %q want %q", got, root)
+	}
+	info, err := svc.GetBoardInfo()
+	if err != nil {
+		t.Fatalf("GetBoardInfo: %v", err)
+	}
+	if info.Prefix != "TB" {
+		t.Errorf("GetBoardInfo.Prefix = %q", info.Prefix)
+	}
+
+	// Watcher should have been pointed at the resolved board dir.
+	calls := sw.calls()
+	if len(calls) != 1 || calls[0] != info.BoardDir {
+		t.Errorf("watcher.Switch calls: %v want [%s]", calls, info.BoardDir)
+	}
+
+	// BoardService should now have a client.
+	if board.snapshot() == nil {
+		t.Error("BoardService client not set after OpenBoard")
+	}
+
+	// recent.json should exist with one entry.
+	recentList, err := svc.ListRecentBoards()
+	if err != nil {
+		t.Fatalf("ListRecentBoards: %v", err)
+	}
+	if len(recentList) != 1 || recentList[0].ProjectRoot != root {
+		t.Errorf("recent list: %+v", recentList)
+	}
+}
+
+func TestOpenBoard_NoTbYamlIsTyped(t *testing.T) {
+	notABoard := t.TempDir()
+	svc := NewSettingsService(SettingsOptions{
+		CLIPath:     stubTbBinary(t),
+		RecentsPath: filepath.Join(t.TempDir(), "recent.json"),
+	})
+	err := svc.OpenBoard(context.Background(), notABoard)
+	if !errors.Is(err, ErrNoTbYaml) {
+		t.Fatalf("want ErrNoTbYaml, got %v", err)
+	}
+	if svc.GetProjectRoot() != "" {
+		t.Error("failed OpenBoard should not change active project root")
+	}
+}
+
+func TestRecentBoards_DedupAndCap(t *testing.T) {
+	recents := filepath.Join(t.TempDir(), "recent.json")
+	stub := stubTbBinary(t)
+
+	svc := NewSettingsService(SettingsOptions{
+		CLIPath:     stub,
+		RecentsPath: recents,
+	})
+
+	// Open root A twice and root B once. Expect dedup + B-before-A-second on
+	// LastOpened sort.
+	rootA := fixtureBoard(t, "TB")
+	rootB := fixtureBoard(t, "PR")
+
+	mustOpen := func(p string) {
+		t.Helper()
+		if err := svc.OpenBoard(context.Background(), p); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Millisecond) // ensure distinct LastOpened
+	}
+	mustOpen(rootA)
+	mustOpen(rootB)
+	mustOpen(rootA)
+
+	list, err := svc.ListRecentBoards()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("dedup failed: %+v", list)
+	}
+	if list[0].ProjectRoot != rootA {
+		t.Errorf("most recent should be rootA: %+v", list)
+	}
+	if list[1].ProjectRoot != rootB {
+		t.Errorf("second should be rootB: %+v", list)
+	}
+}
+
+func TestRecentBoards_DeadEntriesFilteredOnList(t *testing.T) {
+	recents := filepath.Join(t.TempDir(), "recent.json")
+	// Pre-seed with a project that doesn't exist on disk.
+	preload := []RecentBoard{
+		{ProjectRoot: "/this/does/not/exist", Prefix: "X", LastOpened: time.Now()},
+	}
+	b, _ := json.Marshal(preload)
+	os.MkdirAll(filepath.Dir(recents), 0o755)
+	if err := os.WriteFile(recents, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewSettingsService(SettingsOptions{
+		CLIPath:     stubTbBinary(t),
+		RecentsPath: recents,
+	})
+	list, err := svc.ListRecentBoards()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("dead entries should be filtered: %+v", list)
+	}
+}
+
+func TestRecentBoards_CorruptFileIsTolerated(t *testing.T) {
+	recents := filepath.Join(t.TempDir(), "recent.json")
+	os.MkdirAll(filepath.Dir(recents), 0o755)
+	if err := os.WriteFile(recents, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewSettingsService(SettingsOptions{
+		CLIPath:     stubTbBinary(t),
+		RecentsPath: recents,
+	})
+	list, err := svc.ListRecentBoards()
+	if err != nil {
+		t.Fatalf("corrupt file should not error: %v", err)
+	}
+	if list == nil || len(list) != 0 {
+		t.Fatalf("want empty list, got %+v", list)
+	}
+}
+
+func TestOpenBoard_WatcherFailureDoesNotCommit(t *testing.T) {
+	root := fixtureBoard(t, "TB")
+	stub := stubTbBinary(t)
+	recents := filepath.Join(t.TempDir(), "recent.json")
+
+	sw := &fakeSwitcher{err: errors.New("watcher boom")}
+	board := NewBoardService()
+	svc := NewSettingsService(SettingsOptions{
+		Board:       board,
+		Watcher:     sw,
+		CLIPath:     stub,
+		RecentsPath: recents,
+	})
+
+	err := svc.OpenBoard(context.Background(), root)
+	if err == nil || !errors.Is(err, sw.err) {
+		t.Fatalf("want wrapped watcher err, got %v", err)
+	}
+	if svc.GetProjectRoot() != "" {
+		t.Error("OpenBoard must not mutate state on watcher failure")
+	}
+	if board.snapshot() != nil {
+		t.Error("BoardService client must not be set on watcher failure")
+	}
+}

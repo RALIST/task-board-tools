@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="tb-gui"
+        Arguments=""
+        InstallLocation="C:\Program Files\task-board-tools\tb-gui">
+    </Installer>
+    <PackageInformation
+        PackageName="tb-gui"
+        PackageDisplayName="tb-gui"
+        PublisherName="CN=task-board-tools"
+        PublisherDisplayName="task-board-tools"
+        Version="0.1.0.0"
+        PackageDescription="Task Board Tools GUI">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="com.taskboard.tbgui"
+                Description="Task Board Tools GUI"
+                DisplayName="tb-gui"
+                ExecutableName="tb-gui"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>tb-gui</DisplayName>
+            <PublisherDisplayName>task-board-tools</PublisherDisplayName>
+            <Description>Task Board Tools GUI</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="tb-gui.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>

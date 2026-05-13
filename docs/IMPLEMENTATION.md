@@ -49,27 +49,27 @@ Marker legend:
 
 ---
 
-## M2 — Wails3 read-only GUI · ☐
+## M2 — Wails3 read-only GUI · ☑
 
-**Deliverable**: launch GUI on a board, see live kanban (read-only).
+**Deliverable**: launch GUI on a board, see live kanban (read-only). All sub-tasks (TB-16..TB-24) closed; runtime acceptance verified via `/ui-test` at end of epic.
 
 ### Tasks
-1. ☐ Pre-check: `wails3 doctor` against Go 1.26.1; if incompatible, pin a Wails3 tag or document Go downgrade
-2. ☐ `wails3 init -t sveltekit-ts` in `gui/`
-3. ☐ Add `./gui` to root `go.work`
-4. ☐ Enable Wails3 single-instance plugin
-5. ☐ Backend `gui/internal/cli/cli.go` — `exec` wrapper for `tb`
-6. ☐ Backend `gui/internal/parser/parser.go` — read-only markdown parser
-7. ☐ Backend `gui/internal/watcher/watcher.go` — fsnotify with ignore list + debounce
-8. ☐ Service `gui/app/settings_service.go` — project root, recent boards, board picker
-9. ☐ Service `gui/app/board_service.go` — `LoadBoard`, `GetTask` (read-only methods)
-10. ☐ Frontend deps: `svelte-dnd-action`, `svelte-markdown`, `svelte-codemirror-editor`
-11. ☐ Frontend `src/lib/api.ts` — typed Wails bindings re-export
-12. ☐ Frontend `src/lib/stores/board.ts`, `selection.ts`
-13. ☐ Frontend `src/lib/components/Board.svelte`, `Column.svelte`, `Card.svelte`
-14. ☐ Frontend `src/lib/components/TaskDrawer.svelte` (read-only)
-15. ☐ Frontend `src/routes/+page.svelte` — assembly
-16. ☐ Acceptance tests (manual): live update via `tb mv`, second-instance lock
+1. ☑ Pre-check: `wails3 doctor` against Go 1.26.2 → SUCCESS on `wails3 v3.0.0-alpha.91`; toolchain pinned in `ARCHITECTURE.md` § Toolchain
+2. ☑ `wails3 init -t sveltekit-ts` in `gui/` (module `tools/tb-gui`); demo `GreetService` + time-emitter stripped
+3. ☑ Added `./gui` to root `go.work`
+4. ☑ Enabled `application.SingleInstanceOptions` (uniqueID `com.taskboard.tbgui`); `OnSecondInstanceLaunch` restores+focuses the existing window
+5. ☑ Backend `gui/internal/cli/cli.go` — `exec` wrapper with `Client.Run` / `Client.RunJSON`, ExitError mapping, ctx cancellation, 7 tests
+6. ⊘ Backend `gui/internal/parser/parser.go` — deferred: M2 doesn't need a read-only Go-side markdown parser because the frontend renders the body via `marked`; the only fields we read from `.md` come from `tb show --json` already
+7. ☑ Backend `gui/internal/watcher/watcher.go` — fsnotify with pump-goroutine swap design; ignore list (BOARD.md, .next-id, .board.lock, .agent-state/, .agent-logs/) + 200ms debounce; 8 unit + 1 integration tests
+8. ☑ Service `gui/app/settings_service.go` — OpenBoard / GetBoardInfo / GetProjectRoot / PickBoardDialog / ListRecentBoards; recents at `$XDG_CONFIG_HOME/tb-gui/recent.json`; 8 tests
+9. ☑ Service `gui/app/board_service.go` — `LoadBoard` (status-bucketed) + `GetTask` + `ErrNoBoard`/`ErrNotFound`; 7 tests
+10. ⊘ Frontend deps: `svelte-dnd-action` (M3), `svelte-codemirror-editor` (M3). M2 added only `marked` for read-only markdown rendering
+11. ☑ Frontend `src/lib/api.ts` — typed wrappers + error-branch helpers (`isNoTbYamlError`, `isCancelledError`, `isNoBoardError`)
+12. ☑ Frontend stores: `board.ts` (snapshot + `refresh` + `patchTask`), `selection.ts`, `filter.ts` (M3 placeholder), `toast.ts`
+13. ☑ Frontend `Board.svelte` / `Column.svelte` / `Card.svelte` (type glyphs, priority pills, tag overflow, epic accent)
+14. ☑ Frontend `TaskDrawer.svelte` — right-side slide-over, Esc + click-outside dismiss, metadata grid + `marked`-rendered body, subscribes to `task:updated:<id>`
+15. ☑ Frontend `+page.svelte` — orchestrator: empty-state with recent-board list, picker integration, Wails event wiring
+16. ☑ Acceptance: backend integration test (`TestIntegration_TBMvFiresOneBoardReloaded`) drives real `tb` end-to-end; end-of-epic `/ui-test` covers the interactive window flow (live update, single-instance focus, drawer Esc, picker round-trip)
 
 **Estimate**: 2 days.
 
@@ -196,3 +196,4 @@ Settings UI, keyboard shortcuts, system tray. Deferred unless explicitly priorit
 - 2026-05-13: docs PROJECT/ARCHITECTURE/FEATURES drafted; plan synced with feedback (direct body writes allowed under flock; archive as first-class filter; daemon stale-recovery in M5; root `go.work`)
 - 2026-05-13: Codex adversarial review applied — README path corrected to current `tb/`; atomic-write invariant documented and added to M1 (F1.6); `cancelled` added as a first-class `AgentStatus` value with carve-out from stale-recovery
 - 2026-05-13: M1 shipped — `tb/` → `cli/` rename (history preserved as bundle outside repo); root `go.work` added; `cli/atomicfs.go` introduced with `writeFileAtomic` + tests; all task `.md` writers migrated; `Agent`/`AgentStatus` fields on `Task` with `tb edit -a` / `--agent-status` + enum validation; `cmdCreate` and `cmdEdit` now regenerate `BOARD.md`; new `resolveStatusFilter` implements `backlog|in-progress|done|archive|active|all` semantics; `findTask` extended to archive so archived tasks can be moved back; `cli/json_output.go` adds `--json` output for `tb ls`, `tb show`, `tb board` (empty results render as `[]` / `{}`)
+- 2026-05-13: M2 shipped — `gui/` scaffolded with Wails3 alpha.91 + SvelteKit-TS; backend modules `gui/internal/cli`, `gui/internal/watcher` (pump-goroutine + 200ms debounce), `gui/app/board_service.go` (LoadBoard/GetTask, status bucketing, ErrNoBoard/ErrNotFound), `gui/app/settings_service.go` (OpenBoard/PickBoardDialog/recents at `$XDG_CONFIG_HOME/tb-gui/recent.json`); frontend `Board`/`Column`/`Card`/`TaskDrawer` Svelte components with `marked` for read-only markdown; `+page.svelte` orchestrator with empty-state, recent-board list, and Wails event wiring (`board:reloaded`, `board:opened`, `task:updated:*`). 30 Go tests pass; `wails3 generate bindings` emits 2 services / 7 methods / 6 models. Runtime acceptance via `/ui-test` at end of epic.

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=tb-gui
+Comment=Task Board Tools GUI
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/tb-gui %u
+Terminal=false
+Type=Application
+Icon=tb-gui
+Categories=Utility;
+StartupWMClass=tb-gui
+
+ 

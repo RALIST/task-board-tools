@@ -1,0 +1,137 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+
+	"tools/tb-gui/internal/cli"
+)
+
+func makeStub(t *testing.T, body string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell stub")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tb")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	return path
+}
+
+func newClient(t *testing.T, stubPath string) *cli.Client {
+	t.Helper()
+	c, err := cli.NewClient(cli.Options{BinaryPath: stubPath})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	return c
+}
+
+func TestLoadBoard_NoClient(t *testing.T) {
+	svc := NewBoardService()
+	_, err := svc.LoadBoard(context.Background())
+	if !errors.Is(err, ErrNoBoard) {
+		t.Fatalf("want ErrNoBoard, got %v", err)
+	}
+}
+
+func TestLoadBoard_BucketsByStatus(t *testing.T) {
+	stub := makeStub(t, `cat <<JSON
+[
+  {"id":"TB-1","title":"A","status":"backlog","tags":[]},
+  {"id":"TB-2","title":"B","status":"in-progress","tags":[]},
+  {"id":"TB-3","title":"C","status":"done","tags":[]},
+  {"id":"TB-4","title":"D","status":"backlog","tags":[]},
+  {"id":"TB-5","title":"E","status":"archive","tags":[]}
+]
+JSON`)
+
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	snap, err := svc.LoadBoard(context.Background())
+	if err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+	if got := len(snap.Backlog); got != 2 {
+		t.Fatalf("backlog: got %d want 2", got)
+	}
+	if got := len(snap.InProgress); got != 1 || snap.InProgress[0].ID != "TB-2" {
+		t.Fatalf("in-progress mis-bucketed: %+v", snap.InProgress)
+	}
+	if got := len(snap.Done); got != 1 || snap.Done[0].ID != "TB-3" {
+		t.Fatalf("done mis-bucketed: %+v", snap.Done)
+	}
+	// Archive must be dropped — the snapshot is active-only.
+	for _, t := range append(append(snap.Backlog, snap.InProgress...), snap.Done...) {
+		if t.Status == "archive" {
+			panic("archive leaked into active snapshot: " + t.ID)
+		}
+	}
+}
+
+func TestLoadBoard_EmptyArray(t *testing.T) {
+	stub := makeStub(t, `echo "[]"`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	snap, err := svc.LoadBoard(context.Background())
+	if err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+	// Slices must be non-nil so the JSON encoder emits [] not null on the
+	// wire (matches the CLI's same invariant).
+	if snap.Backlog == nil || snap.InProgress == nil || snap.Done == nil {
+		t.Fatal("empty board should expose non-nil slices")
+	}
+	if len(snap.Backlog)+len(snap.InProgress)+len(snap.Done) != 0 {
+		t.Fatal("empty board should have zero tasks")
+	}
+}
+
+func TestGetTask_NotFound(t *testing.T) {
+	stub := makeStub(t, "echo 'error: task TB-999 not found in any directory (backlog, in-progress, done, archive). Verify the ID with `tb ls --status all`' 1>&2; exit 1")
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	_, err := svc.GetTask(context.Background(), "TB-999")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetTask_HappyPath(t *testing.T) {
+	stub := makeStub(t, `cat <<JSON
+{"metadata":{"id":"TB-1","title":"Hello","status":"backlog","tags":["x"]},"body":"# Body"}
+JSON`)
+
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	d, err := svc.GetTask(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if d.Metadata.ID != "TB-1" || d.Metadata.Title != "Hello" || d.Body != "# Body" {
+		t.Fatalf("decode mismatch: %+v", d)
+	}
+}
+
+func Test_setClient_NilClearsBoard(t *testing.T) {
+	stub := makeStub(t, `echo "[]"`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+	if _, err := svc.LoadBoard(context.Background()); err != nil {
+		t.Fatalf("LoadBoard ok: %v", err)
+	}
+	svc.setClient(nil)
+	if _, err := svc.LoadBoard(context.Background()); !errors.Is(err, ErrNoBoard) {
+		t.Fatalf("want ErrNoBoard after clear, got %v", err)
+	}
+}

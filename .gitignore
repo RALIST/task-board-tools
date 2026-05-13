@@ -7,3 +7,12 @@
 
 # Runtime flock target — recreated on every CLI invocation.
 board/.board.lock
+
+# tb-gui build artefacts (the gui/.gitignore covers the rest under gui/).
+/tb-gui
+/gui/tb-gui
+/gui/bin
+/gui/.task
+/gui/frontend/dist
+/gui/frontend/node_modules
+/gui/frontend/.svelte-kit
