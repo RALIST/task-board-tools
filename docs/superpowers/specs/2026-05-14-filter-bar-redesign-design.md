@@ -42,7 +42,7 @@ Every filter remains discoverable; values are searchable inside dropdowns when t
 - Row 2 is rendered by `ActiveFilters.svelte`; the component returns nothing when zero filters are set, so the header collapses to exactly one row at rest.
 - Each `[Category ▾]` trigger displays `Label (N)` when N ≥ 1 selected, plain `Label` otherwise.
 - Categories with `options.length <= 1` are hidden entirely (same guard as today's `if (types.length > 1)` checks).
-- "Tags" follows the existing convention of showing as soon as `tags.length > 0`.
+- "Tags" is hidden when only zero or one distinct tag has been observed (`tags.length > 1`), consistent with the other multi-value categories. A board with a single observed tag offers no filtering value beyond what the search input already provides.
 
 ## Components
 

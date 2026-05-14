@@ -59,6 +59,7 @@
   function openMenu(focusIndex: number | 'search' = 'search') {
     open = true;
     flushSync();
+    clampMenuToViewport();
     if (focusIndex === 'search' && showSearch) {
       rootEl?.querySelector<HTMLInputElement>('.fd-search')?.focus();
     } else if (typeof focusIndex === 'number') {
@@ -155,6 +156,21 @@
   function focusTrigger() {
     rootEl?.querySelector<HTMLButtonElement>('.fd-trigger')?.focus();
   }
+
+  function clampMenuToViewport() {
+    const menu = rootEl?.querySelector<HTMLElement>('.fd-menu');
+    const triggerEl = rootEl?.querySelector<HTMLElement>('.fd-trigger');
+    if (!menu || !triggerEl) return;
+    // Reset before measuring so successive opens compute against a clean baseline.
+    menu.style.left = '';
+    const triggerRect = triggerEl.getBoundingClientRect();
+    const menuWidth = menu.offsetWidth;
+    const margin = 8;
+    const overflowRight = triggerRect.left + menuWidth - (window.innerWidth - margin);
+    if (overflowRight > 0) {
+      menu.style.left = `-${overflowRight}px`;
+    }
+  }
 </script>
 
 <div class="fd" bind:this={rootEl}>
@@ -218,6 +234,10 @@
     white-space: nowrap;
   }
   .fd-trigger:hover { background: rgba(255, 255, 255, 0.1); color: var(--fg); }
+  .fd-trigger:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
   .fd-trigger::after { content: ' ▾'; margin-left: 2px; font-size: 9px; opacity: 0.7; }
   .fd-menu {
     position: absolute;
