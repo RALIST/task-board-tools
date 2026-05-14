@@ -191,7 +191,7 @@ BOARD.md includes an **Epics** section for active epics and a separate **Finishe
 
 ## Concurrency
 
-All mutations (`create`, `mv`, `start`, `done`, `close`, `scan --apply`) acquire an exclusive file lock on `.board.lock`. Safe for multiple agents running in parallel.
+All board writers (`create`, `mv`, `start`, `done`, `close`, `scan --apply`, `regenerate`) acquire an exclusive file lock on `.board.lock`. Safe for multiple agents running in parallel.
 
 ## Board structure
 

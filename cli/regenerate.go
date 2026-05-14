@@ -126,6 +126,8 @@ func buildBoardContent(boardDir string) string {
 }
 
 // regenerateBoard generates BOARD.md from the current directory state.
+// It does not acquire .board.lock itself because structured mutations already
+// call it while holding that lock.
 func regenerateBoard(boardDir string) error {
 	content := buildBoardContent(boardDir)
 
@@ -140,6 +142,16 @@ func regenerateBoard(boardDir string) error {
 		return fmt.Errorf("cannot rename %s to %s: %w", tmp, output, err)
 	}
 	return nil
+}
+
+func regenerateBoardLocked(boardDir string) error {
+	lock, err := lockBoard(boardDir)
+	if err != nil {
+		return err
+	}
+	defer lock.unlock()
+
+	return regenerateBoard(boardDir)
 }
 
 // collectTasks reads and parses all task files from a status directory,
@@ -182,8 +194,8 @@ func collectAllTasks(boardDir string) []Task {
 func cmdRegenerate(_ []string) {
 	boardDir := cfg.BoardDir
 
-	if err := regenerateBoard(boardDir); err != nil {
-		fatal("error: %v", err)
+	if err := regenerateBoardLocked(boardDir); err != nil {
+		fatal("%v", err)
 	}
 
 	fmt.Println("Regenerated BOARD.md")
