@@ -166,4 +166,63 @@ describe('FilterDropdown', () => {
     expect(opts[0].getAttribute('aria-checked')).toBe('true');
     expect(opts[1].getAttribute('aria-checked')).toBe('false');
   });
+
+  it('ArrowDown from the search input lands on the first option, not the second', async () => {
+    const opts = Array.from({ length: 11 }, (_, i) => `mod-${String(i).padStart(2, '0')}`);
+    component = mount(FilterDropdown, {
+      target: document.body,
+      props: { label: 'Module', options: opts, selected: [], onToggle: () => {} },
+    });
+    await tick();
+    trigger().click();
+    await tick();
+    const search = document.querySelector<HTMLInputElement>('.fd-search')!;
+    search.focus();
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    await tick();
+    const firstOption = document.querySelector<HTMLButtonElement>('.fd-option');
+    expect(document.activeElement).toBe(firstOption);
+  });
+
+  it('clears the search query when the popover closes via outside click', async () => {
+    const opts = Array.from({ length: 11 }, (_, i) => `mod-${String(i).padStart(2, '0')}`);
+    const outside = document.createElement('button');
+    outside.textContent = 'outside';
+    document.body.append(outside);
+    component = mount(FilterDropdown, {
+      target: document.body,
+      props: { label: 'Module', options: opts, selected: [], onToggle: () => {} },
+    });
+    await tick();
+    trigger().click();
+    await tick();
+    const search = document.querySelector<HTMLInputElement>('.fd-search')!;
+    search.value = '01';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    // Confirm filter is applied (only mod-01 visible).
+    expect(options().map((b) => b.textContent?.trim())).toEqual(['mod-01']);
+    // Close via outside click.
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    await tick();
+    expect(document.querySelector('.fd-menu')).toBeNull();
+    // Reopen — search should be empty and all options visible.
+    trigger().click();
+    await tick();
+    const search2 = document.querySelector<HTMLInputElement>('.fd-search')!;
+    expect(search2.value).toBe('');
+    expect(options()).toHaveLength(11);
+  });
+
+  it('exposes an aria-label on the search input', async () => {
+    const opts = Array.from({ length: 11 }, (_, i) => `mod-${String(i).padStart(2, '0')}`);
+    component = mount(FilterDropdown, {
+      target: document.body,
+      props: { label: 'Module', options: opts, selected: [], onToggle: () => {} },
+    });
+    await tick();
+    trigger().click();
+    await tick();
+    expect(document.querySelector<HTMLInputElement>('.fd-search')?.getAttribute('aria-label')).toBe('Search Module');
+  });
 });

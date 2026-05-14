@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { flushSync } from 'svelte';
 
   interface Props {
     label: string;
@@ -31,16 +31,21 @@
       : selected.length > 0 ? `${label} (${selected.length})` : label,
   );
 
+  function close() {
+    open = false;
+    query = '';
+  }
+
   $effect(() => {
     if (!open) return;
 
     function onDocumentPointerDown(event: PointerEvent) {
       if (rootEl?.contains(event.target as Node)) return;
-      open = false;
+      close();
     }
     function onDocumentKeydown(event: KeyboardEvent) {
       if (event.key !== 'Escape') return;
-      open = false;
+      close();
       focusTrigger();
     }
     document.addEventListener('pointerdown', onDocumentPointerDown, true);
@@ -51,9 +56,9 @@
     };
   });
 
-  async function openMenu(focusIndex: number | 'search' = 'search') {
+  function openMenu(focusIndex: number | 'search' = 'search') {
     open = true;
-    await tick();
+    flushSync();
     if (focusIndex === 'search' && showSearch) {
       rootEl?.querySelector<HTMLInputElement>('.fd-search')?.focus();
     } else if (typeof focusIndex === 'number') {
@@ -65,22 +70,21 @@
 
   function toggleMenu() {
     if (open) {
-      open = false;
-      query = '';
+      close();
     } else {
-      void openMenu();
+      openMenu();
     }
   }
 
   function onTriggerKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
       event.preventDefault();
-      void openMenu('search');
+      openMenu('search');
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      void openMenu(filteredOptions.length - 1);
+      openMenu(filteredOptions.length - 1);
     } else if (event.key === 'Escape') {
-      open = false;
+      close();
     }
   }
 
@@ -102,7 +106,7 @@
         next = opts.length - 1;
         break;
       case 'Escape':
-        open = false;
+        close();
         focusTrigger();
         event.preventDefault();
         return;
@@ -116,10 +120,12 @@
   function onSearchKeydown(event: KeyboardEvent) {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
+      event.stopPropagation();
       focusOption(0);
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      open = false;
+      event.stopPropagation();
+      close();
       focusTrigger();
     }
   }
@@ -127,15 +133,13 @@
   function pick(value: string) {
     onToggle(value);
     if (single) {
-      open = false;
-      query = '';
+      close();
     }
   }
 
   function pickNull() {
     onToggle('');
-    open = false;
-    query = '';
+    close();
   }
 
   function clear() {
@@ -170,6 +174,7 @@
         <input
           class="fd-search"
           type="search"
+          aria-label={`Search ${label}`}
           placeholder="Filter…"
           bind:value={query}
           onkeydown={onSearchKeydown} />
@@ -277,4 +282,8 @@
     cursor: pointer;
   }
   .fd-clear:hover { color: var(--fg); }
+  .fd-clear:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 </style>
