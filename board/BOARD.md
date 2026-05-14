@@ -4,7 +4,6 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-6 | M6: Groom flow for AI-assisted task refinement | 0/11 | in-progress | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 0/10 | backlog | gui |
 
 ## Finished Epics
@@ -16,22 +15,13 @@
 | TB-3 | M3: GUI mutations, DnD, and inline editor | 10/10 | gui |
 | TB-4 | M4: Agent assignment and manual runs from GUI | 10/10 | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
+| TB-6 | M6: Groom flow for AI-assisted task refinement | 10/11 | gui |
 
 ## In Progress
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-6 | M6: Groom flow for AI-assisted task refinement | P2 | gui | — |
-| TB-65 | prompts/groom.md template + agent.PromptGroom embed | P2 | gui | — |
-| TB-66 | GroomingDecorator: wrap a Runner, swap prompt template | P2 | gui | — |
-| TB-67 | AgentService.GroomTask: queue a groom run distinct from a normal run | P2 | gui | — |
-| TB-68 | Daemon: honor Mode=groom from queued JSONL event so pickup uses GroomingDecorator | P2 | gui | — |
-| TB-69 | CLI: tb triage --json structured output | P2 | cli | — |
-| TB-70 | BoardService.Triage(): wrap tb triage --json, cache + invalidate on watcher events | P2 | gui | — |
-| TB-71 | Frontend api.ts + triageStore.ts: groomTask, getTriage, watcher-driven refresh | P2 | gui | — |
-| TB-72 | TaskDrawer: Groom button next to Run, shared Cancel, mode-labelled past runs | P2 | gui | — |
-| TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | P2 | gui | — |
-| TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | P2 | cli | — |
+| — | — | — | — | — |
 
 ## Backlog
 
@@ -60,6 +50,16 @@
 | ID | Title | Type | Module |
 |----|-------|------|--------|
 | TB-86 | Adapt post-edit hook for Codex PostToolUse | improvement | tooling |
+| TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | feature | cli |
+| TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | feature | gui |
+| TB-72 | TaskDrawer: Groom button next to Run, shared Cancel, mode-labelled past runs | feature | gui |
+| TB-71 | Frontend api.ts + triageStore.ts: groomTask, getTriage, watcher-driven refresh | feature | gui |
+| TB-70 | BoardService.Triage(): wrap tb triage --json, cache + invalidate on watcher events | feature | gui |
+| TB-69 | CLI: tb triage --json structured output | feature | cli |
+| TB-68 | Daemon: honor Mode=groom from queued JSONL event so pickup uses GroomingDecorator | feature | gui |
+| TB-67 | AgentService.GroomTask: queue a groom run distinct from a normal run | feature | gui |
+| TB-66 | GroomingDecorator: wrap a Runner, swap prompt template | feature | gui |
+| TB-65 | prompts/groom.md template + agent.PromptGroom embed | feature | gui |
 | TB-62 | Graceful shutdown: ctx cancel + 5s grace + JSONL flush | feature | gui |
 | TB-61 | Stale-recovery cancelled carve-out: never overwrite AgentStatus=cancelled | feature | gui |
 | TB-60 | Stale-running recovery: scan AgentStatus=running, JSONL replay, synthetic finished+failed | feature | gui |
@@ -99,13 +99,3 @@
 | TB-21 | SettingsService: project root, recent boards, folder picker | feature | gui |
 | TB-20 | fsnotify watcher with debounce and Wails events | feature | gui |
 | TB-19 | BoardService: LoadBoard and GetTask via exec tb | feature | gui |
-| TB-18 | CLI exec wrapper in gui/internal/cli | feature | gui |
-| TB-17 | Scaffold gui/ Wails3 + SvelteKit project with single-instance lock | feature | gui |
-| TB-16 | Verify Wails3 alpha works on current Go toolchain | spike | gui |
-| TB-15 | Add flag.NewFlagSet and reorderArgs to tb show | tech-debt | cli |
-| TB-14 | Implement active/archive/all status semantics | improvement | cli |
-| TB-13 | Call regenerateBoard at end of create and edit | bug | cli |
-| TB-12 | Add --json output to ls, show, and board | feature | cli |
-| TB-11 | Add Agent and AgentStatus task metadata fields | feature | cli |
-| TB-10 | Migrate task .md writes to writeFileAtomic | tech-debt | cli |
-| TB-9 | Add cli/atomicfs.go writeFileAtomic helper | feature | cli |
