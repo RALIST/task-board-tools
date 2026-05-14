@@ -92,6 +92,7 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
     overflow: hidden;
     transition: border-color 120ms ease, background 120ms ease;
   }
@@ -127,7 +128,9 @@
     padding: 8px;
     margin: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     min-height: 0;
+    min-width: 0;
     flex: 1;
   }
   li { margin: 0; }

@@ -131,6 +131,10 @@
     cursor: pointer;
     display: block;
     width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
     text-align: left;
     color: inherit;
     font: inherit;
@@ -149,6 +153,7 @@
     justify-content: space-between;
     margin-bottom: 4px;
     gap: 8px;
+    min-width: 0;
   }
   .id {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -157,6 +162,10 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .glyph {
     display: inline-flex;
@@ -223,6 +232,9 @@
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    min-width: 0;
   }
 
   .meta {
@@ -233,12 +245,17 @@
     color: var(--fg-dim);
     font-size: 10px;
     margin-bottom: 4px;
+    min-width: 0;
   }
   .mod, .size {
     background: rgba(255, 255, 255, 0.05);
     padding: 1px 5px;
     border-radius: 3px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .epic-badge {
     background: rgba(74, 141, 248, 0.18);
@@ -254,6 +271,11 @@
     border-radius: 3px;
     font-family: ui-monospace, monospace;
     font-size: 10px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
   .agent-queued { background: rgba(255, 184, 108, 0.18); color: var(--p1); }
   .agent-running { background: rgba(74, 141, 248, 0.18); color: var(--p2); }
@@ -274,6 +296,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
+    min-width: 0;
   }
   .tag {
     font-size: 10px;
@@ -282,6 +305,10 @@
     border-radius: 3px;
     padding: 1px 5px;
     font-family: ui-monospace, monospace;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .tag.overflow { background: rgba(255, 255, 255, 0.10); color: var(--fg); }
 </style>

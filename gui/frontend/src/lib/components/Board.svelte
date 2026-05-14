@@ -25,13 +25,14 @@
   .board {
     flex: 1;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
     padding: 12px;
     min-height: 0;
+    min-width: 0;
   }
   .board.with-archive {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   @media (max-width: 1023px) {
     .board, .board.with-archive {
