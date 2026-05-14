@@ -1,5 +1,11 @@
 # Board
 
+## Epics
+
+| ID | Title | Progress | Status | Module |
+|----|-------|----------|--------|--------|
+| TB-93 | Move from file-based to folder-based approach | 0/0 | backlog |  |
+
 ## Finished Epics
 
 | ID | Title | Progress | Module |
@@ -23,6 +29,7 @@
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
 | TB-92 | Limit showed tags in header to 10 | bug | P1 | M |  |
+| TB-93 | Move from file-based to folder-based approach | feature | P0 | XL |  |
 
 ## Recently Done
 

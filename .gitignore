@@ -16,5 +16,5 @@ board/.board.lock
 /gui/frontend/dist
 /gui/frontend/node_modules
 /gui/frontend/.svelte-kit
-board/.agent-log
-board/.agent-state
+/board/.agent-log
+/board/.agent-state
