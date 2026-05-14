@@ -5,7 +5,7 @@
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 0/11 | backlog | gui |
-| TB-7 | M7: Polish — settings, shortcuts, tray, menus | 0/0 | backlog | gui |
+| TB-7 | M7: Polish — settings, shortcuts, tray, menus | 0/10 | backlog | gui |
 
 ## Finished Epics
 
@@ -31,7 +31,7 @@
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | feature | P2 | L | gui |
 | TB-29 | parseTaskFile should reject malformed task files | bug | P3 | S | cli |
 | TB-30 | tb assign sugar for paired Agent + AgentStatus writes | feature | P3 | S | cli |
-| TB-39 | addChildToSubtasks corrupts task body when '## ' headers appear inside backticks | bug | P2 | S | cli |
+| TB-39 | Make CLI task-section scans ignore quoted Markdown headings | bug | P2 | M | cli |
 | TB-63 | GUI tag header overflows when too many tags — collapse to popular + dropdown | bug | P1 | M | gui |
 | TB-64 | GUI "Open project" button only works once, subsequent clicks do nothing | bug | P1 | S | gui |
 | TB-65 | prompts/groom.md template + agent.PromptGroom embed | feature | P2 | S | gui |
@@ -45,11 +45,22 @@
 | TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | feature | P2 | M | gui |
 | TB-74 | Docs: flip M6 markers — IMPLEMENTATION.md / FEATURES.md F6.1+F6.2 / ARCHITECTURE.md GroomingDecorator | improvement | P2 | S | docs |
 | TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | feature | P2 | M | cli |
+| TB-76 | Preferences struct: add agent_timeout_minutes, default_agent, cli_path with clamps + tests | feature | P2 | S | gui |
+| TB-77 | Wire agent_timeout_minutes into agent_run.go (replace agentTimeoutDefault const) | feature | P2 | S | gui |
+| TB-78 | Wire cli_path preference into cli.NewClient at board open + reload on change | feature | P2 | S | gui |
+| TB-79 | Wire default_agent into AssignAgent dropdown default for unassigned tasks | feature | P2 | S | gui |
+| TB-80 | Frontend api.ts settings wrappers + preferencesStore.ts | feature | P2 | S | gui |
+| TB-81 | SettingsPanel.svelte: form for timeout/max_workers/default_agent/cli_path with Save + toast | feature | P2 | M | gui |
+| TB-82 | Wails3 application menu: File (Open board…, Open Recent ›, Quit), View, Help | feature | P2 | M | gui |
+| TB-83 | System tray: idle/running glyph + click to show/hide window | feature | P2 | M | gui |
+| TB-84 | Keyboard shortcuts: N (new), / (search), Esc (close drawer), Enter (open card) | feature | P2 | S | gui |
+| TB-85 | Docs flip: IMPLEMENTATION.md M7 + FEATURES.md F7.1/F7.2/F7.3 markers + ARCHITECTURE.md if needed | tech-debt | P2 | S | gui |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-86 | Adapt post-edit hook for Codex PostToolUse | improvement | tooling |
 | TB-62 | Graceful shutdown: ctx cancel + 5s grace + JSONL flush | feature | gui |
 | TB-61 | Stale-recovery cancelled carve-out: never overwrite AgentStatus=cancelled | feature | gui |
 | TB-60 | Stale-running recovery: scan AgentStatus=running, JSONL replay, synthetic finished+failed | feature | gui |
@@ -99,4 +110,3 @@
 | TB-11 | Add Agent and AgentStatus task metadata fields | feature | cli |
 | TB-10 | Migrate task .md writes to writeFileAtomic | tech-debt | cli |
 | TB-9 | Add cli/atomicfs.go writeFileAtomic helper | feature | cli |
-| TB-8 | Rename tb/ to cli/ and add go.work | tech-debt | cli |
