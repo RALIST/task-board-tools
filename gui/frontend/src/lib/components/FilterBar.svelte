@@ -23,7 +23,7 @@
   $effect(() => {
     f = { ...$filter };
   });
-  let tagSelection = $derived(selectInlineTags(tags, f.tags));
+  let tagSelection = $derived(selectInlineTags(tags));
   let tagMenuOpen = $state(false);
   let tagMoreRoot: HTMLElement | null = $state(null);
 

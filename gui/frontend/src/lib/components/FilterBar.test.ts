@@ -40,13 +40,6 @@ function inlineTagTexts(): string[] {
     .map((button) => button.textContent?.trim() ?? '');
 }
 
-function inlineTagButton(tag: string): HTMLButtonElement {
-  const button = [...document.querySelectorAll<HTMLButtonElement>('.group.tags > button.chip.tag')]
-    .find((el) => el.textContent?.trim() === tag);
-  if (!button) throw new Error(`inline tag button ${tag} not found`);
-  return button;
-}
-
 function moreButton(): HTMLButtonElement {
   const button = document.querySelector<HTMLButtonElement>('.tag-more-trigger');
   if (!button) throw new Error('more button not found');
@@ -65,7 +58,22 @@ afterEach(async () => {
 });
 
 describe('FilterBar tag overflow', () => {
-  it('collapses low-ranked tags and promotes selected overflow tags inline', async () => {
+  it('renders unchanged with no overflow indicator when there are at most 10 tags', async () => {
+    const tags = Array.from(
+      { length: FILTER_BAR_INLINE_TAG_LIMIT },
+      (_, index) => `tag-${String(index + 1).padStart(2, '0')}`,
+    );
+    component = mount(FilterBar, {
+      target: document.body,
+      props: { snapshot: snapshot(tags) },
+    });
+    await tick();
+
+    expect(inlineTagTexts()).toEqual(tags);
+    expect(document.querySelector('.tag-more')).toBeNull();
+  });
+
+  it('caps inline tag chips at 10 even when active filters are in overflow', async () => {
     const tags = Array.from(
       { length: FILTER_BAR_INLINE_TAG_LIMIT + 1 },
       (_, index) => `tag-${String(index + 1).padStart(2, '0')}`,
@@ -89,16 +97,42 @@ describe('FilterBar tag overflow', () => {
     overflowButton?.click();
     await tick();
 
+    // Activating an overflow tag must NOT promote it inline — the inline row
+    // stays capped at 10 chips and the overflow indicator still shows "+1 more".
     expect(get(filter).tags).toEqual([overflowTag]);
-    expect(inlineTagTexts()).toContain(overflowTag);
-    expect(document.querySelector('.tag-more')).toBeNull();
+    expect(inlineTagTexts()).toEqual(tags.slice(0, FILTER_BAR_INLINE_TAG_LIMIT));
+    expect(inlineTagTexts()).not.toContain(overflowTag);
+    expect(moreButton().textContent?.replace(/\s+/g, ' ').trim()).toBe('+1 more');
 
-    inlineTagButton(overflowTag).click();
+    // The popover still surfaces the active overflow tag via class:on so the
+    // user can see and deselect it.
+    moreButton().click();
+    await tick();
+    const overflowOption = document.querySelector<HTMLButtonElement>('.tag-menu .tag-option');
+    expect(overflowOption?.classList.contains('on')).toBe(true);
+    overflowOption?.click();
+    await tick();
+    expect(get(filter).tags).toEqual([]);
+  });
+
+  it('keeps inline at exactly 10 chips when many overflow tags are active', async () => {
+    const tags = Array.from(
+      { length: FILTER_BAR_INLINE_TAG_LIMIT + 5 },
+      (_, index) => `tag-${String(index + 1).padStart(2, '0')}`,
+    );
+    const overflowTags = tags.slice(FILTER_BAR_INLINE_TAG_LIMIT);
+    filter.set({ ...initialFilter, tags: [...overflowTags] });
+    component = mount(FilterBar, {
+      target: document.body,
+      props: { snapshot: snapshot(tags) },
+    });
     await tick();
 
-    expect(get(filter).tags).toEqual([]);
     expect(inlineTagTexts()).toEqual(tags.slice(0, FILTER_BAR_INLINE_TAG_LIMIT));
-    expect(moreButton().textContent?.replace(/\s+/g, ' ').trim()).toBe('+1 more');
+    expect(document.querySelectorAll('.group.tags > button.chip.tag')).toHaveLength(
+      FILTER_BAR_INLINE_TAG_LIMIT,
+    );
+    expect(moreButton().textContent?.replace(/\s+/g, ' ').trim()).toBe('+5 more');
   });
 
   it('closes the overflow menu on outside click, Escape, and focus leaving the menu', async () => {

@@ -4,7 +4,7 @@
 import type { BoardSnapshot, Task } from './api';
 import type { BoardFilter } from './stores/filter';
 
-export const FILTER_BAR_INLINE_TAG_LIMIT = 6;
+export const FILTER_BAR_INLINE_TAG_LIMIT = 10;
 
 function allTasks(snap: BoardSnapshot): Task[] {
   return [...snap.backlog, ...snap.inProgress, ...snap.done, ...(snap.archive ?? [])];
@@ -67,21 +67,17 @@ export interface InlineTagSelection {
   overflow: string[];
 }
 
+// Hard cap on tag chips shown in the FilterBar header. Active tags that fall
+// outside the cap stay accessible via the overflow popover (where their
+// selected state is reflected by `class:on`); they are never promoted inline.
 export function selectInlineTags(
   rankedTags: string[],
-  activeTags: string[],
   limit = FILTER_BAR_INLINE_TAG_LIMIT,
 ): InlineTagSelection {
-  const active = new Set(activeTags);
-  const inline = new Set(rankedTags.slice(0, Math.max(0, limit)));
-
-  for (const tag of rankedTags) {
-    if (active.has(tag)) inline.add(tag);
-  }
-
+  const cap = Math.max(0, limit);
   return {
-    inline: rankedTags.filter((tag) => inline.has(tag)),
-    overflow: rankedTags.filter((tag) => !inline.has(tag)),
+    inline: rankedTags.slice(0, cap),
+    overflow: rankedTags.slice(cap),
   };
 }
 

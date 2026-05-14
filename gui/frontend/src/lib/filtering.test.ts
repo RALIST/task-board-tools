@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardSnapshot, Task } from './api';
-import { applyFilter, observedTags, selectInlineTags } from './filtering';
+import {
+  FILTER_BAR_INLINE_TAG_LIMIT,
+  applyFilter,
+  observedTags,
+  selectInlineTags,
+} from './filtering';
 import type { BoardFilter } from './stores/filter';
 
 const baseFilter: BoardFilter = {
@@ -99,10 +104,20 @@ describe('tag helpers', () => {
     expect(observedTags(snap)).toEqual(['ui', 'backend', 'docs', 'cli']);
   });
 
-  it('keeps active tags inline even when they rank below the visible limit', () => {
-    expect(selectInlineTags(['popular', 'common', 'rare', 'tiny'], ['tiny'], 2)).toEqual({
-      inline: ['popular', 'common', 'tiny'],
-      overflow: ['rare'],
+  it('strictly caps inline tags at the limit in ranked order', () => {
+    expect(selectInlineTags(['popular', 'common', 'rare', 'tiny'], 2)).toEqual({
+      inline: ['popular', 'common'],
+      overflow: ['rare', 'tiny'],
     });
+  });
+
+  it('caps the filter bar tag header at 10 inline chips', () => {
+    expect(FILTER_BAR_INLINE_TAG_LIMIT).toBe(10);
+
+    const ten = Array.from({ length: 10 }, (_, i) => `t${String(i).padStart(2, '0')}`);
+    expect(selectInlineTags(ten)).toEqual({ inline: ten, overflow: [] });
+
+    const eleven = [...ten, 't10'];
+    expect(selectInlineTags(eleven)).toEqual({ inline: ten, overflow: ['t10'] });
   });
 });
