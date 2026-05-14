@@ -4,6 +4,8 @@ Features grouped by milestone. Each has acceptance criteria — implementation i
 
 Status notation: ☐ planned · ⬚ partial · ☑ done.
 
+> **Folder-form tasks (TB-93 epic):** the on-disk contract for tasks stored as `<status>/<ID>/TASK.md` directories — including attachments, per-task agent state/logs, lock semantics, atomic-write rules, and the file → folder promotion procedure — is specified in [`docs/ARCHITECTURE.md` → "Folder-form tasks"](ARCHITECTURE.md#folder-form-tasks). All child tasks of TB-93 must conform to that section.
+
 ---
 
 ## M0 — Documentation foundation
@@ -229,6 +231,29 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - View menu: Reload board.
 - Help menu: About and docs entry.
 - **Acceptance**: recent boards rebuild after board open; menu entries call the same service paths as the in-window controls.
+
+---
+
+## M8 — Folder-form tasks + attachments (TB-93)
+
+- ⬚ **TB-93** ([epic](../board/backlog/TB-93.md)) — umbrella milestone for folder-backed tasks, task-local artifacts, and user attachments while legacy file tasks keep working.
+- **Contract**: folder paths, attachment layout, task-local agent files, locking, atomic writes, and file → folder promotion are defined by [TB-94](../board/done/TB-94.md) and [`docs/ARCHITECTURE.md` → "Folder-form tasks"](ARCHITECTURE.md#folder-form-tasks); this feature block tracks delivery status only.
+- **Acceptance**: file/folder read parity; default folder creation; whole-folder moves/archive; attachment add/remove with validation; GUI picker + drag-and-drop workflow; watcher refresh after attachment operations and folder moves; mixed-board smoke covering CLI, GUI, agent artifacts, archive/restore, regeneration, and orphan checks.
+
+### Children
+- ☑ **TB-94** ([task](../board/done/TB-94.md)) — Define the folder-task on-disk contract before implementation work begins.
+- ☑ **TB-95** ([task](../board/done/TB-95.md)) — Publish the TB-93 milestone tracker in `docs/FEATURES.md` and `docs/IMPLEMENTATION.md`.
+- ☐ **TB-96** ([task](../board/backlog/TB-96.md)) — Make CLI read and JSON paths treat folder-form and file-form tasks as the same logical task.
+- ☐ **TB-97** ([task](../board/backlog/TB-97.md)) — Make `tb create` default to folder-form tasks with an empty `## Attachments` section.
+- ☐ **TB-98** ([task](../board/backlog/TB-98.md)) — Move, close/archive, and restore folder-form tasks as whole directories without orphaning artifacts.
+- ☐ **TB-99** ([task](../board/backlog/TB-99.md)) — Add `tb attach <ID> <path>...` and atomically promote legacy file tasks on first attachment.
+- ☐ **TB-100** ([task](../board/backlog/TB-100.md)) — Remove attachments through `tb attach --rm` with path validation and markdown updates.
+- ☐ **TB-101** ([task](../board/backlog/TB-101.md)) — Keep `BOARD.md` byte-identical for equivalent file-form, folder-form, and mixed boards.
+- ☐ **TB-102** ([task](../board/backlog/TB-102.md)) — Resolve agent state/log paths by storage form, including folder-task stale recovery.
+- ☐ **TB-103** ([task](../board/backlog/TB-103.md)) — List, open, add, and remove drawer attachments through `tb` commands.
+- ☐ **TB-104** ([task](../board/backlog/TB-104.md)) — Add drag-and-drop attachment workflows for cards and the task drawer through `tb`.
+- ☐ **TB-105** ([task](../board/backlog/TB-105.md)) — Emit one logical GUI refresh for attachment operations and folder-task moves.
+- ☐ **TB-106** ([task](../board/backlog/TB-106.md)) — Run the final mixed-board smoke and record evidence on TB-93.
 
 ---
 

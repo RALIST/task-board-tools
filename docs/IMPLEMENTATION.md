@@ -184,6 +184,31 @@ Marker legend:
 
 ---
 
+## M8 — Folder-form tasks + attachments (TB-93) · ⬚
+
+**Deliverable**: folder-backed tasks and attachments ship without breaking legacy file-backed boards. The detailed storage contract lives in [TB-94](../board/done/TB-94.md) and [`docs/ARCHITECTURE.md` → "Folder-form tasks"](ARCHITECTURE.md#folder-form-tasks); this milestone tracks execution status against that contract.
+
+**Acceptance**: file/folder read parity; default folder creation; whole-folder moves/archive; attachment add/remove with validation; GUI picker + drag-and-drop workflow; watcher refresh after attachment operations and folder moves; mixed-board smoke covering CLI, GUI, agent artifacts, archive/restore, regeneration, and orphan checks.
+
+### Tasks
+1. ☑ [TB-94](../board/done/TB-94.md) — Define the folder-task on-disk contract before implementation work begins.
+2. ☑ [TB-95](../board/done/TB-95.md) — Publish the TB-93 milestone tracker in `docs/FEATURES.md` and `docs/IMPLEMENTATION.md`.
+3. ☐ [TB-96](../board/backlog/TB-96.md) — Make CLI read and JSON paths treat folder-form and file-form tasks as the same logical task.
+4. ☐ [TB-97](../board/backlog/TB-97.md) — Make `tb create` default to folder-form tasks with an empty `## Attachments` section.
+5. ☐ [TB-98](../board/backlog/TB-98.md) — Move, close/archive, and restore folder-form tasks as whole directories without orphaning artifacts.
+6. ☐ [TB-99](../board/backlog/TB-99.md) — Add `tb attach <ID> <path>...` and atomically promote legacy file tasks on first attachment.
+7. ☐ [TB-100](../board/backlog/TB-100.md) — Remove attachments through `tb attach --rm` with path validation and markdown updates.
+8. ☐ [TB-101](../board/backlog/TB-101.md) — Keep `BOARD.md` byte-identical for equivalent file-form, folder-form, and mixed boards.
+9. ☐ [TB-102](../board/backlog/TB-102.md) — Resolve agent state/log paths by storage form, including folder-task stale recovery.
+10. ☐ [TB-103](../board/backlog/TB-103.md) — List, open, add, and remove drawer attachments through `tb` commands.
+11. ☐ [TB-104](../board/backlog/TB-104.md) — Add drag-and-drop attachment workflows for cards and the task drawer through `tb`.
+12. ☐ [TB-105](../board/backlog/TB-105.md) — Emit one logical GUI refresh for attachment operations and folder-task moves.
+13. ☐ [TB-106](../board/backlog/TB-106.md) — Run the final mixed-board smoke and record evidence on TB-93.
+
+**Estimate**: tracked across child tasks TB-94 through TB-106.
+
+---
+
 ## Risk register
 
 | # | Risk | Impact | Mitigation | Status |
