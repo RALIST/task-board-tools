@@ -19,6 +19,7 @@ const emptySnapshot: BoardSnapshot = {
 export const loaded = writable<boolean>(false);
 export const board = writable<BoardSnapshot>(emptySnapshot);
 export const loadError = writable<string | null>(null);
+let refreshSeq = 0;
 
 // statusMode controls whether refresh() requests the archive bucket. The
 // FilterBar's "Show archived" toggle writes this; callers shouldn't poke
@@ -26,13 +27,16 @@ export const loadError = writable<string | null>(null);
 export const statusMode = writable<StatusMode>('active');
 
 export async function refresh(): Promise<void> {
+  const seq = ++refreshSeq;
   try {
     const mode = get(statusMode);
     const snap = await loadBoard(mode);
+    if (seq !== refreshSeq) return;
     board.set(snap);
     loadError.set(null);
     loaded.set(true);
   } catch (err) {
+    if (seq !== refreshSeq) return;
     loadError.set(stringifyError(err));
   }
 }
