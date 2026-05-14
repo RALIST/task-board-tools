@@ -4,7 +4,7 @@
 **Priority:** P0
 **Size:** M
 **Agent:** codex
-**AgentStatus:** running
+**AgentStatus:** failed
 **Module:** gui
 **Tags:** gui,board-switch,error-handling,robustness
 **Branch:** —
@@ -37,13 +37,13 @@ Relevant current seams:
 
 ## Acceptance Criteria
 
-- [ ] Add a regression test for the duplicate canonical path failure from `tb ls --json --status active` during board load after selecting a board.
-- [ ] When the selected board cannot load because of duplicate active-scope task IDs, the GUI surfaces a concise actionable message that includes the task ID and conflicting paths/statuses, without using `Binding call failed` as the user-facing text.
-- [ ] A failed load after board switch must not render stale cards from the previously opened board under the newly selected project root.
-- [ ] After this failure, the user can still open another valid board from the picker or recent-board menu without restarting the app.
-- [ ] Existing no-board, missing `.tb.yaml`, watcher-switch failure, and non-duplicate CLI failure behavior remains covered and unchanged.
-- [ ] Manual smoke: open a board containing the same task ID in `backlog` and `done`; observe the visible load error, confirm stale cards are not shown for that board, then open a valid board successfully.
-- [ ] Verify with `cd gui && go test ./...` and `cd gui/frontend && npm run check && npm test`.
+- [x] Add a regression test for the duplicate canonical path failure from `tb ls --json --status active` during board load after selecting a board.
+- [x] When the selected board cannot load because of duplicate active-scope task IDs, the GUI surfaces a concise actionable message that includes the task ID and conflicting paths/statuses, without using `Binding call failed` as the user-facing text.
+- [x] A failed load after board switch must not render stale cards from the previously opened board under the newly selected project root.
+- [x] After this failure, the user can still open another valid board from the picker or recent-board menu without restarting the app.
+- [x] Existing no-board, missing `.tb.yaml`, watcher-switch failure, and non-duplicate CLI failure behavior remains covered and unchanged.
+- [ ] Manual smoke: open a board containing the same task ID in `backlog` and `done`; observe the visible load error, confirm stale cards are not shown for that board, then open a valid board successfully. *(human-in-the-loop; pending operator verification)*
+- [x] Verify with `cd gui && go test ./...` and `cd gui/frontend && npm run check && npm test`.
 
 ## Related Tasks
 
@@ -66,4 +66,7 @@ Relevant current seams:
 - 2026-05-15: Edited agentstatus=queued
 - 2026-05-15: Edited agentstatus=running
 - 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Edited agentstatus=failed
+- 2026-05-15: Implemented — backend `boardLoadError` already landed in TB-93 epic (concise diagnostic + Go regression tests `TestLoadBoard_DuplicateCanonicalPathsAreActionable` and `TestLoadBoard_NonDuplicateCLIFailurePreservesExitError`); finished frontend by clearing the board snapshot in `gui/frontend/src/lib/stores/board.ts:refresh()` on rejection so stale cards from the previous root no longer render, and added two regression tests in `gui/frontend/src/lib/stores/board.test.ts` covering the failure-clears-stale path and the seq-guard against stale rejections. `cd gui && go test ./...` and `cd gui/frontend && npm run check && npm test` (77/77) pass. Manual smoke remains for human operator.
+- 2026-05-15: Done
 

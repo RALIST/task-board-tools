@@ -46,6 +46,57 @@ describe('board store refresh ordering', () => {
 
     expect(get(board).backlog[0]?.id).toBe('TB-92');
   });
+
+  it('clears the previous board when a switch refresh fails (TB-145)', async () => {
+    const taskBoardInitial = snapshot('TB-90', 'Board switching is not working');
+    const writerSnapshot = snapshot('WS-001', 'Proofreading chunker epic');
+
+    loadBoard.mockResolvedValueOnce(taskBoardInitial);
+    await refresh();
+    expect(get(board).backlog[0]?.id).toBe('TB-90');
+    expect(get(loadError)).toBeNull();
+
+    const duplicateErr = new Error(
+      'cannot load active board: task WS-1486 appears in multiple status directories (backlog: /tmp/board/backlog/WS-1486.md; done: /tmp/board/done/WS-1486.md). Move or remove one duplicate task file, then reload.',
+    );
+    loadBoard.mockRejectedValueOnce(duplicateErr);
+    await refresh();
+
+    expect(get(board).backlog).toHaveLength(0);
+    expect(get(board).inProgress).toHaveLength(0);
+    expect(get(board).done).toHaveLength(0);
+    expect(get(loadError)).toBe(duplicateErr.message);
+    expect(get(loadError)).not.toContain('Binding call failed');
+
+    loadBoard.mockResolvedValueOnce(writerSnapshot);
+    await refresh();
+    expect(get(board).backlog[0]?.id).toBe('WS-001');
+    expect(get(loadError)).toBeNull();
+  });
+
+  it('does not clobber a newer success with a stale error', async () => {
+    const initial = snapshot('TB-90', 'Initial board');
+    const newer = snapshot('TB-92', 'Newer board');
+    const staleErr = deferred<BoardSnapshot>();
+
+    loadBoard.mockResolvedValueOnce(initial);
+    await refresh();
+    expect(get(board).backlog[0]?.id).toBe('TB-90');
+
+    loadBoard
+      .mockImplementationOnce(() => staleErr.promise)
+      .mockResolvedValueOnce(newer);
+
+    const staleRefresh = refresh();
+    const newRefresh = refresh();
+    await newRefresh;
+    expect(get(board).backlog[0]?.id).toBe('TB-92');
+
+    staleErr.reject(new Error('stale failure'));
+    await staleRefresh;
+    expect(get(board).backlog[0]?.id).toBe('TB-92');
+    expect(get(loadError)).toBeNull();
+  });
 });
 
 function snapshot(id: string, title: string): BoardSnapshot {
@@ -75,8 +126,17 @@ function task(id: string, title: string, status: Task['status']): Task {
   };
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => { resolve = r; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  promise.catch(() => {});
+  return { promise, resolve, reject };
 }

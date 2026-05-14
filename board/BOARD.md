@@ -30,7 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-145 | Board switch error | P0 | gui | — |
+| — | — | — | — | — |
 
 ## Backlog
 
@@ -125,11 +125,15 @@
 | TB-202 | Create proper name and icon for app | improvement | P2 | S | gui |
 | TB-203 | obfuscation agents logs and tasks | bug | P1 | M | gui |
 | TB-204 | Show epic progress | improvement | P2 | M | gui/frontend |
+| TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
+| TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
+| TB-207 | Allow tasl title edit from GUI | improvement | P2 | M | gui |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-145 | Board switch error | bug | gui |
 | TB-129 | Remove ”non-editable” section when edit task’s body | bug | gui |
 | TB-127 | Open ticket full screen | improvement | gui |
 | TB-126 | GUI: dropping a file on a task card attaches it | improvement | gui |
@@ -179,4 +183,3 @@
 | TB-67 | AgentService.GroomTask: queue a groom run distinct from a normal run | feature | gui |
 | TB-66 | GroomingDecorator: wrap a Runner, swap prompt template | feature | gui |
 | TB-65 | prompts/groom.md template + agent.PromptGroom embed | feature | gui |
-| TB-64 | GUI "Open project" button only works once, subsequent clicks do nothing | bug | gui |

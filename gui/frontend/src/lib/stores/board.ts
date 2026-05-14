@@ -37,6 +37,11 @@ export async function refresh(): Promise<void> {
     loaded.set(true);
   } catch (err) {
     if (seq !== refreshSeq) return;
+    // Clearing the snapshot prevents the previously-opened board's cards
+    // from rendering under the newly selected project root when a board
+    // switch fails (TB-145). Use a fresh object so mutators (e.g.
+    // optimisticMove) can't poison the module-level reference.
+    board.set({ backlog: [], inProgress: [], done: [], archive: [] });
     loadError.set(stringifyError(err));
   }
 }

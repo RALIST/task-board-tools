@@ -71,6 +71,7 @@ GUI does not exist yet; planned to live in `gui/` with `wails3 build`.
 - Daemon stale-recovery on startup (M5): tasks left in `AgentStatus: running` after a crash get reconciled by checking PID liveness + replaying JSONL.
 - use `frontend-design` skill for GUI work
 - always run code review session after each meaningful unit of work through /codex:adversarial-review or  `fullstack-code-reviewer`
+- rebuild and install cli binary after any changes in master branch to keep local bin up to date with latest changes.
 
 ## Critical files (CLI today)
 
