@@ -5,6 +5,8 @@
 **Size:** M
 **Module:** cli
 **Tags:** epic-tb93,review-tb93,attach,promotion
+**Agent:** codex
+**AgentStatus:** running
 **Branch:** —
 **Parent:** TB-93
 
@@ -21,3 +23,7 @@ promoteFileTaskWithAttachments at cli/attach.go:322-374 does not migrate board-r
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Edited agent=codex
+- 2026-05-15: Edited agentstatus=queued
+- 2026-05-15: Edited agentstatus=running
+
