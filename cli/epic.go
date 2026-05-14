@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,14 +11,29 @@ import (
 )
 
 func cmdEpic(args []string) {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tb epic <ID>\n\nShows an epic and all its children with progress.")
+	fs := flag.NewFlagSet("epic", flag.ExitOnError)
+	statusFilter := fs.String("status", "active", "status filter: active|archive|all")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: tb epic <ID> [--status active|archive|all]\n\nShows an epic and children in the requested status scope.")
+		fs.PrintDefaults()
+	}
+
+	reordered := reorderArgs(args)
+	if err := fs.Parse(reordered); err != nil {
 		os.Exit(1)
 	}
-	epicID := normalizeTaskID(args[0])
+	if fs.NArg() < 1 {
+		fs.Usage()
+		os.Exit(1)
+	}
+	epicID := normalizeTaskID(fs.Arg(0))
 	boardDir := cfg.BoardDir
+	statuses, err := resolveStatusFilter(*statusFilter)
+	if err != nil {
+		fatal("%v", err)
+	}
 
-	epicPath, err := findTask(boardDir, epicID)
+	epicPath, err := findTaskInStatuses(boardDir, epicID, statuses)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -32,8 +48,7 @@ func cmdEpic(args []string) {
 		fatal("%s is not tagged as an epic", epicID)
 	}
 
-	// Find all children across all status directories.
-	children := findChildren(boardDir, epicID)
+	children := findChildrenInStatuses(boardDir, epicID, statuses)
 
 	// Count progress.
 	doneCount := 0
@@ -51,7 +66,8 @@ func cmdEpic(args []string) {
 		return
 	}
 
-	// Sort: in-progress first, then backlog, then done; within each group by numeric ID.
+	// Sort active work first, then archived children when an explicit archive
+	// scope requested them; within each group by numeric ID.
 	sort.Slice(children, func(i, j int) bool {
 		ri := statusRank(children[i].Status)
 		rj := statusRank(children[j].Status)
@@ -69,16 +85,21 @@ func cmdEpic(args []string) {
 			icon = ">"
 		case "done":
 			icon = "x"
+		case "archive":
+			icon = "-"
 		}
 		fmt.Fprintf(w, "  %s %s\t%s\tS:%s\t[%s]\n", icon, c.ID, c.Title, c.Size, c.Status)
 	}
 	w.Flush()
 }
 
-// findChildren scans all status directories for tasks with Parent matching epicID.
-func findChildren(boardDir, epicID string) []Task {
+func findActiveChildren(boardDir, epicID string) []Task {
+	return findChildrenInStatuses(boardDir, epicID, statusDirs)
+}
+
+func findChildrenInStatuses(boardDir, epicID string, statuses []string) []Task {
 	var children []Task
-	for _, status := range statusDirs {
+	for _, status := range statuses {
 		dirPath := filepath.Join(boardDir, status)
 		entries, err := os.ReadDir(dirPath)
 		if err != nil {
@@ -101,7 +122,7 @@ func findChildren(boardDir, epicID string) []Task {
 	return children
 }
 
-// statusRank returns a sort rank for status ordering (in-progress=0, backlog=1, done=2).
+// statusRank returns a sort rank for status ordering.
 func statusRank(status string) int {
 	switch status {
 	case "in-progress":
@@ -110,7 +131,9 @@ func statusRank(status string) int {
 		return 1
 	case "done":
 		return 2
-	default:
+	case "archive":
 		return 3
+	default:
+		return 4
 	}
 }

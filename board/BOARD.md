@@ -29,7 +29,6 @@
 |----|-------|------|----------|------|--------|
 | TB-6 | M6: Groom flow for AI-assisted task refinement | feature | P2 | L | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | feature | P2 | L | gui |
-| TB-28 | collectAllTasks / findChildren: archive inclusion semantics | improvement | P3 | M | cli |
 | TB-29 | parseTaskFile should reject malformed task files | bug | P3 | S | cli |
 | TB-30 | tb assign sugar for paired Agent + AgentStatus writes | feature | P3 | S | cli |
 | TB-39 | addChildToSubtasks corrupts task body when '## ' headers appear inside backticks | bug | P2 | S | cli |
@@ -81,6 +80,7 @@
 | TB-33 | BoardService: EditTaskBody direct-write under .board.lock | feature | gui |
 | TB-32 | BoardService: CreateTask, EditTask, MoveTask, CloseTask, Regenerate via exec tb | feature | gui |
 | TB-31 | CLI wrapper: mutation commands (create/edit/mv/close/regenerate) | feature | gui |
+| TB-28 | collectAllTasks / findChildren: archive inclusion semantics | improvement | cli |
 | TB-27 | cmdRegenerate should take .board.lock | bug | cli |
 | TB-26 | Atomic write for .next-id under board lock | tech-debt | cli |
 | TB-24 | Frontend TaskDrawer: read-only markdown body | feature | gui |
@@ -100,4 +100,3 @@
 | TB-10 | Migrate task .md writes to writeFileAtomic | tech-debt | cli |
 | TB-9 | Add cli/atomicfs.go writeFileAtomic helper | feature | cli |
 | TB-8 | Rename tb/ to cli/ and add go.work | tech-debt | cli |
-| TB-5 | M5: Agent daemon with autopickup and crash recovery | feature | gui |

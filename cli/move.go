@@ -56,7 +56,7 @@ func cmdDone(args []string) {
 	if findErr == nil {
 		t, parseErr := parseTaskFile(taskPath)
 		if parseErr == nil && hasTag(t.Tags, "epic") {
-			children := findChildren(cfg.BoardDir, taskID)
+			children := findActiveChildren(cfg.BoardDir, taskID)
 			var openChildren []string
 			for _, c := range children {
 				if c.Status != "done" {

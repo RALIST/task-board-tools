@@ -14,8 +14,9 @@ func buildBoardContent(boardDir string) string {
 
 	b.WriteString("# Board\n\n")
 
-	// Epics section — collect all tasks, split epics into active and finished.
-	allTasks := collectAllTasks(boardDir)
+	// Epics section uses the active board scope. Archived tasks are closed and
+	// hidden from BOARD.md unless a command explicitly requests archive/all.
+	allTasks := collectActiveTasks(boardDir)
 	var activeEpics, finishedEpics []Task
 	for _, t := range allTasks {
 		if !hasTag(t.Tags, "epic") {
@@ -182,8 +183,9 @@ func collectTasks(boardDir, status string) []Task {
 	return tasks
 }
 
-// collectAllTasks reads and parses all task files across all status directories.
-func collectAllTasks(boardDir string) []Task {
+// collectActiveTasks reads and parses task files from active board
+// directories only: backlog, in-progress, and done.
+func collectActiveTasks(boardDir string) []Task {
 	var all []Task
 	for _, status := range statusDirs {
 		all = append(all, collectTasks(boardDir, status)...)

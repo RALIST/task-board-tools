@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// statusDirs lists the "active" status directories in the board (everything
-// except archive). Used as the default scope for collect helpers and as the
-// expansion of `--status active`.
+// statusDirs lists the active board directories. Archive is intentionally not
+// active: it is a closed/hidden status for explicit inspection, not a synonym
+// for done.
 var statusDirs = []string{"backlog", "in-progress", "done"}
 
 // allStatusDirs adds archive to the active set; this is the expansion of
@@ -264,14 +264,22 @@ func idExists(boardDir string, dirs []string, id int) bool {
 // task — without this, archived tasks would be permanently unreachable
 // through the normal command surface.
 func findTask(boardDir, taskID string) (string, error) {
+	path, err := findTaskInStatuses(boardDir, taskID, allStatusDirs)
+	if err == nil {
+		return path, nil
+	}
+	return "", fmt.Errorf("task %s not found in any directory (backlog, in-progress, done, archive). Verify the ID with `tb ls --status all`", taskID)
+}
+
+func findTaskInStatuses(boardDir, taskID string, statuses []string) (string, error) {
 	filename := taskID + ".md"
-	for _, status := range allStatusDirs {
+	for _, status := range statuses {
 		path := filepath.Join(boardDir, status, filename)
 		if _, err := os.Stat(path); err == nil {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("task %s not found in any directory (backlog, in-progress, done, archive). Verify the ID with `tb ls --status all`", taskID)
+	return "", fmt.Errorf("task %s not found in requested status scope (%s). Verify the ID with `tb ls --status all`", taskID, strings.Join(statuses, ", "))
 }
 
 // relPath returns the relative path from base to target, falling back to the absolute path.

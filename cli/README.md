@@ -50,7 +50,7 @@ tb init . --prefix=NEW    # changes prefix, keeps existing board path
 | Command | Example | Description |
 |---------|---------|-------------|
 | `create` | `tb create "Fix crash" -m editor -d "Modal crashes on open"` | Create a task (defaults: type=bug, priority=P2, size=M) |
-| `epic` | `tb epic 32` | Show epic with children and progress |
+| `epic` | `tb epic 32` | Show epic with active children and progress |
 | `ls` | `tb ls -T bug -p P1 -m editor` | List/filter tasks sorted by priority (shows all by default; use `-n N` to limit) |
 | `start` | `tb start 123` | Move task to in-progress (warns above `wip_limit`) |
 | `done` | `tb done 123` | Move task to done |
@@ -183,11 +183,14 @@ tb ls --parent 1
 
 # Done warning: completing an epic with open children shows a warning
 tb done 1
+
+# Include archived epic/children only when you ask for that scope
+tb epic 1 --status all
 ```
 
 Children have a `**Parent:** PREFIX-NNN` field in their metadata. The parent's `## Subtasks` section is updated automatically when children are created with `--parent`.
 
-BOARD.md includes an **Epics** section for active epics and a separate **Finished Epics** section for epics with status `done`. Both show progress (done/total) for each epic.
+BOARD.md includes an **Epics** section for active epics and a separate **Finished Epics** section for epics with status `done`. Both show progress (done/total) for each epic. Archived tasks are closed/hidden: they are available through explicit status filters such as `tb ls --status archive`, `tb ls --status all`, or `tb epic --status all`, but they are not treated as done for default board or epic progress.
 
 ## Concurrency
 

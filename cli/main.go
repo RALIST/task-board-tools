@@ -85,7 +85,7 @@ Usage:
   tb close <ID>                                                          Archive task
   tb show <ID> [--json]                                                  Print task content (or {metadata, body} JSON)
   tb open <ID>                                                           Open in default editor
-  tb epic <ID>                                                           Show epic progress
+  tb epic <ID> [--status active|archive|all]                             Show epic progress
   tb triage                                                              Find tasks needing grooming
   tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l]   Search tasks by regex
   tb scan [--apply] [--path dir]                                         Find untagged TODOs

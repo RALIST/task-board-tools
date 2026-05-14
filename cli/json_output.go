@@ -130,7 +130,7 @@ type boardSnapshotJSON struct {
 // Recently Done is capped at 50 items (highest ID first) to match the
 // markdown view.
 func buildBoardSnapshot(boardDir string) boardSnapshotJSON {
-	all := collectAllTasks(boardDir)
+	all := collectActiveTasks(boardDir)
 
 	var activeEpics, finishedEpics, allEpics []Task
 	for _, t := range all {
