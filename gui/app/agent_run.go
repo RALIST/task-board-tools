@@ -14,12 +14,6 @@ import (
 	"tools/tb-gui/internal/cli"
 )
 
-// agentTimeoutDefault is the M4 default deadline for a single run. The
-// architecture doc names 30 minutes as the working timeout; this is a const
-// rather than a setting so M4 stays focused and M7 can plumb it through
-// SettingsService when the time comes.
-const agentTimeoutDefault = 30 * time.Minute
-
 // agentBinary is the strategy point where AgentService picks a Runner for
 // a given agent name. Lives here (not on the struct) so tests can swap it.
 //
@@ -392,15 +386,18 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 	stderrSink := s.newLineSink(boardDir, ar, logWriter, "stderr")
 
 	prompt := agent.RenderPrompt(agent.PromptImplement, promptVarsFromDetail(detail))
+	timeout := s.timeoutForRun()
 
 	in := agent.RunInput{
 		TaskID:      ar.TaskID,
 		Mode:        agent.Mode(ar.Mode),
 		Prompt:      prompt,
 		ProjectRoot: c.Cwd(),
-		Timeout:     agentTimeoutDefault,
-		Stdout:      stdoutSink,
-		Stderr:      stderrSink,
+		// The started JSONL schema has no timeout field yet; the effective
+		// deadline is carried to the runner here.
+		Timeout: timeout,
+		Stdout:  stdoutSink,
+		Stderr:  stderrSink,
 		OnStarted: func(pid, pgid int) {
 			// Hold ar.mu across the cancelled-check and the pid/pgid
 			// write so a racing CancelRun observes a consistent activeRun

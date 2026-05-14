@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // preferencesFile is the filename SettingsService persists tuning knobs
@@ -25,11 +26,30 @@ const (
 	MaxWorkersMax = 4
 )
 
+// AgentTimeoutMinutesDefault is the default unattended agent-run deadline
+// persisted in preferences.json. The service converts it to a duration per
+// run so settings changes take effect without restarting.
+const AgentTimeoutMinutesDefault = 30
+
+// AgentTimeoutMinutesMin / AgentTimeoutMinutesMax bracket the user-tunable
+// timeout range in minutes.
+const (
+	AgentTimeoutMinutesMin = 1
+	AgentTimeoutMinutesMax = 240
+)
+
+// DefaultAgentValues is the persisted enum for the settings panel's default
+// agent dropdown. "none" means leave unassigned unless the user chooses one.
+var DefaultAgentValues = []string{"none", "claude", "codex"}
+
 // Preferences is the persisted tuning knob set. Fields are JSON-tagged
 // in snake_case so a future settings UI (M7) can serialise the same
 // shape directly from a hand-edited form.
 type Preferences struct {
-	MaxWorkers int `json:"max_workers"`
+	MaxWorkers          int    `json:"max_workers"`
+	AgentTimeoutMinutes int    `json:"agent_timeout_minutes"`
+	DefaultAgent        string `json:"default_agent"`
+	CLIPath             string `json:"cli_path"`
 }
 
 // preferencesPath returns the absolute path the preferences file lives
@@ -66,14 +86,59 @@ func (s *SettingsService) GetMaxWorkers() int {
 // SetMaxWorkers persists the value to disk after clamping. Returns the
 // underlying I/O error on failure.
 func (s *SettingsService) SetMaxWorkers(n int) error {
+	return s.updatePreferences(func(prefs *Preferences) {
+		prefs.MaxWorkers = n
+	})
+}
+
+// GetAgentTimeoutMinutes returns the persisted agent timeout in minutes,
+// clamped to [AgentTimeoutMinutesMin, AgentTimeoutMinutesMax]. Missing/zero
+// values yield AgentTimeoutMinutesDefault.
+func (s *SettingsService) GetAgentTimeoutMinutes() int {
 	prefs, err := s.loadPreferences()
 	if err != nil {
-		// Treat a corrupt file as empty — overwrite cleanly.
-		s.logger.Warn("preferences: read for write failed; starting fresh", "err", err)
-		prefs = Preferences{}
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return AgentTimeoutMinutesDefault
 	}
-	prefs.MaxWorkers = clampMaxWorkers(n, s.logger)
-	return s.savePreferences(prefs)
+	return clampAgentTimeoutMinutes(prefs.AgentTimeoutMinutes, s.logger)
+}
+
+// SetAgentTimeoutMinutes persists the agent timeout in minutes after
+// clamping. Returns the underlying I/O error on failure.
+func (s *SettingsService) SetAgentTimeoutMinutes(n int) error {
+	return s.updatePreferences(func(prefs *Preferences) {
+		prefs.AgentTimeoutMinutes = n
+	})
+}
+
+// GetDefaultAgent returns the default agent selection. Unknown values fall
+// back to "none" so hand-edited config cannot force an unsupported runner.
+func (s *SettingsService) GetDefaultAgent() string {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return "none"
+	}
+	return normalizeDefaultAgent(prefs.DefaultAgent, s.logger)
+}
+
+// SetDefaultAgent persists the default agent selection after normalizing it
+// to the supported enum.
+func (s *SettingsService) SetDefaultAgent(agent string) error {
+	return s.updatePreferences(func(prefs *Preferences) {
+		prefs.DefaultAgent = agent
+	})
+}
+
+// GetCLIPath returns the persisted tb binary path override. Empty means the
+// CLI client should use PATH lookup.
+func (s *SettingsService) GetCLIPath() string {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return ""
+	}
+	return prefs.CLIPath
 }
 
 func clampMaxWorkers(n int, logger *slog.Logger) int {
@@ -92,11 +157,71 @@ func clampMaxWorkers(n int, logger *slog.Logger) int {
 	return n
 }
 
+func clampAgentTimeoutMinutes(n int, logger *slog.Logger) int {
+	if n == 0 {
+		return AgentTimeoutMinutesDefault
+	}
+	if n < AgentTimeoutMinutesMin {
+		logger.Warn("preferences: agent_timeout_minutes below min; clamping",
+			"value", n, "min", AgentTimeoutMinutesMin)
+		return AgentTimeoutMinutesMin
+	}
+	if n > AgentTimeoutMinutesMax {
+		logger.Warn("preferences: agent_timeout_minutes above max; clamping",
+			"value", n, "max", AgentTimeoutMinutesMax)
+		return AgentTimeoutMinutesMax
+	}
+	return n
+}
+
+func normalizeDefaultAgent(agent string, logger *slog.Logger) string {
+	trimmed := strings.ToLower(strings.TrimSpace(agent))
+	if trimmed == "" {
+		return "none"
+	}
+	for _, allowed := range DefaultAgentValues {
+		if trimmed == allowed {
+			return trimmed
+		}
+	}
+	logger.Warn("preferences: default_agent unsupported; using none",
+		"value", agent, "allowed", DefaultAgentValues)
+	return "none"
+}
+
+func defaultPreferences() Preferences {
+	return Preferences{
+		MaxWorkers:          MaxWorkersDefault,
+		AgentTimeoutMinutes: AgentTimeoutMinutesDefault,
+		DefaultAgent:        "none",
+	}
+}
+
+func normalizePreferences(prefs Preferences, logger *slog.Logger) Preferences {
+	prefs.MaxWorkers = clampMaxWorkers(prefs.MaxWorkers, logger)
+	prefs.AgentTimeoutMinutes = clampAgentTimeoutMinutes(prefs.AgentTimeoutMinutes, logger)
+	prefs.DefaultAgent = normalizeDefaultAgent(prefs.DefaultAgent, logger)
+	return prefs
+}
+
+func (s *SettingsService) updatePreferences(mut func(*Preferences)) error {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		// Treat a corrupt file as empty — overwrite cleanly.
+		s.logger.Warn("preferences: read for write failed; starting fresh", "err", err)
+		prefs = defaultPreferences()
+	}
+	prefs = normalizePreferences(prefs, s.logger)
+	mut(&prefs)
+	prefs = normalizePreferences(prefs, s.logger)
+	return s.savePreferences(prefs)
+}
+
 func (s *SettingsService) loadPreferences() (Preferences, error) {
 	path := s.preferencesPath()
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Preferences{MaxWorkers: MaxWorkersDefault}, nil
+		return defaultPreferences(), nil
 	}
 	if err != nil {
 		return Preferences{}, err

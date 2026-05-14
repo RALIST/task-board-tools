@@ -20,10 +20,19 @@ func newSettingsForPrefs(t *testing.T) (*SettingsService, string) {
 	return s, prefs
 }
 
-func TestGetMaxWorkers_MissingFile(t *testing.T) {
+func TestPreferences_MissingFileReturnsDefaults(t *testing.T) {
 	s, _ := newSettingsForPrefs(t)
 	if got := s.GetMaxWorkers(); got != MaxWorkersDefault {
-		t.Errorf("missing file: got %d, want %d", got, MaxWorkersDefault)
+		t.Errorf("max_workers: got %d, want %d", got, MaxWorkersDefault)
+	}
+	if got := s.GetAgentTimeoutMinutes(); got != AgentTimeoutMinutesDefault {
+		t.Errorf("agent_timeout_minutes: got %d, want %d", got, AgentTimeoutMinutesDefault)
+	}
+	if got := s.GetDefaultAgent(); got != "none" {
+		t.Errorf("default_agent: got %q, want none", got)
+	}
+	if got := s.GetCLIPath(); got != "" {
+		t.Errorf("cli_path: got %q, want empty", got)
 	}
 }
 
@@ -45,6 +54,58 @@ func TestSetMaxWorkers_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestSetAgentTimeoutMinutes_RoundTrip(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := s.SetAgentTimeoutMinutes(45); err != nil {
+		t.Fatalf("SetAgentTimeoutMinutes: %v", err)
+	}
+	if got := s.GetAgentTimeoutMinutes(); got != 45 {
+		t.Errorf("after set: got %d, want 45", got)
+	}
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetAgentTimeoutMinutes(); got != 45 {
+		t.Errorf("fresh read: got %d, want 45", got)
+	}
+}
+
+func TestSetDefaultAgent_RoundTrip(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := s.SetDefaultAgent("Codex"); err != nil {
+		t.Fatalf("SetDefaultAgent: %v", err)
+	}
+	if got := s.GetDefaultAgent(); got != "codex" {
+		t.Errorf("after set: got %q, want codex", got)
+	}
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetDefaultAgent(); got != "codex" {
+		t.Errorf("fresh read: got %q, want codex", got)
+	}
+}
+
+func TestSetCLIPath_RoundTrip(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	want := stubTbBinary(t)
+	if err := s.SetCLIPath(want); err != nil {
+		t.Fatalf("SetCLIPath: %v", err)
+	}
+	if got := s.GetCLIPath(); got != want {
+		t.Errorf("after set: got %q, want %q", got, want)
+	}
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetCLIPath(); got != want {
+		t.Errorf("fresh read: got %q, want %q", got, want)
+	}
+}
+
 func TestSetMaxWorkers_ClampsBelow(t *testing.T) {
 	s, _ := newSettingsForPrefs(t)
 	if err := s.SetMaxWorkers(0); err != nil {
@@ -62,6 +123,38 @@ func TestSetMaxWorkers_ClampsAbove(t *testing.T) {
 	}
 	if got := s.GetMaxWorkers(); got != MaxWorkersMax {
 		t.Errorf("999 → got %d, want %d", got, MaxWorkersMax)
+	}
+}
+
+func TestSetAgentTimeoutMinutes_ZeroUsesDefault(t *testing.T) {
+	s, _ := newSettingsForPrefs(t)
+	if err := s.SetAgentTimeoutMinutes(0); err != nil {
+		t.Fatalf("SetAgentTimeoutMinutes(0): %v", err)
+	}
+	if got := s.GetAgentTimeoutMinutes(); got != AgentTimeoutMinutesDefault {
+		t.Errorf("0 → got %d, want %d", got, AgentTimeoutMinutesDefault)
+	}
+}
+
+func TestGetAgentTimeoutMinutes_ReadTimeClampsAbove(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	b, _ := json.Marshal(Preferences{AgentTimeoutMinutes: 99999})
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := s.GetAgentTimeoutMinutes(); got != AgentTimeoutMinutesMax {
+		t.Errorf("clamp on read: got %d, want %d", got, AgentTimeoutMinutesMax)
+	}
+}
+
+func TestGetDefaultAgent_ReadTimeUnknownFallsBackToNone(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	b, _ := json.Marshal(Preferences{DefaultAgent: "foo"})
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := s.GetDefaultAgent(); got != "none" {
+		t.Errorf("unknown default_agent: got %q, want none", got)
 	}
 }
 

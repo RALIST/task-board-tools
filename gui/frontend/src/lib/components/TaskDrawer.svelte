@@ -26,6 +26,7 @@
     type Run,
   } from '$lib/stores/runs';
   import { consumeGroomSuggestion, groomSuggestedFor } from '$lib/stores/groomSuggestion';
+  import { defaultAgent as defaultAgentPreference } from '$lib/stores/preferences';
   import { triageForTask } from '$lib/stores/triage';
   import BodyEditor from './BodyEditor.svelte';
   import AgentRunLog from './AgentRunLog.svelte';
@@ -160,6 +161,10 @@
   let liveStatus = $derived(selectedRun?.status ?? '');
   let runBusy = $derived(liveStatus === 'queued' || liveStatus === 'running' || runStarting || groomStarting);
   let groomEmphasized = $derived(groomReasons.length > 0 || groomHighlight);
+  let persistedAgent = $derived((detail?.metadata.agent ?? '') as AgentName);
+  let displayedAgent = $derived(
+    persistedAgent || ($defaultAgentPreference === 'none' ? '' : $defaultAgentPreference),
+  );
 
   $effect(() => {
     const id = taskId;
@@ -190,10 +195,11 @@
     };
   });
 
-  async function onAgentChange() {
+  async function onAgentChange(ev: Event) {
     if (!detail) return;
     const id = detail.metadata.id;
-    const target = (formAgent || 'none') as AgentName;
+    const target = (((ev.currentTarget as HTMLSelectElement).value as AgentName) || 'none') as AgentName;
+    formAgent = target === 'none' ? '' : target;
     const prev = (detail.metadata.agent ?? '') as AgentName;
     if (target === prev || (target === 'none' && prev === '')) return;
     agentSaving = true;
@@ -611,7 +617,7 @@
               <select
                 aria-label="Agent"
                 disabled={agentSaving}
-                bind:value={formAgent}
+                value={displayedAgent}
                 onchange={onAgentChange}>
                 <option value="">(none)</option>
                 <option value="claude">claude</option>
@@ -622,8 +628,8 @@
               <button
                 class="primary"
                 type="button"
-                disabled={!formAgent || runBusy}
-                title={!formAgent ? 'Assign an agent first' : (liveStatus === 'running' ? 'Already running' : '')}
+                disabled={!persistedAgent || runBusy}
+                title={!persistedAgent ? 'Assign an agent first' : (liveStatus === 'running' ? 'Already running' : '')}
                 onclick={onRunClick}>
                 {runStarting ? 'Starting…' : 'Run'}
               </button>
@@ -631,8 +637,8 @@
                 class:emphasized={groomEmphasized && !runBusy}
                 class="secondary"
                 type="button"
-                disabled={!formAgent || runBusy}
-                title={groomReasons.length > 0 ? `Needs grooming: ${groomReasons.join(', ')}` : (!formAgent ? 'Assign an agent first' : '')}
+                disabled={!persistedAgent || runBusy}
+                title={groomReasons.length > 0 ? `Needs grooming: ${groomReasons.join(', ')}` : (!persistedAgent ? 'Assign an agent first' : '')}
                 onclick={onGroomClick}>
                 {groomStarting ? 'Grooming…' : 'Groom'}
               </button>

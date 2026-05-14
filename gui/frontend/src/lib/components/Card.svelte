@@ -66,6 +66,7 @@
 
 <div
   class="card"
+  data-task-id={task.id}
   class:epic={isEpic}
   role="button"
   tabindex="0"

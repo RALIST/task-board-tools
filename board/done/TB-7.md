@@ -56,11 +56,11 @@ See children under `tb epic TB-7`. Decomposition spans:
 
 ## Acceptance Criteria
 
-- [ ] Settings UI for agent timeout, max workers, default agent, CLI binary path
-- [ ] Native application menu: File → Open board… / Open Recent › / Quit; View; Help
-- [ ] System tray icon with idle/running glyph + show/hide window
-- [ ] Keyboard shortcuts: `N` (new task), `/` (focus search), `Esc` (close drawer), `Enter` (open selected card)
-- [ ] All M7 markers in `docs/IMPLEMENTATION.md` and `docs/FEATURES.md` (F7.1/F7.2/F7.3) flipped to ☑
+- [x] Settings UI for agent timeout, max workers, default agent, CLI binary path
+- [x] Native application menu: File → Open board… / Open Recent › / Quit; View; Help
+- [x] System tray icon with idle/running glyph + show/hide window
+- [x] Keyboard shortcuts: `N` (new task), `/` (focus search), `Esc` (close drawer), `Enter` (open selected card)
+- [x] All M7 markers in `docs/IMPLEMENTATION.md` and `docs/FEATURES.md` (F7.1/F7.2/F7.3) flipped to ☑
 
 ## Related Tasks
 
@@ -73,3 +73,6 @@ See children under `tb epic TB-7`. Decomposition spans:
 - 2026-05-13: Created
 - 2026-05-14: Groomed — clarified CLI-path inclusion, distinguished native menu from empty-state recents, called out Wails3 alpha probe risk, locked default-agent semantics; decomposed into TB-76..TB-85
 - 2026-05-14: Codex review pass — verified Wails3 alpha menu/tray APIs exist; corrected TB-79 (Agent dropdown auto-saves on change, no Assign button), TB-84 (selection.ts only tracks open-drawer id, not card focus), TB-77 (AgentService is built before SettingsService — needs late-bound TimeoutProvider), TB-78 (live reload via BoardService.setClient, not OpenBoard), TB-80 (use writable/derived per runs.ts, not Svelte 5 runes), TB-76 (normalize wording for missing/zero), TB-82+TB-85 (introduce F7.4 spec anchor for the application menu)
+- 2026-05-14: Started — moved to in-progress
+- 2026-05-14: Done
+- 2026-05-14: Done — shipped M7 preferences/settings UI, per-run timeout, live CLI path reload, visual default-agent fallback, keyboard shortcuts, native menu, tray state controller, docs flip, and focused Go/Vitest/Svelte verification.

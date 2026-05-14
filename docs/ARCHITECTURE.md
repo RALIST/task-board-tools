@@ -18,6 +18,7 @@ Two binaries built from one repo, sharing the same on-disk format.
                            │  │  settings)                  │   │
                            │  │  + watcher (fsnotify)       │   │
                            │  │  + daemon (worker pool)     │   │
+                           │  │  + shell (menu/tray)        │   │
                            │  └─┬────────────┬──────────┬───┘   │
                            └────│────────────│──────────│───────┘
               exec("tb …")     │            │          │
@@ -115,8 +116,8 @@ One-sentence objective.
 Exported to the frontend via Wails3 bindings.
 
 - **`BoardService`** — Load board snapshot, get task detail, create/edit/move/close. All structured calls delegate to `exec tb …`. `EditTaskBody` is the one exception (direct write — see "Locking" below).
-- **`AgentService`** — Assign agent, run agent (enqueue to in-process daemon), groom task (run with a different prompt), cancel, list runs.
-- **`SettingsService`** — Project root selection, recent boards, agent timeout, CLI binary path.
+- **`AgentService`** — Assign agent, run agent (enqueue to in-process daemon), groom task (run with a different prompt), cancel, list runs. The run timeout comes from a late-bound provider so settings changes apply to the next run.
+- **`SettingsService`** — Project root selection, recent boards, max workers, agent timeout, default agent, CLI binary path.
 
 ### `gui/internal/` — non-exported helpers (Go)
 
@@ -125,12 +126,13 @@ Exported to the frontend via Wails3 bindings.
 - **`watcher/`** — fsnotify wrapper. Watches the status directories, ignores `BOARD.md`, `.next-id`, `.board.lock`, `.agent-state/`, `.agent-logs/`. Debounces 200ms. Emits Wails events `board:reloaded` (create/remove/rename) and `task:updated:<id>` (write).
 - **`agent/`** — `Runner` interface + `ClaudeRunner`, `CodexRunner`, `GroomingDecorator`. Embedded prompt templates via `//go:embed`.
 - **`daemon/`** — goroutine that owns the queue, scans for `AgentStatus: queued`, runs them through the worker pool, writes JSONL events.
+- **`shell/`** — native application menu and system tray controller. It calls the same Wails services as the frontend and emits `settings:open-panel` for the Svelte settings panel.
 
 ### `gui/frontend/` — Svelte 5 + SvelteKit
 
 - Single route (`+page.svelte`).
-- Components: `Board`, `Column`, `Card`, `TaskDrawer`, `FilterBar`, `CreateTaskDialog`, `AgentRunLog`, `Toast`.
-- Stores: `boardStore` (id→task map), `filterStore`, `runsStore`, `selectionStore`.
+- Components: `Board`, `Column`, `Card`, `TaskDrawer`, `FilterBar`, `CreateTaskDialog`, `SettingsPanel`, `AgentRunLog`, `Toast`.
+- Stores: `boardStore` (id→task map), `filterStore`, `preferencesStore`, `runsStore`, `selectionStore`.
 - Talks to Wails via auto-generated bindings; listens to events for live updates.
 
 ## Locking and atomic writes
@@ -211,6 +213,16 @@ A goroutine inside the GUI process. Constructed in `main` before `app.Run()`; *a
 4. **Worker pool**: N workers (N = `MaxWorkers`, default 1, configurable 1–4 via `$XDG_CONFIG_HOME/tb-gui/preferences.json`) read a buffered task-ID channel. In-memory active-set keyed by `task_id` plus `AgentService.HasActiveRun` cross-check prevents duplicate enqueue.
 5. **Per-run**: workers call an internal blocking executor `AgentService.RunQueuedAgentSync(ctx, id)` (distinct from public `RunAgent` which still serves the drawer Run button). The executor accepts an `AgentStatus=queued` task, writes `started`+pid+agent JSONL, sets `AgentStatus: running` via `tb edit`, spawns the runner with the caller-supplied ctx (so daemon shutdown cancellation propagates), tees stdout/stderr to log file + Wails events, writes `finished` + terminal `AgentStatus` on exit, returns the terminal status. Blocks until terminal.
 6. **Shutdown**: cancel root context; workers' cancel-finish helper writes `finished{status: cancelled, reason: "shutdown"}` JSONL events. Wait up to 5s; whatever didn't drain is reconciled by next-start recovery.
+
+## Native shell
+
+`gui/internal/shell.Controller` owns desktop-only affordances that do not belong in Svelte component state:
+
+- **Application menu**: File → Open board / Open Recent / Settings / Quit, View → Reload board, Help → About / Open docs. Menu items call `SettingsService`, `BoardService`, or emit `settings:open-panel`; they do not duplicate board-opening logic.
+- **Recent boards**: `SettingsService.OpenBoard` emits `recents:changed` after `rememberBoard`; the shell controller reloads `ListRecentBoards()` and rebuilds the native Open Recent submenu.
+- **Settings entry points**: native menu and tray both emit `settings:open-panel`, while the frontend also exposes a topbar button. The Svelte `SettingsPanel` is the only settings form.
+- **Tray state**: the tray maintains an in-memory active-run counter from Wails events. `agent:run-started` increments; `agent:run-finished` and `agent:run-cancelled` decrement with a zero floor. The icon is idle when the counter is zero and running otherwise. JSONL remains the durable source of truth; tray state is presentation only.
+- **Window lifetime**: on tray-capable desktop platforms, `ApplicationShouldTerminateAfterLastWindowClosed=false` so closing the main window does not kill daemon work. Quit from the menu or tray still exits the app and runs daemon shutdown.
 
 ## Single instance
 

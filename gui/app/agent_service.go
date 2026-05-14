@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"tools/tb-gui/internal/cli"
 )
@@ -47,14 +48,20 @@ type Emitter interface {
 	Emit(name string, data ...any)
 }
 
+// TimeoutProvider returns the deadline for a single agent run. Production
+// wiring can late-bind SettingsService through a closure so a preference
+// change is observed by the next run without reconstructing AgentService.
+type TimeoutProvider func() time.Duration
+
 // AgentService coordinates agent assignment and (in later subtasks) run
 // orchestration. It composes the CLI client from BoardService for `tb edit`
 // calls and a separate Emitter for Wails events. Its active-run table is
 // kept here so CancelRun (TB-48) can mutate live state without reaching
 // across packages.
 type AgentService struct {
-	board   *BoardService
-	emitter Emitter
+	board           *BoardService
+	emitter         Emitter
+	timeoutProvider TimeoutProvider
 
 	// factory is the Runner selector. Nil in production (defaultRunnerFactory
 	// applies); tests override via SetRunnerFactoryForTesting.
@@ -68,22 +75,39 @@ type AgentService struct {
 
 // AgentServiceOptions configures NewAgentService.
 type AgentServiceOptions struct {
-	Board   *BoardService
-	Emitter Emitter
+	Board           *BoardService
+	Emitter         Emitter
+	TimeoutProvider TimeoutProvider
 }
 
 // NewAgentService returns a ready service. Emitter is allowed to be nil
 // during tests; production wiring always passes the app's event bus.
 func NewAgentService(opts AgentServiceOptions) *AgentService {
 	return &AgentService{
-		board:   opts.Board,
-		emitter: opts.Emitter,
-		active:  make(map[string]*activeRun),
+		board:           opts.Board,
+		emitter:         opts.Emitter,
+		timeoutProvider: opts.TimeoutProvider,
+		active:          make(map[string]*activeRun),
 	}
 }
 
 // ServiceName satisfies the Wails service contract.
 func (s *AgentService) ServiceName() string { return "AgentService" }
+
+func (s *AgentService) timeoutForRun() time.Duration {
+	if s.timeoutProvider == nil {
+		return defaultAgentTimeoutDuration()
+	}
+	timeout := s.timeoutProvider()
+	if timeout <= 0 {
+		return defaultAgentTimeoutDuration()
+	}
+	return timeout
+}
+
+func defaultAgentTimeoutDuration() time.Duration {
+	return time.Duration(AgentTimeoutMinutesDefault) * time.Minute
+}
 
 // AssignAgent sets the task's `**Agent:**` metadata to the given agent name,
 // or clears it when agent is "" / "none". Validation happens in the service

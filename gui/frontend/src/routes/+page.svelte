@@ -4,6 +4,7 @@
   import Board from '$lib/components/Board.svelte';
   import CreateTaskDialog from '$lib/components/CreateTaskDialog.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
+  import SettingsPanel from '$lib/components/SettingsPanel.svelte';
   import TaskDrawer from '$lib/components/TaskDrawer.svelte';
   import Toast from '$lib/components/Toast.svelte';
   import {
@@ -34,11 +35,14 @@
   import { pushToast } from '$lib/stores/toast';
   import { registerAgentEventHandlers } from '$lib/stores/runs';
   import { registerTriageEventHandlers } from '$lib/stores/triage';
+  import { preferencesStore } from '$lib/stores/preferences';
+  import { shortcutAction } from '$lib/shortcuts';
 
   let projectRoot = $state('');
   let recents = $state<RecentBoard[]>([]);
   let bootStatus = $state<'loading' | 'ready' | 'pick'>('loading');
   let createOpen = $state(false);
+  let settingsOpen = $state(false);
 
   const offEvents: Array<() => void> = [];
 
@@ -47,6 +51,7 @@
   let epics = $derived(observedEpics($board));
 
   onMount(async () => {
+    void preferencesStore.load().catch(() => {});
     try { projectRoot = await getProjectRoot(); } catch { projectRoot = ''; }
     try { recents = await listRecentBoards(); } catch { recents = []; }
 
@@ -72,8 +77,10 @@
       const root = info?.data?.projectRoot ?? info?.projectRoot ?? '';
       if (root) projectRoot = root;
       bootStatus = 'ready';
+      try { recents = await listRecentBoards(); } catch { recents = []; }
       await refresh();
     }));
+    offEvents.push(Events.On('settings:open-panel', () => { settingsOpen = true; }));
     offEvents.push(Events.On('task:updated', async (raw: any) => {
       const name: string = raw?.name ?? '';
       const id = name.replace(/^task:updated:/, '');
@@ -88,6 +95,8 @@
     offEvents.push(
       registerTriageEventHandlers((name, handler) => Events.On(name, handler as any)),
     );
+    window.addEventListener('keydown', onGlobalKeydown);
+    offEvents.push(() => window.removeEventListener('keydown', onGlobalKeydown));
   });
 
   onDestroy(() => {
@@ -150,6 +159,48 @@
   function onShowArchiveChange(show: boolean) {
     setStatusMode(show ? 'all' : 'active');
   }
+
+  function onGlobalKeydown(event: KeyboardEvent) {
+    const focusedCardId = focusedTaskId();
+    const action = shortcutAction(event, {
+      createOpen,
+      settingsOpen,
+      drawerOpen: $selectedTaskId != null,
+      focusedCardId,
+    });
+    if (action === 'none') return;
+    event.preventDefault();
+
+    switch (action) {
+      case 'open-create':
+        createOpen = true;
+        break;
+      case 'focus-search':
+        document.querySelector<HTMLInputElement>('.filter .search')?.focus();
+        break;
+      case 'close-settings':
+        settingsOpen = false;
+        break;
+      case 'close-create':
+        createOpen = false;
+        break;
+      case 'close-drawer':
+        closeTask();
+        break;
+      case 'blur-card':
+        (document.activeElement as HTMLElement | null)?.blur?.();
+        break;
+      case 'open-focused-card':
+        if (focusedCardId) openTask(focusedCardId);
+        break;
+    }
+  }
+
+  function focusedTaskId(): string | null {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) return null;
+    return active.closest<HTMLElement>('[data-task-id]')?.dataset.taskId ?? null;
+  }
 </script>
 
 <svelte:head>
@@ -168,6 +219,7 @@
       {#if bootStatus === 'ready'}
         <button class="new" onclick={() => (createOpen = true)} title="Create task (n)">+ New</button>
       {/if}
+      <button class="pick" onclick={() => (settingsOpen = true)}>Settings</button>
       <button class="pick" onclick={pickAndOpen}>Open board…</button>
     </div>
   </header>
@@ -205,6 +257,8 @@
   {epics}
   onClose={() => (createOpen = false)}
   onCreated={(id) => openTask(id)} />
+
+<SettingsPanel open={settingsOpen} onClose={() => (settingsOpen = false)} />
 
 <Toast />
 

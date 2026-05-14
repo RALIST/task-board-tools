@@ -67,6 +67,10 @@ func (s *stubRunner) input() agent.RunInput {
 // backlog. Returns the service ready to RunAgent against. The runner factory
 // is swapped to a stub so the agent process never actually spawns.
 func realTbBoardForRun(t *testing.T, agentName string, stub *stubRunner) (*AgentService, string) {
+	return realTbBoardForRunWithOptions(t, agentName, stub, nil)
+}
+
+func realTbBoardForRunWithOptions(t *testing.T, agentName string, stub *stubRunner, configure func(*AgentServiceOptions)) (*AgentService, string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX-only board flock")
@@ -99,7 +103,11 @@ func realTbBoardForRun(t *testing.T, agentName string, stub *stubRunner) (*Agent
 	board.setClient(c)
 	board.setBoardDir(boardDir)
 	em := newRecordingEmitter()
-	svc := NewAgentService(AgentServiceOptions{Board: board, Emitter: em})
+	opts := AgentServiceOptions{Board: board, Emitter: em}
+	if configure != nil {
+		configure(&opts)
+	}
+	svc := NewAgentService(opts)
 	if stub != nil {
 		svc.setRunnerFactory(func(name string) (agent.Runner, error) {
 			return stub, nil
@@ -255,6 +263,34 @@ func TestGroomTask_HappyPath_Success(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Event != agent.EvFinished || last.Status != agent.StatusSuccess {
 		t.Fatalf("final event: %+v", last)
+	}
+}
+
+func TestRunAgent_TimeoutProviderIsReadPerRun(t *testing.T) {
+	stub := &stubRunner{
+		name:     "claude",
+		exitCode: 0,
+	}
+	timeout := time.Minute
+	svc, _ := realTbBoardForRunWithOptions(t, "claude", stub, func(opts *AgentServiceOptions) {
+		opts.TimeoutProvider = func() time.Duration { return timeout }
+	})
+
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("first RunAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+	if got := stub.input().Timeout; got != time.Minute {
+		t.Fatalf("first timeout: got %v, want 1m", got)
+	}
+
+	timeout = 2 * time.Minute
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("second RunAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+	if got := stub.input().Timeout; got != 2*time.Minute {
+		t.Fatalf("second timeout: got %v, want 2m", got)
 	}
 }
 

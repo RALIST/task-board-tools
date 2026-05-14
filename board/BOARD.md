@@ -1,11 +1,5 @@
 # Board
 
-## Epics
-
-| ID | Title | Progress | Status | Module |
-|----|-------|----------|--------|--------|
-| TB-7 | M7: Polish — settings, shortcuts, tray, menus | 0/10 | backlog | gui |
-
 ## Finished Epics
 
 | ID | Title | Progress | Module |
@@ -16,6 +10,7 @@
 | TB-4 | M4: Agent assignment and manual runs from GUI | 10/10 | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 10/11 | gui |
+| TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 
 ## In Progress
 
@@ -27,29 +22,30 @@
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-7 | M7: Polish — settings, shortcuts, tray, menus | feature | P2 | L | gui |
 | TB-29 | parseTaskFile should reject malformed task files | bug | P3 | S | cli |
 | TB-30 | tb assign sugar for paired Agent + AgentStatus writes | feature | P3 | S | cli |
 | TB-39 | Make CLI task-section scans ignore quoted Markdown headings | bug | P2 | M | cli |
 | TB-63 | GUI tag header overflows when too many tags — collapse to popular + dropdown | bug | P1 | M | gui |
 | TB-64 | GUI "Open project" button only works once, subsequent clicks do nothing | bug | P1 | S | gui |
 | TB-74 | Docs: flip M6 markers — IMPLEMENTATION.md / FEATURES.md F6.1+F6.2 / ARCHITECTURE.md GroomingDecorator | improvement | P2 | S | docs |
-| TB-76 | Preferences struct: add agent_timeout_minutes, default_agent, cli_path with clamps + tests | feature | P2 | S | gui |
-| TB-77 | Wire agent_timeout_minutes into agent_run.go (replace agentTimeoutDefault const) | feature | P2 | S | gui |
-| TB-78 | Wire cli_path preference into cli.NewClient at board open + reload on change | feature | P2 | S | gui |
-| TB-79 | Wire default_agent into AssignAgent dropdown default for unassigned tasks | feature | P2 | S | gui |
-| TB-80 | Frontend api.ts settings wrappers + preferencesStore.ts | feature | P2 | S | gui |
-| TB-81 | SettingsPanel.svelte: form for timeout/max_workers/default_agent/cli_path with Save + toast | feature | P2 | M | gui |
-| TB-82 | Wails3 application menu: File (Open board…, Open Recent ›, Quit), View, Help | feature | P2 | M | gui |
-| TB-83 | System tray: idle/running glyph + click to show/hide window | feature | P2 | M | gui |
-| TB-84 | Keyboard shortcuts: N (new), / (search), Esc (close drawer), Enter (open card) | feature | P2 | S | gui |
-| TB-85 | Docs flip: IMPLEMENTATION.md M7 + FEATURES.md F7.1/F7.2/F7.3 markers + ARCHITECTURE.md if needed | tech-debt | P2 | S | gui |
+| TB-87 | Epic itself do not shown in column | bug | P1 | S |  |
+| TB-88 | Binding call failed | bug | P2 | M |  |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
 | TB-86 | Adapt post-edit hook for Codex PostToolUse | improvement | tooling |
+| TB-85 | Docs flip: IMPLEMENTATION.md M7 + FEATURES.md F7.1/F7.2/F7.3 markers + ARCHITECTURE.md if needed | tech-debt | gui |
+| TB-84 | Keyboard shortcuts: N (new), / (search), Esc (close drawer), Enter (open card) | feature | gui |
+| TB-83 | System tray: idle/running glyph + click to show/hide window | feature | gui |
+| TB-82 | Wails3 application menu: File (Open board…, Open Recent ›, Quit), View, Help | feature | gui |
+| TB-81 | SettingsPanel.svelte: form for timeout/max_workers/default_agent/cli_path with Save + toast | feature | gui |
+| TB-80 | Frontend api.ts settings wrappers + preferencesStore.ts | feature | gui |
+| TB-79 | Wire default_agent into AssignAgent dropdown default for unassigned tasks | feature | gui |
+| TB-78 | Wire cli_path preference into cli.NewClient at board open + reload on change | feature | gui |
+| TB-77 | Wire agent_timeout_minutes into agent_run.go (replace agentTimeoutDefault const) | feature | gui |
+| TB-76 | Preferences struct: add agent_timeout_minutes, default_agent, cli_path with clamps + tests | feature | gui |
 | TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | feature | cli |
 | TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | feature | gui |
 | TB-72 | TaskDrawer: Groom button next to Run, shared Cancel, mode-labelled past runs | feature | gui |
@@ -89,13 +85,3 @@
 | TB-34 | Drag-and-drop between columns with optimistic UI and conflict revert | feature | gui |
 | TB-33 | BoardService: EditTaskBody direct-write under .board.lock | feature | gui |
 | TB-32 | BoardService: CreateTask, EditTask, MoveTask, CloseTask, Regenerate via exec tb | feature | gui |
-| TB-31 | CLI wrapper: mutation commands (create/edit/mv/close/regenerate) | feature | gui |
-| TB-28 | collectAllTasks / findChildren: archive inclusion semantics | improvement | cli |
-| TB-27 | cmdRegenerate should take .board.lock | bug | cli |
-| TB-26 | Atomic write for .next-id under board lock | tech-debt | cli |
-| TB-24 | Frontend TaskDrawer: read-only markdown body | feature | gui |
-| TB-23 | Frontend kanban: Board, Column, Card components (read-only) | feature | gui |
-| TB-22 | Frontend skeleton: api.ts, stores, +page.svelte layout | feature | gui |
-| TB-21 | SettingsService: project root, recent boards, folder picker | feature | gui |
-| TB-20 | fsnotify watcher with debounce and Wails events | feature | gui |
-| TB-19 | BoardService: LoadBoard and GetTask via exec tb | feature | gui |

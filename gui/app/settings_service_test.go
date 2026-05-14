@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
+
+	"tools/tb-gui/internal/cli"
 )
 
 // fakeSwitcher captures Switch calls; satisfies the Switcher interface.
@@ -65,6 +68,20 @@ func stubTbBinary(t *testing.T) string {
 	dir := t.TempDir()
 	stub := filepath.Join(dir, "tb")
 	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho '[]'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return stub
+}
+
+func stubTbBinaryWithMarker(t *testing.T, marker, logPath string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("posix shell stub")
+	}
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "tb")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%s\\n' >> %q\necho '[]'\n", marker, logPath)
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return stub
@@ -156,6 +173,109 @@ func TestOpenBoard_HappyPath(t *testing.T) {
 	}
 	if len(recentList) != 1 || recentList[0].ProjectRoot != root {
 		t.Errorf("recent list: %+v", recentList)
+	}
+}
+
+func TestOpenBoard_UsesPersistedCLIPath(t *testing.T) {
+	root := fixtureBoard(t, "TB")
+	dir := t.TempDir()
+	prefs := filepath.Join(dir, "preferences.json")
+	logPath := filepath.Join(dir, "stub.log")
+	stub := stubTbBinaryWithMarker(t, "persisted", logPath)
+
+	board := NewBoardService()
+	svc := NewSettingsService(SettingsOptions{
+		Board:       board,
+		RecentsPath: filepath.Join(dir, "recent.json"),
+		PrefsPath:   prefs,
+	})
+	if err := svc.SetCLIPath(stub); err != nil {
+		t.Fatalf("SetCLIPath: %v", err)
+	}
+	if err := svc.OpenBoard(context.Background(), root); err != nil {
+		t.Fatalf("OpenBoard: %v", err)
+	}
+	if _, err := board.LoadBoard(context.Background()); err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+
+	if got := readMarkerLog(t, logPath); got != "persisted\n" {
+		t.Fatalf("stub log: got %q, want persisted marker", got)
+	}
+}
+
+func TestSetCLIPath_ReloadsActiveBoardClient(t *testing.T) {
+	root := fixtureBoard(t, "TB")
+	dir := t.TempDir()
+	prefs := filepath.Join(dir, "preferences.json")
+	logPath := filepath.Join(dir, "stub.log")
+	first := stubTbBinaryWithMarker(t, "first", logPath)
+	second := stubTbBinaryWithMarker(t, "second", logPath)
+
+	board := NewBoardService()
+	svc := NewSettingsService(SettingsOptions{
+		Board:       board,
+		RecentsPath: filepath.Join(dir, "recent.json"),
+		PrefsPath:   prefs,
+	})
+	if err := svc.SetCLIPath(first); err != nil {
+		t.Fatalf("SetCLIPath(first): %v", err)
+	}
+	if err := svc.OpenBoard(context.Background(), root); err != nil {
+		t.Fatalf("OpenBoard: %v", err)
+	}
+	if _, err := board.LoadBoard(context.Background()); err != nil {
+		t.Fatalf("LoadBoard first: %v", err)
+	}
+
+	if err := svc.SetCLIPath(second); err != nil {
+		t.Fatalf("SetCLIPath(second): %v", err)
+	}
+	if _, err := board.LoadBoard(context.Background()); err != nil {
+		t.Fatalf("LoadBoard second: %v", err)
+	}
+
+	if got := readMarkerLog(t, logPath); got != "first\nsecond\n" {
+		t.Fatalf("stub log: got %q, want first then second", got)
+	}
+}
+
+func TestSetCLIPath_BadPathDoesNotPersistOrSwapActiveClient(t *testing.T) {
+	root := fixtureBoard(t, "TB")
+	dir := t.TempDir()
+	prefs := filepath.Join(dir, "preferences.json")
+	logPath := filepath.Join(dir, "stub.log")
+	stub := stubTbBinaryWithMarker(t, "valid", logPath)
+
+	board := NewBoardService()
+	svc := NewSettingsService(SettingsOptions{
+		Board:       board,
+		RecentsPath: filepath.Join(dir, "recent.json"),
+		PrefsPath:   prefs,
+	})
+	if err := svc.SetCLIPath(stub); err != nil {
+		t.Fatalf("SetCLIPath(stub): %v", err)
+	}
+	if err := svc.OpenBoard(context.Background(), root); err != nil {
+		t.Fatalf("OpenBoard: %v", err)
+	}
+	if _, err := board.LoadBoard(context.Background()); err != nil {
+		t.Fatalf("LoadBoard before bad path: %v", err)
+	}
+
+	badPath := filepath.Join(dir, "missing-tb")
+	err := svc.SetCLIPath(badPath)
+	if !errors.Is(err, cli.ErrBinaryNotFound) {
+		t.Fatalf("want ErrBinaryNotFound, got %v", err)
+	}
+	if got := svc.GetCLIPath(); got != stub {
+		t.Fatalf("bad path should not be persisted: got %q, want %q", got, stub)
+	}
+	if _, err := board.LoadBoard(context.Background()); err != nil {
+		t.Fatalf("LoadBoard after bad path: %v", err)
+	}
+	if got := readMarkerLog(t, logPath); got != "valid\nvalid\n" {
+		t.Fatalf("stub log: got %q, want active client to remain on valid binary", got)
 	}
 }
 
@@ -283,4 +403,13 @@ func TestOpenBoard_WatcherFailureDoesNotCommit(t *testing.T) {
 	if board.snapshot() != nil {
 		t.Error("BoardService client must not be set on watcher failure")
 	}
+}
+
+func readMarkerLog(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read marker log: %v", err)
+	}
+	return string(b)
 }

@@ -208,18 +208,25 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ## M7 — Polish (optional)
 
-### F7.1 — Settings UI ☐
+### F7.1 — Settings UI ☑
 - Settings panel: agent timeout, max workers, default agent, CLI binary path.
+- `preferences.json` persists all four knobs; timeout is read per run, CLI path reloads the active board client, and default agent is shown as a visual dropdown default for unassigned tasks.
 - **Acceptance**: change timeout in UI; next run respects it.
 
-### F7.2 — Keyboard shortcuts ☐
+### F7.2 — Keyboard shortcuts ☑
 - `N` — new task. `/` — focus search/filter. `Esc` — close drawer. `Enter` — open selected card.
 - **Acceptance**: all shortcuts work without modifier conflicts.
 
-### F7.3 — System tray ☐
+### F7.3 — System tray ☑
 - Tray icon shows agent activity (idle / running).
 - Click to show/hide window.
 - **Acceptance**: minimize to tray, agent runs in background, click tray to return.
+
+### F7.4 — Native application menu ☑
+- File menu: Open board, Open Recent, Settings, Quit.
+- View menu: Reload board.
+- Help menu: About and docs entry.
+- **Acceptance**: recent boards rebuild after board open; menu entries call the same service paths as the in-window controls.
 
 ---
 

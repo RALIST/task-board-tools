@@ -5,11 +5,13 @@ import (
 	"embed"
 	"log"
 	"log/slog"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	tbapp "tools/tb-gui/app"
 	"tools/tb-gui/internal/daemon"
+	"tools/tb-gui/internal/shell"
 	"tools/tb-gui/internal/watcher"
 )
 
@@ -37,10 +39,17 @@ func main() {
 	// capture it by reference.
 	var appRef *application.App
 	emitter := emitterShim{getApp: func() *application.App { return appRef }}
+	var settingsService *tbapp.SettingsService
 
 	agentService := tbapp.NewAgentService(tbapp.AgentServiceOptions{
 		Board:   boardService,
 		Emitter: emitter,
+		TimeoutProvider: func() time.Duration {
+			if settingsService == nil {
+				return time.Duration(tbapp.AgentTimeoutMinutesDefault) * time.Minute
+			}
+			return time.Duration(settingsService.GetAgentTimeoutMinutes()) * time.Minute
+		},
 	})
 
 	// Build the daemon BEFORE the watcher so we can tee watcher events
@@ -64,7 +73,7 @@ func main() {
 	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: boardSink}}
 	w := watcher.New(teeShim{tee: tee}, logger)
 
-	settingsService := tbapp.NewSettingsService(tbapp.SettingsOptions{
+	settingsService = tbapp.NewSettingsService(tbapp.SettingsOptions{
 		Logger:    logger,
 		Board:     boardService,
 		Watcher:   w,
@@ -96,10 +105,21 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
+			ApplicationShouldTerminateAfterLastWindowClosed: !shell.TraySupported(),
 		},
 	})
 	appRef = app
+
+	shellController, err := shell.NewController(shell.Options{
+		App:      app,
+		Board:    boardService,
+		Settings: settingsService,
+		Logger:   logger,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	app.Menu.Set(shellController.ApplicationMenu())
 
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title: "tb-gui",
@@ -110,9 +130,12 @@ func main() {
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
-		BackgroundColour: application.NewRGB(27, 38, 54),
-		URL:              "/",
+		BackgroundColour:   application.NewRGB(27, 38, 54),
+		URL:                "/",
+		UseApplicationMenu: true,
 	})
+	shellController.AttachWindow(window)
+	shellController.InstallTray()
 
 	// Run the watcher loop now; SettingsService.OpenBoard will call Switch
 	// to point it at a board. Events received before Switch are dropped

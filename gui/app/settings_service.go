@@ -72,7 +72,7 @@ type SettingsService struct {
 
 	mu      sync.RWMutex
 	info    BoardInfo
-	cliPath string // override for cli.NewClient; empty = PATH
+	cliPath string // test-only fallback for cli.NewClient; empty = PATH
 
 	// recentsPath is the absolute path to recent.json. Configurable for tests.
 	recentsPath string
@@ -158,7 +158,7 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 
 	// Build a CLI client rooted at the project so `tb` discovers `.tb.yaml`.
 	client, err := cli.NewClient(cli.Options{
-		BinaryPath: s.cliPath,
+		BinaryPath: s.openBoardCLIPath(),
 		Cwd:        info.ProjectRoot,
 		Logger:     s.logger,
 	})
@@ -204,10 +204,43 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 	// Emit only after state is committed so the frontend sees the new info.
 	if app := application.Get(); app != nil {
 		app.Event.Emit("board:opened", info)
+		app.Event.Emit("recents:changed")
 		app.Event.Emit("board:reloaded")
 	}
 
 	_ = ctx // keep the signature ergonomic; future hooks may honour cancel
+	return nil
+}
+
+// SetCLIPath validates and persists the tb binary override. If a board is
+// already open, rebuild the BoardService client immediately so the next board
+// read uses the new binary without reopening the project or restarting the
+// watcher.
+func (s *SettingsService) SetCLIPath(path string) error {
+	s.mu.RLock()
+	info := s.info
+	board := s.board
+	s.mu.RUnlock()
+
+	client, err := cli.NewClient(cli.Options{
+		BinaryPath: s.cliPathForPreference(path),
+		Cwd:        info.ProjectRoot,
+		Logger:     s.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("locate tb binary: %w", err)
+	}
+
+	if err := s.updatePreferences(func(prefs *Preferences) {
+		prefs.CLIPath = path
+	}); err != nil {
+		return err
+	}
+
+	if info.ProjectRoot == "" || board == nil {
+		return nil
+	}
+	board.setClient(client)
 	return nil
 }
 
@@ -319,6 +352,22 @@ func (s *SettingsService) saveRecents(list []RecentBoard) error {
 		return err
 	}
 	return os.Rename(tmp, s.recentsPath)
+}
+
+func (s *SettingsService) openBoardCLIPath() string {
+	if path := s.GetCLIPath(); path != "" {
+		return path
+	}
+	// Preserve SettingsOptions.CLIPath as a test harness override while
+	// production follows the persisted preference or PATH lookup.
+	return s.cliPath
+}
+
+func (s *SettingsService) cliPathForPreference(path string) string {
+	if path != "" {
+		return path
+	}
+	return s.cliPath
 }
 
 // readBoardInfo parses `<projectRoot>/.tb.yaml` and resolves the board dir.
