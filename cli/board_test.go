@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -128,5 +129,46 @@ func TestAllocateID_SkipsExistingFiles(t *testing.T) {
 				t.Errorf(".next-id = %q, want %q", gotNext, wantNext)
 			}
 		})
+	}
+}
+
+func TestAllocateID_UsesAtomicReplaceForNextID(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory chmod semantics are not portable on Windows")
+	}
+
+	prevPrefix := cfg.Prefix
+	cfg.Prefix = "TB"
+	defer func() { cfg.Prefix = prevPrefix }()
+
+	boardDir := t.TempDir()
+	nextIDPath := filepath.Join(boardDir, ".next-id")
+	if err := os.WriteFile(nextIDPath, []byte("41\n"), 0644); err != nil {
+		t.Fatalf("seed .next-id: %v", err)
+	}
+
+	if err := os.Chmod(boardDir, 0555); err != nil {
+		t.Fatalf("chmod board dir read-only: %v", err)
+	}
+	defer func() {
+		if err := os.Chmod(boardDir, 0755); err != nil {
+			t.Fatalf("restore board dir perms: %v", err)
+		}
+	}()
+
+	_, err := allocateID(boardDir)
+	if err == nil {
+		t.Fatalf("allocateID succeeded, want writeFileAtomic temp-file creation error")
+	}
+	if !strings.Contains(err.Error(), "writeFileAtomic") {
+		t.Fatalf("allocateID error = %q, want writeFileAtomic context", err)
+	}
+
+	data, readErr := os.ReadFile(nextIDPath)
+	if readErr != nil {
+		t.Fatalf("read .next-id: %v", readErr)
+	}
+	if string(data) != "41\n" {
+		t.Fatalf(".next-id changed to %q, want original content after failed atomic write", data)
 	}
 }

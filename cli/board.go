@@ -205,8 +205,8 @@ func (l *boardLock) unlock() {
 	}
 }
 
-// allocateID reads .next-id, returns the current value, and writes back
-// the incremented value. Caller MUST hold the board lock.
+// allocateID reads .next-id, returns the current value, and atomically writes
+// back the incremented value. Caller MUST hold the board lock.
 //
 // If the candidate ID collides with an existing task file in any status
 // directory (backlog, in-progress, done, archive), the ID is bumped forward
@@ -238,7 +238,7 @@ func allocateID(boardDir string) (int, error) {
 	}
 
 	next := fmt.Sprintf("%d\n", id+1)
-	if err := os.WriteFile(path, []byte(next), 0644); err != nil {
+	if err := writeFileAtomic(path, []byte(next), 0644); err != nil {
 		return 0, fmt.Errorf("cannot write .next-id: %w", err)
 	}
 
