@@ -94,4 +94,29 @@ describe('ActiveFilters', () => {
     expect(chips[1].classList.contains('mod')).toBe(true);
     expect(chips[2].classList.contains('tag')).toBe(true);
   });
+
+  it('emits chips in canonical category order: types, priorities, modules, tags, agents, parentEpic', async () => {
+    const f: BoardFilter = {
+      ...initialFilter,
+      types: ['bug'],
+      priorities: ['P1'],
+      modules: ['core'],
+      tags: ['cli'],
+      agents: ['claude'],
+      parentEpic: 'TB-5',
+    };
+    component = mount(ActiveFilters, {
+      target: document.body,
+      props: { filter: f, onRemove: () => {} },
+    });
+    await tick();
+    expect(chipTexts()).toEqual([
+      'bug ×',
+      'P1 ×',
+      'core ×',
+      'cli ×',
+      'claude ×',
+      'TB-5 ×',
+    ]);
+  });
 });

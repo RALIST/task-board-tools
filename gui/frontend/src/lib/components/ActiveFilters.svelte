@@ -37,7 +37,7 @@
 {#if chips.length > 0}
   <section class="af" aria-label="Active filters">
     <span class="af-label">Active:</span>
-    {#each chips as chip}
+    {#each chips as chip (chip.category + ':' + chip.value)}
       <button
         class={`af-chip ${chip.extraClass}`.trim()}
         type="button"
@@ -67,6 +67,7 @@
     letter-spacing: 0.04em;
   }
   .af-chip {
+    font: inherit;
     background: var(--accent);
     color: white;
     border: 1px solid var(--accent);
@@ -75,7 +76,6 @@
     font-size: 11px;
     line-height: 1.35;
     cursor: pointer;
-    font: inherit;
     white-space: nowrap;
   }
   .af-chip:hover { filter: brightness(1.15); }
