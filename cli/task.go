@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -10,13 +11,13 @@ import (
 // by `--json` callers (the GUI in particular); see cli/json_output.go for the
 // transformations applied (e.g. Tags is split into a list).
 type Task struct {
-	ID          string `json:"id"`          // e.g. "WS-1170"
+	ID          string `json:"id"` // e.g. "WS-1170"
 	Title       string `json:"title"`
-	Type        string `json:"type"`        // feature, bug, tech-debt, improvement, spike
-	Priority    string `json:"priority"`    // P0, P1, P2, P3
-	Size        string `json:"size"`        // S, M, L, XL
+	Type        string `json:"type"`     // feature, bug, tech-debt, improvement, spike
+	Priority    string `json:"priority"` // P0, P1, P2, P3
+	Size        string `json:"size"`     // S, M, L, XL
 	Module      string `json:"module"`
-	Tags        string `json:"tags"`        // comma-separated; emitted as []string in JSON
+	Tags        string `json:"tags"` // comma-separated; emitted as []string in JSON
 	Branch      string `json:"branch"`
 	Parent      string `json:"parent"`      // parent epic task ID (e.g., "WS-32")
 	Status      string `json:"status"`      // directory name: backlog, in-progress, done, archive
@@ -45,8 +46,8 @@ var validAgentStatuses = map[string]bool{
 const maxMetadataLines = 20
 
 // parseTaskFile reads a task markdown file and extracts metadata from the first
-// 15 lines. It sets Status based on the parent directory name and FilePath as
-// the relative path from the board root.
+// maxMetadataLines lines. It sets Status based on the parent directory name and
+// FilePath as the relative path from the board root.
 func parseTaskFile(path string) (Task, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -58,17 +59,19 @@ func parseTaskFile(path string) (Task, error) {
 
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
+	foundHeader := false
 	for scanner.Scan() && lineNum < maxMetadataLines {
 		lineNum++
 		line := scanner.Text()
 
-		// Extract title from "# PREFIX-NNN: Title"
-		if strings.HasPrefix(line, "# "+cfg.Prefix+"-") {
-			if idx := strings.Index(line, ": "); idx != -1 {
-				// ID is between "# " and ":"
-				t.ID = strings.TrimPrefix(line[:idx], "# ")
-				t.Title = line[idx+2:]
+		// Extract title from "# PREFIX-NNN: Title".
+		if id, title, malformed := parseTaskHeader(line); id != "" || malformed {
+			if malformed {
+				return Task{}, fmt.Errorf("malformed task header on line %d: expected \"# %s-N: title\" with a non-empty title", lineNum, cfg.Prefix)
 			}
+			t.ID = id
+			t.Title = title
+			foundHeader = true
 			continue
 		}
 
@@ -97,7 +100,46 @@ func parseTaskFile(path string) (Task, error) {
 		}
 	}
 
-	return t, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return Task{}, err
+	}
+	if !foundHeader {
+		return Task{}, fmt.Errorf("missing task header in first %d lines: expected \"# %s-N: title\"", maxMetadataLines, cfg.Prefix)
+	}
+
+	return t, nil
+}
+
+func parseTaskHeader(line string) (id, title string, malformed bool) {
+	prefix := "# " + cfg.Prefix + "-"
+	if !strings.HasPrefix(line, prefix) {
+		return "", "", false
+	}
+
+	rest := line[len(prefix):]
+	digitCount := 0
+	for digitCount < len(rest) && rest[digitCount] >= '0' && rest[digitCount] <= '9' {
+		digitCount++
+	}
+	if digitCount == 0 {
+		return "", "", false
+	}
+
+	id = cfg.Prefix + "-" + rest[:digitCount]
+	tail := rest[digitCount:]
+	if !strings.HasPrefix(tail, ":") {
+		return "", "", true
+	}
+
+	title = strings.TrimSpace(tail[1:])
+	if title == "" {
+		return "", "", true
+	}
+	return id, title, false
+}
+
+func warnSkippingTask(path string, err error) {
+	fmt.Fprintf(os.Stderr, "warning: skipping malformed task file %s: %v\n", path, err)
 }
 
 // hasTag checks whether tag appears in a comma-separated tags string (case-insensitive).

@@ -84,6 +84,13 @@ func cmdGrep(args []string) {
 				continue
 			}
 			fullPath := filepath.Join(dirPath, entry.Name())
+			t, err := parseTaskFile(fullPath)
+			if err != nil {
+				warnSkippingTask(fullPath, err)
+				continue
+			}
+			t.Status = status
+			t.FilePath = relPath(cwd, fullPath)
 
 			// Read full file content and search.
 			f, err := os.Open(fullPath)
@@ -108,12 +115,6 @@ func cmdGrep(args []string) {
 			f.Close()
 
 			if matchCount > 0 {
-				t, err := parseTaskFile(fullPath)
-				if err != nil {
-					continue
-				}
-				t.Status = status
-				t.FilePath = relPath(cwd, fullPath)
 				results = append(results, match{task: t, lines: matchedLines, matches: matchCount})
 			}
 		}

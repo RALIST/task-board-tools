@@ -60,6 +60,7 @@ func cmdTriage(args []string) {
 			fullPath := filepath.Join(dirPath, entry.Name())
 			t, err := parseTaskFile(fullPath)
 			if err != nil {
+				warnSkippingTask(fullPath, err)
 				continue
 			}
 			t.Status = status
@@ -166,22 +167,12 @@ func checkNeedsGrooming(path string, t Task) []string {
 
 // hasPlaceholderSection checks if a section exists and contains only placeholder text.
 func hasPlaceholderSection(content, heading string) bool {
-	idx := strings.Index(content, heading)
-	if idx == -1 {
+	section, ok := findTaskSection(content, heading)
+	if !ok {
 		return true // section missing entirely
 	}
 
-	// Extract content between this heading and the next "## " heading.
-	after := content[idx+len(heading):]
-	nextHeading := strings.Index(after, "\n## ")
-	var sectionBody string
-	if nextHeading == -1 {
-		sectionBody = after
-	} else {
-		sectionBody = after[:nextHeading]
-	}
-
-	sectionBody = strings.TrimSpace(sectionBody)
+	sectionBody := strings.TrimSpace(content[section.bodyStart:section.end])
 
 	// Check for common placeholders.
 	return sectionBody == "" ||

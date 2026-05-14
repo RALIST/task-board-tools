@@ -7,6 +7,7 @@ export default defineConfig({
     alias: {
       $lib: new URL("./src/lib", import.meta.url).pathname,
     },
+    conditions: ["browser"],
   },
   test: {
     environment: "jsdom",

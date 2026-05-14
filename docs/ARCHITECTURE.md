@@ -115,7 +115,7 @@ One-sentence objective.
 
 Exported to the frontend via Wails3 bindings.
 
-- **`BoardService`** — Load board snapshot, get task detail, create/edit/move/close. All structured calls delegate to `exec tb …`. `EditTaskBody` is the one exception (direct write — see "Locking" below).
+- **`BoardService`** — Load board snapshot, get task detail, create/edit/move/close, and expose `Triage()` for grooming indicators. Structured calls delegate to `exec tb …`; `Triage()` consumes `tb triage --json`. `EditTaskBody` is the one exception (direct write — see "Locking" below).
 - **`AgentService`** — Assign agent, run agent (enqueue to in-process daemon), groom task (run with a different prompt), cancel, list runs. The run timeout comes from a late-bound provider so settings changes apply to the next run.
 - **`SettingsService`** — Project root selection, recent boards, max workers, agent timeout, default agent, CLI binary path.
 
@@ -124,7 +124,7 @@ Exported to the frontend via Wails3 bindings.
 - **`cli/`** — thin `exec` wrapper with consistent error handling.
 - **`parser/`** — markdown reader (duplicates CLI parser; read-only, no lock).
 - **`watcher/`** — fsnotify wrapper. Watches the status directories, ignores `BOARD.md`, `.next-id`, `.board.lock`, `.agent-state/`, `.agent-logs/`. Debounces 200ms. Emits Wails events `board:reloaded` (create/remove/rename) and `task:updated:<id>` (write).
-- **`agent/`** — `Runner` interface + `ClaudeRunner`, `CodexRunner`, `GroomingDecorator`. Embedded prompt templates via `//go:embed`.
+- **`agent/`** — `Runner` interface + `ClaudeRunner`, `CodexRunner`, `GroomingDecorator`. Embedded prompt templates via `//go:embed`; `GroomingDecorator` is the only mode-aware runner layer and swaps the prompt for `mode=groom`.
 - **`daemon/`** — goroutine that owns the queue, scans for `AgentStatus: queued`, runs them through the worker pool, writes JSONL events.
 - **`shell/`** — native application menu and system tray controller. It calls the same Wails services as the frontend and emits `settings:open-panel` for the Svelte settings panel.
 
@@ -190,18 +190,20 @@ Hybrid storage:
 | `.agent-state/PREFIX-NNN.jsonl` | append-only JSONL | Full run history: queued → started → stdout lines → finished |
 | `.agent-logs/PREFIX-NNN/<run_id>.log` | one file per run | Full stdout/stderr text for inspection |
 
-JSONL event shapes (every event carries `task_id` so a log-trawler needs no cross-file index):
+JSONL event shapes (every event carries `task_id` so a log-trawler needs no cross-file index; agent-run events also carry `mode`, currently `implement` or `groom`):
 
 ```jsonl
 {"ts":"2026-05-13T10:00:00Z","run_id":"r_abc","task_id":"TB-1","event":"queued","agent":"claude","mode":"implement"}
-{"ts":"2026-05-13T10:00:05Z","run_id":"r_abc","task_id":"TB-1","event":"started","pid":12345,"agent":"claude"}
-{"ts":"2026-05-13T10:00:10Z","run_id":"r_abc","task_id":"TB-1","event":"stdout","line":"Reading task..."}
-{"ts":"2026-05-13T10:02:30Z","run_id":"r_abc","task_id":"TB-1","event":"finished","status":"success","exit_code":0}
+{"ts":"2026-05-13T10:00:05Z","run_id":"r_abc","task_id":"TB-1","event":"started","pid":12345,"agent":"claude","mode":"implement"}
+{"ts":"2026-05-13T10:00:10Z","run_id":"r_abc","task_id":"TB-1","event":"stdout","mode":"implement","line":"Reading task..."}
+{"ts":"2026-05-13T10:02:30Z","run_id":"r_abc","task_id":"TB-1","event":"finished","agent":"claude","mode":"implement","status":"success","exit_code":0}
 ```
 
 A run is **complete** when a `finished` event exists. A run with no `finished` event after a process restart is **stale** and is recovered: the daemon verifies the PID from `started` via `pidAlive(pid, expectedAgent)` — `os.FindProcess(pid).Signal(syscall.Signal(0))` (`ESRCH` → dead) plus a command-name cross-check (`ps -o comm=` / `ps -o args=`) that tolerates npm shebang wrappers (e.g. `node /usr/local/bin/claude`). If dead, the daemon writes a synthetic `finished` event with `status: failed`, `reason: "stale after restart"`, and sets `AgentStatus: failed` via `tb edit`. If alive, the daemon leaves the task alone — **M5 does not re-attach to live runs.**
 
 **Cancel carve-out**: recovery honors cancellation intent expressed in *either* the task's `.md` or the JSONL trail. If `AgentStatus` is already `cancelled` *or* the latest JSONL event for the latest `run_id` is `finished{status: cancelled}`, recovery reconciles to `cancelled` (writing `AgentStatus=cancelled` if the `.md` is out of sync) and never appends a `failed` line. This defends the M4 5-step cancel ordering (kill → JSONL → Wails → `tb edit`) against a `kill -9` of the GUI between the JSONL write and the `tb edit`.
+
+Groom runs use the same JSONL/storage lifecycle with `mode:"groom"`. The underlying agent runner still owns process execution; `GroomingDecorator` only replaces the prompt with `gui/internal/agent/prompts/groom.md`, so prompt selection stays in one layer rather than leaking mode checks into Claude/Codex runners or the daemon.
 
 ## Daemon
 

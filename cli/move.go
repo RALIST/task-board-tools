@@ -147,26 +147,13 @@ func moveTask(taskID, targetStatus, logMessage string) {
 
 // appendLogEntry inserts a log entry at the end of the ## Log section.
 func appendLogEntry(content, entry string) string {
-	// Find the ## Log section.
-	logIdx := strings.Index(content, "## Log")
-	if logIdx == -1 {
+	logSection, ok := findTaskSection(content, "## Log")
+	if !ok {
 		// No log section — append one.
 		return content + "\n## Log\n\n" + entry
 	}
 
-	// Find the end of the log section: either the next "## " heading or EOF.
-	afterLog := content[logIdx+len("## Log"):]
-	nextSection := strings.Index(afterLog, "\n## ")
-
-	if nextSection == -1 {
-		// Log is the last section — append at the very end.
-		trimmed := strings.TrimRight(content, "\n")
-		return trimmed + "\n" + entry
-	}
-
-	// Insert before the next section.
-	insertPos := logIdx + len("## Log") + nextSection
-	before := strings.TrimRight(content[:insertPos], "\n")
-	after := content[insertPos:]
+	before := strings.TrimRight(content[:logSection.end], "\n")
+	after := content[logSection.end:]
 	return before + "\n" + entry + "\n" + after
 }

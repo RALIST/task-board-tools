@@ -148,16 +148,16 @@ Marker legend:
 
 ---
 
-## M6 — Groom flow · ☐
+## M6 — Groom flow · ☑
 
 **Deliverable**: Groom button refines task descriptions.
 
 ### Tasks
-1. ☐ `gui/internal/agent/prompts/groom.md`
-2. ☐ `gui/internal/agent/runner.go`: `GroomingDecorator` swaps prompt
-3. ☐ Service `agent_service.go`: `GroomTask`
-4. ☐ Frontend `TaskDrawer.svelte`: Groom button + grooming-needed indicator on cards from triage rules
-5. ☐ Backend triage helper (calls `tb triage --json` once that exists, or runs the same rules locally)
+1. ☑ `gui/internal/agent/prompts/groom.md` embedded as `agent.PromptGroom`
+2. ☑ `gui/internal/agent/runner.go`: `GroomingDecorator` swaps the runner prompt for groom-mode runs
+3. ☑ Service `gui/app/agent_service.go`: `GroomTask`
+4. ☑ Frontend `TaskDrawer.svelte` + `Card.svelte`: Groom button, mode-labelled runs, and grooming-needed indicator
+5. ☑ Backend triage helper: `BoardService.Triage()` wraps `tb triage --json`, caches the map, and invalidates on board events
 
 **Estimate**: 1 day.
 
@@ -205,6 +205,7 @@ Marker legend:
 
 ## Completed work log
 
+- 2026-05-14: M6 shipped — groom mode is a first-class agent run mode. `gui/internal/agent/prompts/groom.md` is embedded as `PromptGroom`; `GroomingDecorator` is the only mode-aware runner layer and swaps the normal implementation prompt for the groom prompt while preserving the underlying Claude/Codex process behavior. `AgentService.GroomTask` reuses the RunAgent lifecycle with `mode=groom`, so JSONL events carry `mode` and the drawer can label groom runs separately. `BoardService.Triage()` shells out to `tb triage --json`, caches a task-ID to reasons map, and invalidates on watcher events; the frontend `triageStore`, `Card.svelte`, and `TaskDrawer.svelte` surface "needs grooming" indicators and offer the Groom action. Verification: `cd gui && go test ./...`, `cd gui/frontend && npm test`, `cd gui/frontend && npm run check`.
 - 2026-05-13: docs PROJECT/ARCHITECTURE/FEATURES drafted; plan synced with feedback (direct body writes allowed under flock; archive as first-class filter; daemon stale-recovery in M5; root `go.work`)
 - 2026-05-13: Codex adversarial review applied — README path corrected to current `tb/`; atomic-write invariant documented and added to M1 (F1.6); `cancelled` added as a first-class `AgentStatus` value with carve-out from stale-recovery
 - 2026-05-13: M1 shipped — `tb/` → `cli/` rename (history preserved as bundle outside repo); root `go.work` added; `cli/atomicfs.go` introduced with `writeFileAtomic` + tests; all task `.md` writers migrated; `Agent`/`AgentStatus` fields on `Task` with `tb edit -a` / `--agent-status` + enum validation; `cmdCreate` and `cmdEdit` now regenerate `BOARD.md`; new `resolveStatusFilter` implements `backlog|in-progress|done|archive|active|all` semantics; `findTask` extended to archive so archived tasks can be moved back; `cli/json_output.go` adds `--json` output for `tb ls`, `tb show`, `tb board` (empty results render as `[]` / `{}`)

@@ -247,32 +247,18 @@ func addChildToSubtasks(parentPath, childID, childSize, childTitle string) error
 	entry := fmt.Sprintf("- **%s** (%s) — %s", childID, childSize, childTitle)
 	content := string(data)
 
-	// Check if ## Subtasks section already exists.
-	subtasksIdx := strings.Index(content, "## Subtasks")
-	if subtasksIdx != -1 {
-		// Find end of Subtasks section (next ## heading or EOF).
-		afterSubtasks := content[subtasksIdx+len("## Subtasks"):]
-		nextSection := strings.Index(afterSubtasks, "\n## ")
-		if nextSection == -1 {
-			// Subtasks is last section — append at end.
-			trimmed := strings.TrimRight(content, "\n")
-			return writeFileAtomic(parentPath, []byte(trimmed+"\n"+entry+"\n"), 0644)
-		}
-		insertPos := subtasksIdx + len("## Subtasks") + nextSection
-		before := strings.TrimRight(content[:insertPos], "\n")
-		after := content[insertPos:]
+	if section, ok := findTaskSection(content, "## Subtasks"); ok {
+		before := strings.TrimRight(content[:section.end], "\n")
+		after := content[section.end:]
 		return writeFileAtomic(parentPath, []byte(before+"\n"+entry+"\n"+after), 0644)
 	}
 
 	// No Subtasks section — create one before ## Acceptance Criteria or ## Log.
 	section := "\n## Subtasks\n\n" + entry + "\n"
-	for _, marker := range []string{"## Acceptance Criteria", "## Log"} {
-		idx := strings.Index(content, marker)
-		if idx != -1 {
-			before := strings.TrimRight(content[:idx], "\n")
-			after := content[idx:]
-			return writeFileAtomic(parentPath, []byte(before+"\n"+section+"\n"+after), 0644)
-		}
+	if target, ok := findFirstTaskSection(content, []string{"## Acceptance Criteria", "## Log"}); ok {
+		before := strings.TrimRight(content[:target.start], "\n")
+		after := content[target.start:]
+		return writeFileAtomic(parentPath, []byte(before+"\n"+section+"\n"+after), 0644)
 	}
 
 	// Fallback: append at end.

@@ -62,6 +62,7 @@ func cmdList(args []string) {
 			fullPath := filepath.Join(dirPath, entry.Name())
 			t, err := parseTaskFile(fullPath)
 			if err != nil {
+				warnSkippingTask(fullPath, err)
 				continue
 			}
 			t.Status = status

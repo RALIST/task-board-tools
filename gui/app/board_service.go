@@ -2,8 +2,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -319,10 +323,24 @@ type triageTask struct {
 	Reasons []string `json:"reasons"`
 }
 
+var triageJSONArgs = []string{"triage", "--json"}
+
 func (b *BoardService) loadTriage(ctx context.Context, c *cli.Client) (map[string][]string, error) {
 	var rows []triageTask
-	if err := c.RunJSON(ctx, &rows, "triage", "--json"); err != nil {
+	stdout, err := c.Run(ctx, triageJSONArgs...)
+	if err != nil {
 		return nil, err
+	}
+	if len(bytes.TrimSpace(stdout)) == 0 {
+		return nil, fmt.Errorf("tb %v: empty stdout (expected JSON)", triageJSONArgs)
+	}
+	if err := json.Unmarshal(stdout, &rows); err != nil {
+		var syntaxErr *json.SyntaxError
+		if errors.As(err, &syntaxErr) {
+			logTriageUnavailable(c, stdout, err)
+			return map[string][]string{}, nil
+		}
+		return nil, fmt.Errorf("tb %v: decode JSON: %w", triageJSONArgs, err)
 	}
 	out := make(map[string][]string, len(rows))
 	for _, row := range rows {
@@ -332,6 +350,25 @@ func (b *BoardService) loadTriage(ctx context.Context, c *cli.Client) (map[strin
 		out[row.ID] = append([]string(nil), row.Reasons...)
 	}
 	return out, nil
+}
+
+func logTriageUnavailable(c *cli.Client, stdout []byte, decodeErr error) {
+	slog.Default().Warn(
+		"triage-unavailable: selected CLI must support triage --json",
+		"bin", c.BinaryPath(),
+		"args", "triage --json",
+		"stdout", triageStdoutPreview(stdout),
+		"decode_error", decodeErr.Error(),
+	)
+}
+
+func triageStdoutPreview(stdout []byte) string {
+	const maxPreviewBytes = 512
+	preview := strings.TrimSpace(string(stdout))
+	if len(preview) <= maxPreviewBytes {
+		return preview
+	}
+	return preview[:maxPreviewBytes] + "..."
 }
 
 func cloneTriageMap(in map[string][]string) map[string][]string {

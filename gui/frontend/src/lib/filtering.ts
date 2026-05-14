@@ -4,6 +4,12 @@
 import type { BoardSnapshot, Task } from './api';
 import type { BoardFilter } from './stores/filter';
 
+export const FILTER_BAR_INLINE_TAG_LIMIT = 6;
+
+function allTasks(snap: BoardSnapshot): Task[] {
+  return [...snap.backlog, ...snap.inProgress, ...snap.done, ...(snap.archive ?? [])];
+}
+
 function passes(t: Task, f: BoardFilter): boolean {
   if (f.types.length > 0 && !f.types.includes(t.type)) return false;
   if (f.priorities.length > 0 && !f.priorities.includes(t.priority)) return false;
@@ -11,7 +17,7 @@ function passes(t: Task, f: BoardFilter): boolean {
   if (f.agents.length > 0) {
     if (!t.agent || !f.agents.includes(t.agent)) return false;
   }
-  if (f.parentEpic !== '' && t.parent !== f.parentEpic) return false;
+  if (f.parentEpic !== '' && t.parent !== f.parentEpic && t.id !== f.parentEpic) return false;
   if (f.tags.length > 0) {
     const tags = t.tags ?? [];
     const hit = f.tags.some((needle) => tags.includes(needle));
@@ -39,8 +45,7 @@ export function applyFilter(snap: BoardSnapshot, f: BoardFilter): BoardSnapshot 
 // don't ship a hardcoded list.
 export function observedValues(snap: BoardSnapshot, field: 'type' | 'priority' | 'module' | 'agent'): string[] {
   const set = new Set<string>();
-  const all = [...snap.backlog, ...snap.inProgress, ...snap.done, ...(snap.archive ?? [])];
-  for (const t of all) {
+  for (const t of allTasks(snap)) {
     const v = (t as unknown as Record<string, string>)[field];
     if (v) set.add(v);
   }
@@ -48,15 +53,38 @@ export function observedValues(snap: BoardSnapshot, field: 'type' | 'priority' |
 }
 
 export function observedTags(snap: BoardSnapshot): string[] {
-  const set = new Set<string>();
-  const all = [...snap.backlog, ...snap.inProgress, ...snap.done, ...(snap.archive ?? [])];
-  for (const t of all) {
-    for (const tag of t.tags ?? []) set.add(tag);
+  const counts = new Map<string, number>();
+  for (const t of allTasks(snap)) {
+    for (const tag of t.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
   }
-  return [...set].sort();
+  return [...counts.entries()]
+    .sort(([tagA, countA], [tagB, countB]) => countB - countA || tagA.localeCompare(tagB))
+    .map(([tag]) => tag);
+}
+
+export interface InlineTagSelection {
+  inline: string[];
+  overflow: string[];
+}
+
+export function selectInlineTags(
+  rankedTags: string[],
+  activeTags: string[],
+  limit = FILTER_BAR_INLINE_TAG_LIMIT,
+): InlineTagSelection {
+  const active = new Set(activeTags);
+  const inline = new Set(rankedTags.slice(0, Math.max(0, limit)));
+
+  for (const tag of rankedTags) {
+    if (active.has(tag)) inline.add(tag);
+  }
+
+  return {
+    inline: rankedTags.filter((tag) => inline.has(tag)),
+    overflow: rankedTags.filter((tag) => !inline.has(tag)),
+  };
 }
 
 export function observedEpics(snap: BoardSnapshot): Task[] {
-  const all = [...snap.backlog, ...snap.inProgress, ...snap.done, ...(snap.archive ?? [])];
-  return all.filter((t) => (t.tags ?? []).includes('epic')).sort((a, b) => a.id.localeCompare(b.id));
+  return allTasks(snap).filter((t) => (t.tags ?? []).includes('epic')).sort((a, b) => a.id.localeCompare(b.id));
 }

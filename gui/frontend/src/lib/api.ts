@@ -17,6 +17,7 @@ import {
   Regenerate,
   Triage,
 } from '../../bindings/tools/tb-gui/app/boardservice';
+import { Dialogs } from '@wailsio/runtime';
 import {
   AssignAgent,
   CancelRun,
@@ -145,7 +146,17 @@ export async function openBoard(projectRoot: string): Promise<void> {
 }
 
 export async function pickBoardDialog(): Promise<string> {
-  return await SettingsService.PickBoardDialog();
+  // Use the runtime dialog from the click handler so Wails attaches each fresh
+  // picker to the active window; the Go service method remains for native menu
+  // actions that already run outside the webview.
+  const result = await Dialogs.OpenFile({
+    CanChooseDirectories: true,
+    CanChooseFiles: false,
+    CanCreateDirectories: false,
+    Title: 'Open tb board',
+    Message: 'Pick a directory that contains .tb.yaml',
+  });
+  return Array.isArray(result) ? (result[0] ?? '') : result;
 }
 
 export async function listRecentBoards(): Promise<RecentBoard[]> {

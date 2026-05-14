@@ -9,7 +9,7 @@
 | TB-3 | M3: GUI mutations, DnD, and inline editor | 10/10 | gui |
 | TB-4 | M4: Agent assignment and manual runs from GUI | 10/10 | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
-| TB-6 | M6: Groom flow for AI-assisted task refinement | 10/11 | gui |
+| TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 
 ## In Progress
@@ -22,19 +22,15 @@
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-29 | parseTaskFile should reject malformed task files | bug | P3 | S | cli |
-| TB-30 | tb assign sugar for paired Agent + AgentStatus writes | feature | P3 | S | cli |
-| TB-39 | Make CLI task-section scans ignore quoted Markdown headings | bug | P2 | M | cli |
-| TB-63 | GUI tag header overflows when too many tags — collapse to popular + dropdown | bug | P1 | M | gui |
-| TB-64 | GUI "Open project" button only works once, subsequent clicks do nothing | bug | P1 | S | gui |
-| TB-74 | Docs: flip M6 markers — IMPLEMENTATION.md / FEATURES.md F6.1+F6.2 / ARCHITECTURE.md GroomingDecorator | improvement | P2 | S | docs |
-| TB-87 | Epic itself do not shown in column | bug | P1 | S |  |
-| TB-88 | Binding call failed | bug | P2 | M |  |
+| — | — | — | — | — | — |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-89 | Click outside should close dropdown | bug | gui |
+| TB-88 | GUI triage fails when active tb binary lacks JSON support | bug | gui |
+| TB-87 | Parent epic filter hides the epic card itself | bug | gui |
 | TB-86 | Adapt post-edit hook for Codex PostToolUse | improvement | tooling |
 | TB-85 | Docs flip: IMPLEMENTATION.md M7 + FEATURES.md F7.1/F7.2/F7.3 markers + ARCHITECTURE.md if needed | tech-debt | gui |
 | TB-84 | Keyboard shortcuts: N (new), / (search), Esc (close drawer), Enter (open card) | feature | gui |
@@ -47,6 +43,7 @@
 | TB-77 | Wire agent_timeout_minutes into agent_run.go (replace agentTimeoutDefault const) | feature | gui |
 | TB-76 | Preferences struct: add agent_timeout_minutes, default_agent, cli_path with clamps + tests | feature | gui |
 | TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | feature | cli |
+| TB-74 | Docs: flip M6 markers — IMPLEMENTATION.md / FEATURES.md F6.1+F6.2 / ARCHITECTURE.md GroomingDecorator | improvement | docs |
 | TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | feature | gui |
 | TB-72 | TaskDrawer: Groom button next to Run, shared Cancel, mode-labelled past runs | feature | gui |
 | TB-71 | Frontend api.ts + triageStore.ts: groomTask, getTriage, watcher-driven refresh | feature | gui |
@@ -56,6 +53,8 @@
 | TB-67 | AgentService.GroomTask: queue a groom run distinct from a normal run | feature | gui |
 | TB-66 | GroomingDecorator: wrap a Runner, swap prompt template | feature | gui |
 | TB-65 | prompts/groom.md template + agent.PromptGroom embed | feature | gui |
+| TB-64 | GUI "Open project" button only works once, subsequent clicks do nothing | bug | gui |
+| TB-63 | GUI tag header overflows when too many tags — collapse to popular + dropdown | bug | gui |
 | TB-62 | Graceful shutdown: ctx cancel + 5s grace + JSONL flush | feature | gui |
 | TB-61 | Stale-recovery cancelled carve-out: never overwrite AgentStatus=cancelled | feature | gui |
 | TB-60 | Stale-running recovery: scan AgentStatus=running, JSONL replay, synthetic finished+failed | feature | gui |
@@ -78,10 +77,4 @@
 | TB-43 | Agent Runner interface, Mode type, and embedded implement.md prompt | feature | gui |
 | TB-41 | Frontend Toast.svelte component | feature | gui |
 | TB-40 | BoardService.LoadBoard: archive-aware status mode | feature | gui |
-| TB-38 | FilterBar with archive column toggle | feature | gui |
-| TB-37 | CodeMirror body editor in TaskDrawer | feature | gui |
-| TB-36 | TaskDrawer: inline metadata editing and Archive button | feature | gui |
-| TB-35 | CreateTaskDialog: modal form for new tasks | feature | gui |
-| TB-34 | Drag-and-drop between columns with optimistic UI and conflict revert | feature | gui |
-| TB-33 | BoardService: EditTaskBody direct-write under .board.lock | feature | gui |
-| TB-32 | BoardService: CreateTask, EditTask, MoveTask, CloseTask, Regenerate via exec tb | feature | gui |
+| TB-39 | Make CLI task-section scans ignore quoted Markdown headings | bug | cli |

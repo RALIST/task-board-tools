@@ -1,9 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -191,6 +193,40 @@ func TestTriage_ReturnsReasonMapAndCaches(t *testing.T) {
 	}
 	if _, ok := second["TB-2"]; ok {
 		t.Fatalf("cache was not used: %#v", second)
+	}
+}
+
+func TestTriage_InvalidJSONFromZeroExitReturnsEmptyMap(t *testing.T) {
+	stub := makeStub(t, `
+if [ "$1" = "triage" ] && [ "$2" = "--json" ]; then
+  echo "Found 1 task needing grooming"
+  exit 0
+fi
+echo "unexpected args: $*" 1>&2
+exit 1
+`)
+	var logs bytes.Buffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prevLogger) })
+
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	got, err := svc.Triage(context.Background())
+	if err != nil {
+		t.Fatalf("Triage should resolve legacy human output, got error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("legacy human output should resolve to an empty triage map: %#v", got)
+	}
+
+	logText := logs.String()
+	if !strings.Contains(logText, stub) {
+		t.Fatalf("diagnostic should include active tb binary path %q; log=%q", stub, logText)
+	}
+	if !strings.Contains(logText, "selected CLI must support triage --json") {
+		t.Fatalf("diagnostic should tell users the selected CLI must support triage --json; log=%q", logText)
 	}
 }
 

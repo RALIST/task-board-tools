@@ -194,14 +194,16 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ## M6 — Groom flow
 
-### F6.1 — Groom button ☐
+### F6.1 — Groom button ☑
 - Drawer has **Groom** button next to Run.
 - Click → `AgentService.GroomTask` → run with `mode=groom` and `groom.md` prompt.
 - Prompt instructs the agent to refine Goal and Acceptance Criteria via `tb edit`, not to write code.
+- Implementation: `gui/internal/agent/prompts/groom.md`, `agent.PromptGroom`, `GroomingDecorator`, and `gui/app/agent_service.go` `GroomTask`.
 - **Acceptance**: backlog task with placeholder Goal; click Groom; after agent finishes, Goal section is improved on disk; GUI reflects it.
 
-### F6.2 — Triage highlighting ☐
+### F6.2 — Triage highlighting ☑
 - Tasks flagged by `tb triage` (no module / placeholder goal / auto-created) get a "needs grooming" indicator on the card.
+- Implementation: `BoardService.Triage()` consumes `tb triage --json`; `triageStore` feeds `Card.svelte` and `TaskDrawer.svelte`.
 - **Acceptance**: backlog with such tasks shows the indicator; clicking it suggests Groom in the drawer.
 
 ---

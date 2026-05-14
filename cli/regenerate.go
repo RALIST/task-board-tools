@@ -169,8 +169,10 @@ func collectTasks(boardDir, status string) []Task {
 		if entry.IsDir() || !isTaskFile(entry.Name()) {
 			continue
 		}
-		t, err := parseTaskFile(filepath.Join(dirPath, entry.Name()))
+		taskPath := filepath.Join(dirPath, entry.Name())
+		t, err := parseTaskFile(taskPath)
 		if err != nil {
+			warnSkippingTask(taskPath, err)
 			continue
 		}
 		t.Status = status
