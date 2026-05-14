@@ -9,7 +9,7 @@ Title: {{TASK_TITLE}}
 {{TASK_BODY}}
 
 ## Working contract
-
+- read the AGENTS.md or CLAUDE.md for general guidelines on how to work with current project
 - The task `.md` file is the source of truth. Use the `tb` CLI to read and
   mutate task state; never edit `BOARD.md` directly.
 - Make small, atomic commits. Run the project's test suite before declaring
@@ -17,7 +17,7 @@ Title: {{TASK_TITLE}}
 - When the work is complete, append a summary line to the task's `## Log`
   section via `tb` (or by editing the body through the CLI), and run
   `tb done {{TASK_ID}}` to move the task to the `done` column.
-- If you discover follow-up work that is out of scope, create a new task via
-  `tb create "<title>" -p P2 …` rather than expanding this one.
+- If you discover follow-up work or bugs durung the work and that is out of scope, create a new task via
+  `tb create "<title>" …` rather than expanding this one.
 
 Begin.

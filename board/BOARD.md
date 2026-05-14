@@ -22,13 +22,12 @@
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| — | — | — | — | — | — |
+| TB-92 | Limit showed tags in header to 10 | bug | P1 | M |  |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
-| TB-92 | Limit showed tags in header to 10 | bug |  |
 | TB-91 | Task card is bigger then column | improvement |  |
 | TB-90 | Board switching is not working | bug |  |
 | TB-89 | Click outside should close dropdown | bug | gui |
@@ -78,3 +77,4 @@
 | TB-45 | Agent state writer: JSONL events + per-run log file | feature | gui |
 | TB-44 | ClaudeRunner and CodexRunner: exec.CommandContext with own process group | feature | gui |
 | TB-43 | Agent Runner interface, Mode type, and embedded implement.md prompt | feature | gui |
+| TB-41 | Frontend Toast.svelte component | feature | gui |
