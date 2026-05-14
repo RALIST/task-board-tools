@@ -3,10 +3,10 @@
   //
   // The editor buffer contains ONLY the editable body slice — everything from
   // the first `## ` section heading onward. The protected prefix (title line +
-  // bold-field metadata block) is rendered above the editor as a read-only
-  // chrome strip and is never reachable from the editor itself. On every doc
-  // change we re-emit the full file as `header + editedBody` so the parent's
-  // `value` binding stays the same shape that `EditTaskBody` expects.
+  // bold-field metadata block) is hidden from the editor; title and metadata
+  // are owned by the surrounding TaskDrawer fields. On every doc change we
+  // re-emit the full file as `header + editedBody` so the parent's `value`
+  // binding stays the same shape that `EditTaskBody` expects.
 
   import { onDestroy, onMount } from 'svelte';
   import { EditorState } from '@codemirror/state';
@@ -47,7 +47,6 @@
   }
 
   let boundary = $derived(findBodyStart(originalBody));
-  let headerStrip = $derived(originalBody.slice(0, boundary).replace(/\s+$/, ''));
   let editableInitial = $derived(value.slice(boundary));
 
   onMount(() => {
@@ -104,11 +103,8 @@
 </script>
 
 <div class="editor-wrap">
-  {#if headerStrip}
-    <pre class="header-strip" aria-label="Read-only header" title="Edit metadata via the fields above">{headerStrip}</pre>
-  {/if}
   <div bind:this={host} class="editor"></div>
-  <p class="hint">Cmd/Ctrl+S to save · header above is read-only</p>
+  <p class="hint">Cmd/Ctrl+S to save</p>
 </div>
 
 <style>
@@ -116,21 +112,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-  }
-  .header-strip {
-    margin: 0;
-    padding: 8px 12px;
-    background: rgba(0, 0, 0, 0.18);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    color: var(--fg-dim);
-    white-space: pre-wrap;
-    user-select: text;
-    pointer-events: none;
-    max-height: 140px;
-    overflow: auto;
   }
   .editor {
     border: 1px solid rgba(255, 255, 255, 0.08);
