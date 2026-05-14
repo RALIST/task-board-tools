@@ -249,10 +249,10 @@ func resolveTaskRefInStatus(boardDir, status, taskID string) (taskRef, bool, err
 		return taskRef{}, false, fmt.Errorf("cannot stat file-form task %s: %w", filePath, err)
 	}
 
-	if folderExists && fileExists {
-		return taskRef{}, false, duplicateTaskFormError(taskID, status, filePath, folderPath)
-	}
 	if folderExists {
+		if fileExists {
+			warnDualForm(taskID, status, filePath, folderPath)
+		}
 		return taskRef{ID: taskID, Status: status, Path: folderPath}, true, nil
 	}
 	if fileExists {
@@ -304,7 +304,20 @@ func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
 		return nil, fmt.Errorf("cannot read status directory %s: %w", dirPath, err)
 	}
 
-	refsByID := make(map[string]taskRef)
+	type seenEntry struct {
+		folderPath string
+		filePath   string
+	}
+	seen := make(map[string]*seenEntry)
+	getEntry := func(id string) *seenEntry {
+		if e, ok := seen[id]; ok {
+			return e
+		}
+		e := &seenEntry{}
+		seen[id] = e
+		return e
+	}
+
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") {
@@ -326,15 +339,7 @@ func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
 			if info.IsDir() {
 				return nil, fmt.Errorf("folder-form task %s is a directory, expected markdown file", taskPath)
 			}
-			fileSibling := taskFilePath(boardDir, status, name)
-			if _, err := os.Stat(fileSibling); err == nil {
-				return nil, duplicateTaskFormError(name, status, fileSibling, taskPath)
-			} else if !os.IsNotExist(err) {
-				return nil, fmt.Errorf("cannot stat file-form task %s: %w", fileSibling, err)
-			}
-			if err := addTaskRef(refsByID, taskRef{ID: name, Status: status, Path: taskPath}); err != nil {
-				return nil, err
-			}
+			getEntry(name).folderPath = taskPath
 			continue
 		}
 
@@ -342,21 +347,20 @@ func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
 		if !ok {
 			continue
 		}
-		taskPath := filepath.Join(dirPath, name)
-		folderSibling := taskFolderMarkdownPath(boardDir, status, id)
-		if _, err := os.Stat(folderSibling); err == nil {
-			return nil, duplicateTaskFormError(id, status, taskPath, folderSibling)
-		} else if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("cannot stat folder-form task %s: %w", folderSibling, err)
-		}
-		if err := addTaskRef(refsByID, taskRef{ID: id, Status: status, Path: taskPath}); err != nil {
-			return nil, err
-		}
+		getEntry(id).filePath = filepath.Join(dirPath, name)
 	}
 
-	refs := make([]taskRef, 0, len(refsByID))
-	for _, ref := range refsByID {
-		refs = append(refs, ref)
+	refs := make([]taskRef, 0, len(seen))
+	for id, e := range seen {
+		switch {
+		case e.folderPath != "" && e.filePath != "":
+			warnDualForm(id, status, e.filePath, e.folderPath)
+			refs = append(refs, taskRef{ID: id, Status: status, Path: e.folderPath})
+		case e.folderPath != "":
+			refs = append(refs, taskRef{ID: id, Status: status, Path: e.folderPath})
+		case e.filePath != "":
+			refs = append(refs, taskRef{ID: id, Status: status, Path: e.filePath})
+		}
 	}
 	sort.Slice(refs, func(i, j int) bool {
 		return numericID(refs[i].ID) < numericID(refs[j].ID)
@@ -364,16 +368,29 @@ func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
 	return refs, nil
 }
 
-func addTaskRef(refsByID map[string]taskRef, ref taskRef) error {
-	if prev, ok := refsByID[ref.ID]; ok {
-		return duplicateTaskFormError(ref.ID, ref.Status, prev.Path, ref.Path)
-	}
-	refsByID[ref.ID] = ref
-	return nil
+// warnDualForm logs a one-line stderr warning when a task is present in both
+// file form (<status>/<ID>.md) and folder form (<status>/<ID>/TASK.md). This is
+// a crash-recovery transient that can only arise from a process dying mid
+// promotion (see docs/ARCHITECTURE.md "File → folder promotion"). The resolver
+// prefers folder form; the next structured mutation removes the orphan file via
+// cleanupOrphanFileFormSibling.
+func warnDualForm(taskID, status, filePath, folderPath string) {
+	fmt.Fprintf(os.Stderr, "warning: task %s in %s has both file-form (%s) and folder-form (%s); preferring folder form. The orphan file will be removed by the next structured mutation.\n", taskID, status, filePath, folderPath)
 }
 
-func duplicateTaskFormError(taskID, status, firstPath, secondPath string) error {
-	return fmt.Errorf("task %s has both file-form and folder-form markdown in %s: %s and %s; remove one before continuing", taskID, status, firstPath, secondPath)
+// cleanupOrphanFileFormSibling removes <status>/<ID>.md if a folder form
+// markdown exists at <status>/<ID>/TASK.md. Idempotent and safe to call when
+// the sibling does not exist. Callers MUST hold .board.lock.
+func cleanupOrphanFileFormSibling(boardDir, status, taskID string) error {
+	folderPath := taskFolderMarkdownPath(boardDir, status, taskID)
+	if _, err := os.Stat(folderPath); err != nil {
+		return nil
+	}
+	sibling := taskFilePath(boardDir, status, taskID)
+	if err := os.Remove(sibling); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("cannot remove dual-form file sibling %s: %w", sibling, err)
+	}
+	return nil
 }
 
 func resolveTaskRef(boardDir, taskID string, statuses []string) (taskRef, error) {

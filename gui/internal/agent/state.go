@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -69,13 +70,56 @@ type Event struct {
 // first-run case.
 var ErrBoardDirMissing = errors.New("board directory does not exist")
 
-// agentStateDir / agentLogsDir are the sub-paths under boardDir that the
-// agent subsystem owns. The CLI never touches them (see
-// docs/ARCHITECTURE.md "On-disk layout").
+// agentStateDir / agentLogsDir are the legacy board-root sub-paths for
+// file-form tasks. Folder-form tasks own task-local files with the same names
+// defined in docs/ARCHITECTURE.md "Folder-form tasks".
 const (
-	agentStateDir = ".agent-state"
-	agentLogsDir  = ".agent-logs"
+	agentStateDir       = ".agent-state"
+	agentLogsDir        = ".agent-logs"
+	folderTaskFileName  = "TASK.md"
+	folderTaskStateFile = ".agent-state.jsonl"
 )
+
+var taskStatusDirs = []string{"backlog", "in-progress", "done", "archive"}
+
+// ArtifactLayout names the on-disk storage form that owns a task's agent
+// artifacts.
+type ArtifactLayout string
+
+const (
+	ArtifactLayoutFile   ArtifactLayout = "file"
+	ArtifactLayoutFolder ArtifactLayout = "folder"
+)
+
+// ArtifactPaths is the resolved state/log location for one task. File-form
+// tasks keep the legacy board-root paths; folder-form tasks use task-local
+// paths inside <status>/<ID>/.
+type ArtifactPaths struct {
+	Layout    ArtifactLayout
+	StatePath string
+	LogDir    string
+	TaskDir   string
+}
+
+// LogPath returns the absolute log-file path for runID under the resolved
+// layout. It does not check whether the file exists.
+func (p ArtifactPaths) LogPath(runID string) string {
+	return filepath.Join(p.LogDir, runID+".log")
+}
+
+// ResolveArtifactPaths returns the canonical state/log paths for taskID.
+// Resolution follows the folder-task contract: any existing
+// <status>/<ID>/TASK.md wins and owns task-local artifacts; otherwise the
+// legacy board-root file-task layout is used.
+func ResolveArtifactPaths(boardDir, taskID string) (ArtifactPaths, error) {
+	if taskID == "" {
+		return ArtifactPaths{}, errors.New("ResolveArtifactPaths: empty taskID")
+	}
+	if err := requireBoardDir(boardDir); err != nil {
+		return ArtifactPaths{}, err
+	}
+	return resolveArtifactPaths(boardDir, taskID)
+}
 
 // taskMutexes serialises AppendEvent calls per task so two goroutines
 // writing into the same .jsonl file never produce interleaved bytes. POSIX
@@ -95,8 +139,8 @@ func taskMutex(taskID string) *sync.Mutex {
 	return m.(*sync.Mutex)
 }
 
-// AppendEvent serialises ev as one JSON line and appends it to
-// `<boardDir>/.agent-state/<taskID>.jsonl`. The file is created with
+// AppendEvent serialises ev as one JSON line and appends it to the task's
+// resolved JSONL state file. The file is created with
 // O_APPEND|O_CREATE; each write is fsync'd before close so a crash between
 // `Sync` and process exit cannot lose the event.
 //
@@ -110,7 +154,11 @@ func AppendEvent(boardDir, taskID string, ev Event) error {
 		return err
 	}
 
-	stateDir := filepath.Join(boardDir, agentStateDir)
+	paths, err := resolveArtifactPaths(boardDir, taskID)
+	if err != nil {
+		return fmt.Errorf("AppendEvent: resolve paths: %w", err)
+	}
+	stateDir := filepath.Dir(paths.StatePath)
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return fmt.Errorf("AppendEvent: mkdir state dir: %w", err)
 	}
@@ -132,7 +180,7 @@ func AppendEvent(boardDir, taskID string, ev Event) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	path := filepath.Join(stateDir, taskID+".jsonl")
+	path := paths.StatePath
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("AppendEvent: open %s: %w", path, err)
@@ -173,9 +221,9 @@ func requireBoardDir(boardDir string) error {
 	return nil
 }
 
-// NewLogWriter returns an io.WriteCloser pointed at
-// `<boardDir>/.agent-logs/<taskID>/<runID>.log`, creating the directory if
-// missing. Caller is responsible for Close() after the run completes.
+// NewLogWriter returns an io.WriteCloser pointed at the task's resolved
+// per-run log path, creating the directory if missing. Caller is responsible
+// for Close() after the run completes.
 //
 // The log file is a separate sink from the JSONL stream so the GUI can
 // re-render past-run output without parsing 10MB of JSON. Both sinks
@@ -187,11 +235,15 @@ func NewLogWriter(boardDir, taskID, runID string) (io.WriteCloser, error) {
 	if err := requireBoardDir(boardDir); err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(boardDir, agentLogsDir, taskID)
+	paths, err := resolveArtifactPaths(boardDir, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("NewLogWriter: resolve paths: %w", err)
+	}
+	dir := paths.LogDir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("NewLogWriter: mkdir %s: %w", dir, err)
 	}
-	path := filepath.Join(dir, runID+".log")
+	path := paths.LogPath(runID)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("NewLogWriter: open %s: %w", path, err)
@@ -201,15 +253,81 @@ func NewLogWriter(boardDir, taskID, runID string) (io.WriteCloser, error) {
 
 // LogPath returns the canonical absolute path for a run's log file. It does
 // NOT check whether the file exists; the GUI uses this for past-run links
-// and renders an empty pane when the read fails.
+// and renders an empty pane when the read fails. If path resolution itself
+// fails, the legacy file-task path is returned as a safe display fallback.
 func LogPath(boardDir, taskID, runID string) string {
-	return filepath.Join(boardDir, agentLogsDir, taskID, runID+".log")
+	paths, err := resolveArtifactPaths(boardDir, taskID)
+	if err == nil {
+		return paths.LogPath(runID)
+	}
+	return legacyLogPath(boardDir, taskID, runID)
 }
 
 // StatePath returns the canonical absolute path for a task's JSONL run
 // history. Same lifetime rules as LogPath — may not exist yet.
 func StatePath(boardDir, taskID string) string {
+	paths, err := resolveArtifactPaths(boardDir, taskID)
+	if err == nil {
+		return paths.StatePath
+	}
+	return legacyStatePath(boardDir, taskID)
+}
+
+func resolveArtifactPaths(boardDir, taskID string) (ArtifactPaths, error) {
+	taskID = strings.TrimSpace(taskID)
+	for _, status := range taskStatusDirs {
+		taskDir := filepath.Join(boardDir, status, taskID)
+		taskPath := filepath.Join(taskDir, folderTaskFileName)
+		info, err := os.Stat(taskPath)
+		if err == nil {
+			if info.IsDir() {
+				return ArtifactPaths{}, fmt.Errorf("folder-form task %s is a directory, expected markdown file", taskPath)
+			}
+			return ArtifactPaths{
+				Layout:    ArtifactLayoutFolder,
+				StatePath: filepath.Join(taskDir, folderTaskStateFile),
+				LogDir:    filepath.Join(taskDir, agentLogsDir),
+				TaskDir:   taskDir,
+			}, nil
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return ArtifactPaths{}, fmt.Errorf("stat folder-form task %s: %w", taskPath, err)
+		}
+	}
+
+	for _, status := range taskStatusDirs {
+		taskPath := filepath.Join(boardDir, status, taskID+".md")
+		info, err := os.Stat(taskPath)
+		if err == nil {
+			if info.IsDir() {
+				return ArtifactPaths{}, fmt.Errorf("file-form task %s is a directory, expected markdown file", taskPath)
+			}
+			return legacyArtifactPaths(boardDir, taskID), nil
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return ArtifactPaths{}, fmt.Errorf("stat file-form task %s: %w", taskPath, err)
+		}
+	}
+
+	// Preserve the pre-folder-task behavior for callers that are creating or
+	// inspecting historical artifacts when the task file is absent.
+	return legacyArtifactPaths(boardDir, taskID), nil
+}
+
+func legacyArtifactPaths(boardDir, taskID string) ArtifactPaths {
+	return ArtifactPaths{
+		Layout:    ArtifactLayoutFile,
+		StatePath: legacyStatePath(boardDir, taskID),
+		LogDir:    filepath.Join(boardDir, agentLogsDir, taskID),
+	}
+}
+
+func legacyStatePath(boardDir, taskID string) string {
 	return filepath.Join(boardDir, agentStateDir, taskID+".jsonl")
+}
+
+func legacyLogPath(boardDir, taskID, runID string) string {
+	return filepath.Join(boardDir, agentLogsDir, taskID, runID+".log")
 }
 
 // GenerateRunID returns "r_<8 lowercase hex chars>" sourced from

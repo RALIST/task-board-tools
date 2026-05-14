@@ -37,6 +37,33 @@ func writeJSONLFixture(t *testing.T, taskID string, events []agent.Event) string
 	return boardDir
 }
 
+func writeFolderJSONLFixture(t *testing.T, taskID string, events []agent.Event) string {
+	t.Helper()
+	boardDir := t.TempDir()
+	taskDir := filepath.Join(boardDir, "backlog", taskID)
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatalf("mkdir folder task: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "TASK.md"), []byte("# "+taskID+": Folder task\n"), 0o644); err != nil {
+		t.Fatalf("write TASK.md: %v", err)
+	}
+	f, err := os.Create(filepath.Join(taskDir, ".agent-state.jsonl"))
+	if err != nil {
+		t.Fatalf("create folder jsonl: %v", err)
+	}
+	defer f.Close()
+	for _, ev := range events {
+		b, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if _, err := f.Write(append(b, '\n')); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	return boardDir
+}
+
 func newSvcForRuns(t *testing.T, boardDir string) *AgentService {
 	t.Helper()
 	stub := makeStub(t, `:`)
@@ -106,6 +133,49 @@ func TestListRuns_MissingFileReturnsEmptySlice(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Fatalf("got %d runs", len(runs))
+	}
+}
+
+func TestListRunsAndGetRunLog_FolderTaskLocalArtifacts(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: "r_folder01", TaskID: "TB-2", Event: agent.EvQueued, Agent: "claude", Mode: "implement"},
+		{TS: "2026-05-14T10:00:01Z", RunID: "r_folder01", TaskID: "TB-2", Event: agent.EvStarted, Agent: "claude", Mode: "implement", PID: 123},
+		{TS: "2026-05-14T10:00:02Z", RunID: "r_folder01", TaskID: "TB-2", Event: agent.EvFinished, Agent: "claude", Mode: "implement", Status: agent.StatusSuccess, ExitCode: 0},
+	}
+	boardDir := writeFolderJSONLFixture(t, "TB-2", events)
+	logDir := filepath.Join(boardDir, "backlog", "TB-2", ".agent-logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatalf("mkdir log dir: %v", err)
+	}
+	content := "folder log\n"
+	if err := os.WriteFile(filepath.Join(logDir, "r_folder01.log"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	svc := newSvcForRuns(t, boardDir)
+	runs, err := svc.ListRuns(context.Background(), "TB-2")
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("got %d runs, want 1: %+v", len(runs), runs)
+	}
+	wantLogPath := filepath.Join(logDir, "r_folder01.log")
+	if runs[0].LogPath != wantLogPath {
+		t.Fatalf("LogPath: got %s, want %s", runs[0].LogPath, wantLogPath)
+	}
+	got, err := svc.GetRunLog(context.Background(), "TB-2", "r_folder01")
+	if err != nil {
+		t.Fatalf("GetRunLog: %v", err)
+	}
+	if got != content {
+		t.Fatalf("content: %q, want %q", got, content)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, ".agent-state", "TB-2.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("folder task should not read/create board-root state, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, ".agent-logs", "TB-2")); !os.IsNotExist(err) {
+		t.Fatalf("folder task should not read/create board-root logs, err=%v", err)
 	}
 }
 

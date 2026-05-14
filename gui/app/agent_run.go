@@ -279,7 +279,12 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 	}
 	runner = runnerForMode(runner, mode, detail)
 
-	runCtx, cancel := context.WithCancel(ctx)
+	// Do not derive the runner context directly from ctx: if daemon
+	// shutdown closes ctx first, the runner can return context.Canceled
+	// before the watcher below marks the active run as cancelled. Keep the
+	// cancel ordering explicit so the terminal record is cancelled, not
+	// failed{context canceled}.
+	runCtx, cancel := context.WithCancel(context.Background())
 	ar := &activeRun{
 		RunID:  runID,
 		TaskID: id,

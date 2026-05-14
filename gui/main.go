@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
 	tbapp "tools/tb-gui/app"
 	"tools/tb-gui/internal/daemon"
@@ -80,6 +81,14 @@ func main() {
 		Activator: d,
 	})
 
+	// Per-agent quota usage — independent of any individual run, refreshed on
+	// a timer and on demand from the header widget (TB-107).
+	usageService := tbapp.NewUsageService(tbapp.UsageServiceOptions{
+		Emitter:     emitter,
+		Logger:      logger,
+		ProjectRoot: settingsService.GetProjectRoot,
+	})
+
 	app := application.New(application.Options{
 		Name:        "tb-gui",
 		Description: "Task Board Tools GUI — kanban over markdown tasks",
@@ -88,6 +97,7 @@ func main() {
 			application.NewService(boardService),
 			application.NewService(settingsService),
 			application.NewService(agentService),
+			application.NewService(usageService),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:      "com.taskboard.tbgui",
@@ -125,6 +135,7 @@ func main() {
 		Title: "tb-gui",
 		Width: 1280, Height: 800,
 		MinWidth: 720, MinHeight: 480,
+		EnableFileDrop: true,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
@@ -133,6 +144,39 @@ func main() {
 		BackgroundColour:   application.NewRGB(27, 38, 54),
 		URL:                "/",
 		UseApplicationMenu: true,
+	})
+
+	// Route file drops onto elements with data-file-drop-target into the
+	// shared `tb attach` path. The webview's runtime tags drop targets via
+	// the data-file-drop-target attribute; here we read data-task-id off
+	// that element and forward to BoardService. The GUI never writes
+	// attachment files itself — everything goes through `tb`.
+	window.OnWindowEvent(events.Common.WindowFilesDropped, func(ev *application.WindowEvent) {
+		details := ev.Context().DropTargetDetails()
+		files := ev.Context().DroppedFiles()
+		if details == nil || len(files) == 0 {
+			return
+		}
+		taskID := details.Attributes["data-task-id"]
+		if taskID == "" {
+			app.Event.Emit("attach:dropped", map[string]any{
+				"ok":    false,
+				"error": "drop target has no task id",
+			})
+			return
+		}
+		err := boardService.AddAttachments(context.Background(), taskID, files)
+		payload := map[string]any{
+			"taskId": taskID,
+			"count":  len(files),
+		}
+		if err != nil {
+			payload["ok"] = false
+			payload["error"] = err.Error()
+		} else {
+			payload["ok"] = true
+		}
+		app.Event.Emit("attach:dropped", payload)
 	})
 	shellController.AttachWindow(window)
 	shellController.InstallTray()
@@ -154,6 +198,11 @@ func main() {
 			slog.Warn("daemon: shutdown error", "err", err)
 		}
 	}()
+
+	// Background periodic refresh of per-agent quota usage. Stops when ctx
+	// is cancelled at shutdown.
+	usageService.Start(ctx)
+	defer usageService.Close()
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

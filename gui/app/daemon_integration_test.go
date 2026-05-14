@@ -60,6 +60,14 @@ func (a *daemonAgentAdapter) HasActiveRun(id string) bool { return a.s.HasActive
 // daemonIntegrationFixture mirrors realTbBoardForRun but constructs the
 // daemon + adapters so the test exercises the full pickup path.
 func daemonIntegrationFixture(t *testing.T, runner agent.Runner) (*daemon.Daemon, *AgentService, string, *cli.Client) {
+	return daemonIntegrationFixtureWithStorage(t, runner, false)
+}
+
+func daemonFolderIntegrationFixture(t *testing.T, runner agent.Runner) (*daemon.Daemon, *AgentService, string, *cli.Client) {
+	return daemonIntegrationFixtureWithStorage(t, runner, true)
+}
+
+func daemonIntegrationFixtureWithStorage(t *testing.T, runner agent.Runner, folderForm bool) (*daemon.Daemon, *AgentService, string, *cli.Client) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX-only board flock")
@@ -80,8 +88,18 @@ func daemonIntegrationFixture(t *testing.T, runner agent.Runner) (*daemon.Daemon
 		t.Fatalf(".next-id: %v", err)
 	}
 	taskBody := strings.Replace(sampleTaskBody, "**Branch:** —", "**Branch:** —\n**Agent:** claude", 1)
-	if err := os.WriteFile(filepath.Join(boardDir, "backlog", "TB-1.md"), []byte(taskBody), 0o644); err != nil {
-		t.Fatalf("task md: %v", err)
+	if folderForm {
+		taskDir := filepath.Join(boardDir, "backlog", "TB-1")
+		if err := os.MkdirAll(taskDir, 0o755); err != nil {
+			t.Fatalf("task dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(taskDir, "TASK.md"), []byte(taskBody), 0o644); err != nil {
+			t.Fatalf("task md: %v", err)
+		}
+	} else {
+		if err := os.WriteFile(filepath.Join(boardDir, "backlog", "TB-1.md"), []byte(taskBody), 0o644); err != nil {
+			t.Fatalf("task md: %v", err)
+		}
 	}
 
 	c, err := cli.NewClient(cli.Options{BinaryPath: tbBinary, Cwd: root})
@@ -212,6 +230,59 @@ func TestDaemon_F51_CLIQueuesTriggerRun(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "**AgentStatus:** success") {
 		t.Fatalf("AgentStatus not success:\n%s", out)
+	}
+}
+
+func TestDaemon_CLIQueuesFolderTaskUsesTaskLocalArtifacts(t *testing.T) {
+	runner := &successRunner{stdoutLines: []string{"folder hello"}}
+	d, _, boardDir, c := daemonFolderIntegrationFixture(t, runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := d.Activate(ctx, boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	if err := c.Edit(ctx, "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("edit queued: %v", err)
+	}
+	if ok, err := d.Enqueue("TB-1"); err != nil || !ok {
+		t.Fatalf("enqueue: ok=%v err=%v", ok, err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !d.IsActive("TB-1") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if d.IsActive("TB-1") {
+		t.Fatalf("daemon never finished the folder-task run")
+	}
+
+	statePath := filepath.Join(boardDir, "backlog", "TB-1", ".agent-state.jsonl")
+	if got := agent.StatePath(boardDir, "TB-1"); got != statePath {
+		t.Fatalf("StatePath: got %s, want %s", got, statePath)
+	}
+	events := readJSONL(t, statePath)
+	if len(events) < 4 {
+		t.Fatalf("expected queued/started/stdout/finished events; got %d: %+v", len(events), events)
+	}
+	last := events[len(events)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusSuccess {
+		t.Fatalf("last event: %+v, want finished{success}", last)
+	}
+	logPath := filepath.Join(boardDir, "backlog", "TB-1", ".agent-logs", last.RunID+".log")
+	if _, err := os.Stat(logPath); err != nil {
+		t.Fatalf("folder log missing at %s: %v", logPath, err)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, ".agent-state", "TB-1.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("folder daemon run should not create board-root state, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, ".agent-logs", "TB-1")); !os.IsNotExist(err) {
+		t.Fatalf("folder daemon run should not create board-root logs, err=%v", err)
 	}
 }
 

@@ -150,6 +150,8 @@ func moveTaskOnBoardWithLog(boardDir, taskID, targetStatus string, logMessage fu
 		return result, err
 	}
 
+	// Read source first; log entry is appended after the rename succeeds so a
+	// failed rename leaves the source content untouched.
 	data, err := os.ReadFile(srcRef.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -158,25 +160,28 @@ func moveTaskOnBoardWithLog(boardDir, taskID, targetStatus string, logMessage fu
 		return result, fmt.Errorf("cannot read %s: %w", srcRef.Path, err)
 	}
 
-	today := time.Now().Format("2006-01-02")
-	content := appendLogEntry(string(data), fmt.Sprintf("- %s: %s\n", today, logMessage(srcRef.Status)))
-	if err := writeFileAtomic(srcRef.Path, []byte(content), 0644); err != nil {
-		return result, fmt.Errorf("cannot write %s: %w", srcRef.Path, err)
-	}
-
+	var destTaskMarkdown string
 	if isFolderTaskPath(srcRef.Path) {
-		if err := removeDualFormSibling(boardDir, srcRef.Status, taskID); err != nil {
+		if err := cleanupOrphanFileFormSibling(boardDir, srcRef.Status, taskID); err != nil {
 			return result, err
 		}
 		result.DestPath = taskFolderPath(boardDir, targetStatus, taskID)
 		if err := renameTaskPath(result.SrcPath, result.DestPath); err != nil {
 			return result, fmt.Errorf("cannot rename task directory %s -> %s: %w", result.SrcPath, result.DestPath, err)
 		}
+		destTaskMarkdown = taskFolderMarkdownPath(boardDir, targetStatus, taskID)
 	} else {
 		result.DestPath = taskFilePath(boardDir, targetStatus, taskID)
 		if err := renameTaskPath(srcRef.Path, result.DestPath); err != nil {
 			return result, fmt.Errorf("cannot rename task file %s -> %s: %w", srcRef.Path, result.DestPath, err)
 		}
+		destTaskMarkdown = result.DestPath
+	}
+
+	today := time.Now().Format("2006-01-02")
+	content := appendLogEntry(string(data), fmt.Sprintf("- %s: %s\n", today, logMessage(srcRef.Status)))
+	if err := writeFileAtomic(destTaskMarkdown, []byte(content), 0644); err != nil {
+		return result, fmt.Errorf("cannot write %s: %w", destTaskMarkdown, err)
 	}
 
 	if err := regenerateBoard(boardDir); err != nil {
@@ -254,14 +259,6 @@ func taskDestinationPaths(boardDir, status, taskID string) []string {
 		taskFilePath(boardDir, status, taskID),
 		taskFolderPath(boardDir, status, taskID),
 	}
-}
-
-func removeDualFormSibling(boardDir, status, taskID string) error {
-	sibling := taskFilePath(boardDir, status, taskID)
-	if err := os.Remove(sibling); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("cannot remove dual-form source file %s before moving folder task: %w", sibling, err)
-	}
-	return nil
 }
 
 // appendLogEntry inserts a log entry at the end of the ## Log section.

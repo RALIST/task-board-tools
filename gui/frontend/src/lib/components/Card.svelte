@@ -67,6 +67,7 @@
 <div
   class="card"
   data-task-id={task.id}
+  data-file-drop-target
   class:epic={isEpic}
   role="button"
   tabindex="0"
@@ -142,6 +143,11 @@
   }
   .card:hover { border-color: rgba(255, 255, 255, 0.18); background: rgba(34, 44, 64, 0.95); }
   .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .card:global(.file-drop-target-active) {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(74, 141, 248, 0.35);
+    background: rgba(74, 141, 248, 0.12);
+  }
   .card.epic {
     border-left: 3px solid var(--accent);
     padding-left: 8px;

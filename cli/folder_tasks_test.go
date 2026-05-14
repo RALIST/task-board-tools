@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -103,52 +101,52 @@ func TestFolderTaskJSONFilePathsUseCanonicalMarkdownPath(t *testing.T) {
 	}
 	assertPathSuffix(t, show.Metadata.FilePath, filepath.Join("done", "TB-2", folderTaskFileName))
 	assertContains(t, show.Body, "## Attachments")
-	assertContains(t, show.Body, filepath.Join("done", "TB-2", "attachments", "evidence.txt"))
+	assertContains(t, show.Body, "- attachments/evidence.txt")
 }
 
-func TestFolderTaskDuplicateFormsFailLoudly(t *testing.T) {
-	if os.Getenv("TB_TEST_DUPLICATE_FOLDER_TASK") == "1" {
-		cfg = tbConfig{
-			RootDir:        filepath.Dir(os.Getenv("TB_TEST_BOARD_DIR")),
-			BoardDir:       os.Getenv("TB_TEST_BOARD_DIR"),
-			Prefix:         "TB",
-			WipLimit:       2,
-			ScanExtensions: defaultScanExtensions(),
-		}
-		cmdList([]string{"--json", "--status", "backlog"})
-		return
-	}
-
+func TestFolderTaskDuplicateFormSelfHeals(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	task := baseFolderFixtures()[0]
 	writeFolderFixtureTask(t, boardDir, task, "file")
 	writeFolderFixtureTask(t, boardDir, task, "folder")
 
-	_, err := discoverTaskRefs(boardDir, []string{"backlog"})
-	if err == nil {
-		t.Fatal("discoverTaskRefs succeeded, want duplicate-form error")
-	}
-	assertContains(t, err.Error(), "both file-form and folder-form")
-	assertContains(t, err.Error(), "TB-1")
+	filePath := taskFilePath(boardDir, "backlog", task.id)
+	folderPath := taskFolderMarkdownPath(boardDir, "backlog", task.id)
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestFolderTaskDuplicateFormsFailLoudly$")
-	cmd.Env = append(os.Environ(),
-		"TB_TEST_DUPLICATE_FOLDER_TASK=1",
-		"TB_TEST_BOARD_DIR="+boardDir,
-	)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	var refs []taskRef
+	stderr := captureStderr(t, func() {
+		var err error
+		refs, err = discoverTaskRefs(boardDir, []string{"backlog"})
+		if err != nil {
+			t.Fatalf("discoverTaskRefs: %v", err)
+		}
+	})
+	if len(refs) != 1 || refs[0].ID != task.id {
+		t.Fatalf("discoverTaskRefs returned %v, want single %s ref", refs, task.id)
+	}
+	if refs[0].Path != folderPath {
+		t.Fatalf("resolver returned %q, want folder form %q", refs[0].Path, folderPath)
+	}
+	assertContains(t, stderr, "warning")
+	assertContains(t, stderr, task.id)
+	assertContains(t, stderr, "preferring folder form")
 
-	runErr := cmd.Run()
-	if runErr == nil {
-		t.Fatal("cmdList succeeded, want non-zero duplicate-form error")
+	// Orphan still present — self-heal happens at the next mutation, not at read.
+	if _, err := os.Stat(filePath); err != nil {
+		t.Fatalf("file-form orphan should still exist before mutation: %v", err)
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("duplicate-form error wrote stdout:\n%s", stdout.String())
+
+	if _, err := moveTaskOnBoard(boardDir, task.id, "in-progress", "Started — moved to in-progress"); err != nil {
+		t.Fatalf("moveTaskOnBoard: %v", err)
 	}
-	assertContains(t, stderr.String(), "both file-form and folder-form")
-	assertContains(t, stderr.String(), "TB-1")
+
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		t.Fatalf("file-form orphan should be removed after mutation: err=%v", err)
+	}
+	movedFolder := taskFolderMarkdownPath(boardDir, "in-progress", task.id)
+	if _, err := os.Stat(movedFolder); err != nil {
+		t.Fatalf("folder form should be at new status after move: %v", err)
+	}
 }
 
 func TestMalformedFolderTaskWarnsAndIsSkipped(t *testing.T) {
@@ -394,7 +392,7 @@ func baseFolderFixtures() []folderTaskFixture {
 func writeFolderFixtureTask(t *testing.T, boardDir string, task folderTaskFixture, form string) string {
 	t.Helper()
 
-	content := folderFixtureContent(boardDir, task, form)
+	content := folderFixtureContent(task, form)
 	switch form {
 	case "file":
 		path := filepath.Join(boardDir, task.status, task.id+".md")
@@ -423,7 +421,7 @@ func writeFolderFixtureTask(t *testing.T, boardDir string, task folderTaskFixtur
 	}
 }
 
-func folderFixtureContent(boardDir string, task folderTaskFixture, form string) string {
+func folderFixtureContent(task folderTaskFixture, form string) string {
 	var b strings.Builder
 	b.WriteString("# " + task.id + ": " + task.title + "\n\n")
 	b.WriteString("**Type:** " + task.taskType + "\n")
@@ -444,7 +442,7 @@ func folderFixtureContent(boardDir string, task folderTaskFixture, form string) 
 	if form == "folder" && len(task.attachments) > 0 {
 		b.WriteString("\n## Attachments\n\n")
 		for _, name := range task.attachments {
-			b.WriteString("- " + filepath.Join(boardDir, task.status, task.id, "attachments", name) + "\n")
+			b.WriteString("- attachments/" + name + "\n")
 		}
 	}
 	if task.extra != "" {

@@ -167,6 +167,60 @@ func TestLoadBoardWithMode_DefaultsToActive(t *testing.T) {
 	}
 }
 
+func TestLoadBoard_DuplicateCanonicalPathsAreActionable(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "board", "backlog", "WS-1486.md")
+	second := filepath.Join(t.TempDir(), "board", "done", "WS-1486.md")
+	stub := makeStub(t, fmt.Sprintf(`
+echo 'error: task WS-1486 resolves to multiple canonical markdown paths in requested status scope: %s and %s' 1>&2
+exit 1
+`, first, second))
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	_, err := svc.LoadBoard(context.Background())
+	if err == nil {
+		t.Fatal("LoadBoard should fail")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"cannot load active board",
+		"WS-1486",
+		"backlog: " + first,
+		"done: " + second,
+		"Move or remove one duplicate task file",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error %q missing %q", msg, want)
+		}
+	}
+	for _, unwanted := range []string{"tb [ls", "Binding call failed"} {
+		if strings.Contains(msg, unwanted) {
+			t.Fatalf("error %q should not contain %q", msg, unwanted)
+		}
+	}
+}
+
+func TestLoadBoard_NonDuplicateCLIFailurePreservesExitError(t *testing.T) {
+	stub := makeStub(t, `
+echo 'error: cannot read status directory /tmp/nope: permission denied' 1>&2
+exit 2
+`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	_, err := svc.LoadBoard(context.Background())
+	var exit *cli.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("want original ExitError, got %T: %v", err, err)
+	}
+	if exit.Code != 2 {
+		t.Fatalf("exit code: got %d want 2", exit.Code)
+	}
+	if !strings.Contains(err.Error(), "tb [ls --json --status active]: exit 2") {
+		t.Fatalf("non-duplicate failure should keep CLI error shape, got %q", err)
+	}
+}
+
 func TestTriage_ReturnsReasonMapAndCaches(t *testing.T) {
 	jsonPath := filepath.Join(t.TempDir(), "triage.json")
 	if err := os.WriteFile(jsonPath, []byte(`[{"id":"TB-1","title":"A","reasons":["no goal","no module"]}]`), 0o644); err != nil {

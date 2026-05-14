@@ -335,8 +335,14 @@ echo ok
 		t.Fatalf("argv file: %v", err)
 	}
 	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	if len(args) != 2 || args[0] != "-p" || args[1] != "do the thing" {
-		t.Fatalf("argv: %#v", args)
+	want := []string{"-p", "do the thing", "--output-format", "stream-json", "--verbose"}
+	if len(args) != len(want) {
+		t.Fatalf("argv length: got %d want %d (%#v)", len(args), len(want), args)
+	}
+	for i, w := range want {
+		if args[i] != w {
+			t.Fatalf("argv[%d]: got %q want %q (full=%#v)", i, args[i], w, args)
+		}
 	}
 }
 

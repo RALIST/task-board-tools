@@ -35,6 +35,11 @@
   import { pushToast } from '$lib/stores/toast';
   import { registerAgentEventHandlers } from '$lib/stores/runs';
   import { registerTriageEventHandlers } from '$lib/stores/triage';
+  import {
+    hydrate as hydrateUsage,
+    registerUsageEventHandler,
+  } from '$lib/stores/usage';
+  import AgentUsageHeader from '$lib/components/AgentUsageHeader.svelte';
   import { preferencesStore } from '$lib/stores/preferences';
   import { shortcutAction } from '$lib/shortcuts';
 
@@ -81,6 +86,22 @@
       await refresh();
     }));
     offEvents.push(Events.On('settings:open-panel', () => { settingsOpen = true; }));
+    // File-drop result toast. Wails surfaces a single WindowFilesDropped per
+    // logical drop; main.go routes it to BoardService and emits this event.
+    // We surface the outcome here so cards and the drawer don't both need
+    // their own listener.
+    offEvents.push(Events.On('attach:dropped', (raw: any) => {
+      const data = raw?.data ?? raw ?? {};
+      const taskId: string = typeof data.taskId === 'string' ? data.taskId : '';
+      const ok = data.ok === true;
+      const count = typeof data.count === 'number' ? data.count : 0;
+      const error = typeof data.error === 'string' ? data.error : '';
+      if (ok) {
+        pushToast(taskId ? `Attached ${count} file(s) to ${taskId}` : `Attached ${count} file(s)`, 'success');
+      } else {
+        pushToast(error ? `Attach failed: ${error}` : 'Attach failed');
+      }
+    }));
     offEvents.push(Events.On('task:updated', async (raw: any) => {
       const name: string = raw?.name ?? '';
       const id = name.replace(/^task:updated:/, '');
@@ -94,6 +115,12 @@
     );
     offEvents.push(
       registerTriageEventHandlers((name, handler) => Events.On(name, handler as any)),
+    );
+    // Per-agent quota usage (TB-107): seed from backend cache, then live-
+    // update on agent-usage:updated events from the periodic refresh loop.
+    void hydrateUsage();
+    offEvents.push(
+      registerUsageEventHandler((name, handler) => Events.On(name, handler as any)),
     );
     window.addEventListener('keydown', onGlobalKeydown);
     offEvents.push(() => window.removeEventListener('keydown', onGlobalKeydown));
@@ -216,6 +243,7 @@
       {/if}
     </div>
     <div class="actions">
+      <AgentUsageHeader />
       {#if bootStatus === 'ready'}
         <button class="new" onclick={() => (createOpen = true)} title="Create task (n)">+ New</button>
       {/if}

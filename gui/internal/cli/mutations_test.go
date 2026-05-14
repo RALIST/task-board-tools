@@ -26,6 +26,25 @@ func TestCreate_HappyPath(t *testing.T) {
 	}
 }
 
+func TestCreate_FolderFormPath(t *testing.T) {
+	stub := writeStub(t, t.TempDir(), "tb", `echo "Created board/backlog/TB-123/TASK.md"`)
+	c, err := NewClient(Options{BinaryPath: stub})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	got, err := c.Create(context.Background(), CreateInput{Title: "Hello", Module: "core"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if got.ID != "TB-123" {
+		t.Fatalf("ID: got %q want TB-123", got.ID)
+	}
+	if got.Path != "board/backlog/TB-123/TASK.md" {
+		t.Fatalf("Path: got %q", got.Path)
+	}
+}
+
 func TestCreate_MissingTitle(t *testing.T) {
 	c, _ := NewClient(Options{BinaryPath: writeStub(t, t.TempDir(), "tb", `echo "Created x"`)})
 	_, err := c.Create(context.Background(), CreateInput{Title: ""})
@@ -169,13 +188,20 @@ func TestRegenerate_BoardNotFound(t *testing.T) {
 
 func TestIDFromPath(t *testing.T) {
 	cases := map[string]string{
-		"board/backlog/TB-42.md":           "TB-42",
-		"TB-1.md":                          "TB-1",
-		"/abs/path/board/done/PR-100.md":   "PR-100",
-		"weird name.md":                    "",
-		"no-extension":                     "",
-		"./relative/in-progress/WS-7.md":   "WS-7",
-		"backlog/TB-42":                    "",
+		// Legacy file-form
+		"board/backlog/TB-42.md":         "TB-42",
+		"TB-1.md":                        "TB-1",
+		"/abs/path/board/done/PR-100.md": "PR-100",
+		"./relative/in-progress/WS-7.md": "WS-7",
+		// Folder-form (TB-97: default layout)
+		"board/backlog/TB-123/TASK.md":             "TB-123",
+		"/abs/path/board/in-progress/PR-7/TASK.md": "PR-7",
+		"done/TB-42/TASK.md":                       "TB-42",
+		// Negatives
+		"weird name.md":              "",
+		"no-extension":               "",
+		"backlog/TB-42":              "",
+		"board/backlog/junk/TASK.md": "",
 	}
 	for in, want := range cases {
 		if got := idFromPath(in); got != want {

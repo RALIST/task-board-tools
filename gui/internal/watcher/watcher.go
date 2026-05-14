@@ -1,7 +1,8 @@
 // Package watcher wraps fsnotify to turn board-directory filesystem activity
 // into two coarse-grained Wails events:
 //
-//   - "board:reloaded"    — column membership changed (Create / Remove / Rename)
+//   - "board:reloaded"    — column membership or folder-task contents changed
+//     (Create / Remove / Rename)
 //   - "task:updated:<id>" — a single task file was rewritten (Write)
 //
 // A 200ms debounce window coalesces the fan-out that every logical CLI
@@ -19,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -30,6 +32,18 @@ import (
 // statusDirs are the four directories a board may contain. Missing dirs are
 // silently skipped on attach — a fresh board may have only some of them.
 var statusDirs = []string{"backlog", "in-progress", "done", "archive"}
+
+var statusDirSet = map[string]struct{}{
+	"backlog":     {},
+	"in-progress": {},
+	"done":        {},
+	"archive":     {},
+}
+
+const (
+	folderTaskFileName = "TASK.md"
+	attachmentsDirName = "attachments"
+)
 
 // ignoredBasenames are files whose events we never report.
 var ignoredBasenames = map[string]struct{}{
@@ -78,6 +92,7 @@ type Watcher struct {
 	cancelPmp context.CancelFunc
 	debouncer *debouncer
 	boardDir  string
+	watchDirs map[string]struct{}
 }
 
 // New creates a Watcher. The Watcher is inert until Start is called.
@@ -143,14 +158,16 @@ func (w *Watcher) attach(boardDir string) error {
 		return err
 	}
 
+	watchDirs := make(map[string]struct{})
 	added := 0
 	for _, d := range statusDirs {
 		full := filepath.Join(boardDir, d)
-		if err := fsw.Add(full); err != nil {
+		if err := addFSWatch(fsw, watchDirs, full); err != nil {
 			w.logger.Debug("watcher: skip status dir", "dir", full, "err", err)
 			continue
 		}
 		added++
+		w.addExistingFolderTaskWatches(fsw, watchDirs, full)
 	}
 	if added == 0 {
 		_ = fsw.Close()
@@ -167,6 +184,7 @@ func (w *Watcher) attach(boardDir string) error {
 	w.boardDir = boardDir
 	w.cancelPmp = cancel
 	w.debouncer = newDebouncer(debounceWindow, w.flushBoard)
+	w.watchDirs = watchDirs
 	w.mu.Unlock()
 
 	// Cancelling the old pump's context also closes its fsnotify.Watcher
@@ -177,8 +195,32 @@ func (w *Watcher) attach(boardDir string) error {
 	if oldDeb != nil {
 		oldDeb.stop()
 	}
-	w.logger.Info("watcher: attached", "boardDir", boardDir, "dirs", added)
+	w.logger.Info("watcher: attached", "boardDir", boardDir, "statusDirs", added, "watchDirs", len(watchDirs))
 	return nil
+}
+
+func (w *Watcher) addExistingFolderTaskWatches(fsw *fsnotify.Watcher, watchDirs map[string]struct{}, statusDir string) {
+	entries, err := os.ReadDir(statusDir)
+	if err != nil {
+		w.logger.Debug("watcher: cannot scan status dir", "dir", statusDir, "err", err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !isTaskIDName(entry.Name()) {
+			continue
+		}
+		taskDir := filepath.Join(statusDir, entry.Name())
+		if err := addFSWatch(fsw, watchDirs, taskDir); err != nil {
+			w.logger.Debug("watcher: skip task dir", "dir", taskDir, "err", err)
+			continue
+		}
+		attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
+		if isRealDir(attachmentsDir) {
+			if err := addFSWatch(fsw, watchDirs, attachmentsDir); err != nil {
+				w.logger.Debug("watcher: skip attachments dir", "dir", attachmentsDir, "err", err)
+			}
+		}
+	}
 }
 
 func (w *Watcher) detach() {
@@ -188,6 +230,7 @@ func (w *Watcher) detach() {
 	w.cancelPmp = nil
 	w.debouncer = nil
 	w.fsw = nil
+	w.watchDirs = nil
 	w.mu.Unlock()
 
 	if cancel != nil {
@@ -202,6 +245,7 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	if isIgnored(ev.Name) {
 		return
 	}
+	w.reconcileDirWatches(ev)
 	switch {
 	case ev.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0:
 		w.scheduleBoardReload()
@@ -209,6 +253,68 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 		if id := taskIDFromPath(ev.Name); id != "" {
 			w.emitter.Emit("task:updated:"+id, id)
 		}
+	}
+}
+
+func (w *Watcher) reconcileDirWatches(ev fsnotify.Event) {
+	if ev.Op&(fsnotify.Create|fsnotify.Rename) != 0 {
+		w.watchCreatedDir(ev.Name)
+	}
+	if ev.Op&(fsnotify.Remove|fsnotify.Rename) != 0 && !pathExists(ev.Name) {
+		w.removeWatchDirAndChildren(ev.Name)
+	}
+}
+
+func (w *Watcher) watchCreatedDir(path string) {
+	if !isRealDir(path) {
+		return
+	}
+	if isTaskDirPath(path) {
+		w.addWatchDir(path)
+		attachmentsDir := filepath.Join(path, attachmentsDirName)
+		if isRealDir(attachmentsDir) {
+			w.addWatchDir(attachmentsDir)
+		}
+		return
+	}
+	if isAttachmentsDirPath(path) {
+		w.addWatchDir(path)
+	}
+}
+
+func (w *Watcher) addWatchDir(path string) {
+	clean := filepath.Clean(path)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.fsw == nil || w.watchDirs == nil || !pathWithinDir(w.boardDir, clean) {
+		return
+	}
+	if _, ok := w.watchDirs[clean]; ok {
+		return
+	}
+	if err := w.fsw.Add(clean); err != nil {
+		w.logger.Debug("watcher: add dir failed", "dir", clean, "err", err)
+		return
+	}
+	w.watchDirs[clean] = struct{}{}
+}
+
+func (w *Watcher) removeWatchDirAndChildren(path string) {
+	clean := filepath.Clean(path)
+	sep := string(filepath.Separator)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.fsw == nil || w.watchDirs == nil {
+		return
+	}
+	for watched := range w.watchDirs {
+		if watched != clean && !strings.HasPrefix(watched, clean+sep) {
+			continue
+		}
+		_ = w.fsw.Remove(watched)
+		delete(w.watchDirs, watched)
 	}
 }
 
@@ -258,7 +364,14 @@ func pump(ctx context.Context, fsw *fsnotify.Watcher, out chan<- fsEvent) {
 // isIgnored returns true if path is inside one of the ignored dir segments or
 // matches an ignored basename.
 func isIgnored(path string) bool {
-	if _, ok := ignoredBasenames[filepath.Base(path)]; ok {
+	base := filepath.Base(path)
+	if strings.HasPrefix(base, ".") {
+		return true
+	}
+	if strings.HasSuffix(base, ".tmp") || strings.Contains(base, ".tmp.") {
+		return true
+	}
+	if _, ok := ignoredBasenames[base]; ok {
 		return true
 	}
 	sep := string(filepath.Separator)
@@ -271,17 +384,96 @@ func isIgnored(path string) bool {
 }
 
 // taskIDFromPath strips the directory and `.md` suffix from a status-dir
-// entry. Returns "" if the file is not a markdown task. Filenames in
-// ignoredBasenames are also rejected so BOARD.md never produces a task event.
+// entry, or from a folder-form TASK.md path. Returns "" if the file is not a
+// task markdown file. Filenames in ignoredBasenames are also rejected so
+// BOARD.md never produces a task event.
 func taskIDFromPath(path string) string {
 	base := filepath.Base(path)
-	if !strings.HasSuffix(base, ".md") {
+	if isIgnored(path) {
 		return ""
 	}
-	if _, ignored := ignoredBasenames[base]; ignored {
+	if base == folderTaskFileName {
+		id := filepath.Base(filepath.Dir(path))
+		if isTaskIDName(id) && isStatusDirName(filepath.Base(filepath.Dir(filepath.Dir(path)))) {
+			return id
+		}
 		return ""
 	}
-	return strings.TrimSuffix(base, ".md")
+	if !strings.HasSuffix(base, ".md") || !isStatusDirName(filepath.Base(filepath.Dir(path))) {
+		return ""
+	}
+	id := strings.TrimSuffix(base, ".md")
+	if !isTaskIDName(id) {
+		return ""
+	}
+	return id
+}
+
+func addFSWatch(fsw *fsnotify.Watcher, watchDirs map[string]struct{}, dir string) error {
+	clean := filepath.Clean(dir)
+	if _, ok := watchDirs[clean]; ok {
+		return nil
+	}
+	if err := fsw.Add(clean); err != nil {
+		return err
+	}
+	watchDirs[clean] = struct{}{}
+	return nil
+}
+
+func isRealDir(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
+}
+
+func pathExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil || !os.IsNotExist(err)
+}
+
+func isTaskDirPath(path string) bool {
+	return isTaskIDName(filepath.Base(path)) && isStatusDirName(filepath.Base(filepath.Dir(path)))
+}
+
+func isAttachmentsDirPath(path string) bool {
+	return filepath.Base(path) == attachmentsDirName && isTaskDirPath(filepath.Dir(path))
+}
+
+func isStatusDirName(name string) bool {
+	_, ok := statusDirSet[name]
+	return ok
+}
+
+func isTaskIDName(name string) bool {
+	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".md") {
+		return false
+	}
+	dash := strings.LastIndex(name, "-")
+	if dash <= 0 || dash == len(name)-1 {
+		return false
+	}
+	for _, r := range name[:dash] {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	for _, r := range name[dash+1:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func pathWithinDir(parent, child string) bool {
+	if parent == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // --- debouncer ---

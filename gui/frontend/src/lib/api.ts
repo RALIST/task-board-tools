@@ -6,15 +6,19 @@
 // instead of poking at the generated `bindings/tools/tb-gui/app` paths.
 
 import {
+  AddAttachments,
   CloseTask,
   CreateTask,
   EditTask,
   EditTaskBody,
   GetTask,
+  ListAttachments,
   LoadBoard,
   LoadBoardWithMode,
   MoveTask,
+  OpenAttachment,
   Regenerate,
+  RemoveAttachments,
   Triage,
 } from '../../bindings/tools/tb-gui/app/boardservice';
 import { Dialogs } from '@wailsio/runtime';
@@ -31,6 +35,7 @@ import {
 } from '../../bindings/tools/tb-gui/app/settingsservice';
 import * as SettingsService from '../../bindings/tools/tb-gui/app/settingsservice';
 import type {
+  Attachment,
   BoardInfo,
   BoardSnapshot,
   CreateTaskInput,
@@ -43,6 +48,7 @@ import type {
 } from '../../bindings/tools/tb-gui/app/models';
 
 export type {
+  Attachment,
   BoardInfo,
   BoardSnapshot,
   CreateTaskInput,
@@ -98,6 +104,44 @@ export async function editTaskBody(id: string, newBody: string): Promise<void> {
 
 export async function regenerate(): Promise<void> {
   await Regenerate();
+}
+
+// --- Attachment wrappers ---
+
+export async function listAttachments(id: string): Promise<Attachment[]> {
+  const list = (await ListAttachments(id)) ?? [];
+  return list.map((a) => ({ name: a.name, size: a.size }));
+}
+
+export async function addAttachments(id: string, paths: string[]): Promise<void> {
+  await AddAttachments(id, paths);
+}
+
+export async function removeAttachments(id: string, names: string[]): Promise<void> {
+  await RemoveAttachments(id, names);
+}
+
+export async function openAttachment(id: string, name: string): Promise<void> {
+  await OpenAttachment(id, name);
+}
+
+export async function pickAttachmentFiles(): Promise<string[]> {
+  // Multi-select file picker rooted at the user's home. The Wails dialog
+  // returns absolute paths, which is what `tb attach` expects.
+  const result: unknown = await Dialogs.OpenFile({
+    CanChooseDirectories: false,
+    CanChooseFiles: true,
+    CanCreateDirectories: false,
+    AllowsMultipleSelection: true,
+    Title: 'Add attachments',
+    Message: 'Pick one or more files to attach',
+    ButtonText: 'Attach',
+  });
+  if (Array.isArray(result)) {
+    return result.filter((p): p is string => typeof p === 'string' && p.length > 0);
+  }
+  if (typeof result === 'string' && result.length > 0) return [result];
+  return [];
 }
 
 export async function getTriage(): Promise<Record<string, string[]>> {

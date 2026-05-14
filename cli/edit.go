@@ -148,10 +148,11 @@ func cmdEdit(args []string) {
 	}
 	defer lock.unlock()
 
-	taskPath, err := findTask(boardDir, taskID)
+	ref, err := resolveTaskRef(boardDir, taskID, allStatusDirs)
 	if err != nil {
 		fatal("%v", err)
 	}
+	taskPath := ref.Path
 
 	data, err := os.ReadFile(taskPath)
 	if err != nil {
@@ -186,6 +187,10 @@ func cmdEdit(args []string) {
 
 	if err := writeFileAtomic(taskPath, []byte(content), 0644); err != nil {
 		fatal("cannot write %s: %v", taskPath, err)
+	}
+
+	if err := cleanupOrphanFileFormSibling(boardDir, ref.Status, ref.ID); err != nil {
+		fatal("%v", err)
 	}
 
 	if err := regenerateBoard(boardDir); err != nil {

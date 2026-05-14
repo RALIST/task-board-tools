@@ -18,6 +18,46 @@ func newBoardDir(t *testing.T) string {
 	return dir
 }
 
+func writeFileFormTask(t *testing.T, boardDir, status, id string) string {
+	t.Helper()
+	statusDir := filepath.Join(boardDir, status)
+	if err := os.MkdirAll(statusDir, 0o755); err != nil {
+		t.Fatalf("mkdir file-form status dir: %v", err)
+	}
+	path := filepath.Join(statusDir, id+".md")
+	if err := os.WriteFile(path, []byte("# "+id+": File task\n"), 0o644); err != nil {
+		t.Fatalf("write file-form task: %v", err)
+	}
+	return path
+}
+
+func writeFolderFormTask(t *testing.T, boardDir, status, id string) string {
+	t.Helper()
+	taskDir := filepath.Join(boardDir, status, id)
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatalf("mkdir folder-form task dir: %v", err)
+	}
+	path := filepath.Join(taskDir, folderTaskFileName)
+	if err := os.WriteFile(path, []byte("# "+id+": Folder task\n"), 0o644); err != nil {
+		t.Fatalf("write folder-form task: %v", err)
+	}
+	return path
+}
+
+func assertPathExists(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected %s to exist: %v", path, err)
+	}
+}
+
+func assertPathMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to be missing, got err=%v", path, err)
+	}
+}
+
 func readJSONL(t *testing.T, path string) []Event {
 	t.Helper()
 	f, err := os.Open(path)
@@ -66,6 +106,105 @@ func TestAppendEvent_RoundTripsAllShapes(t *testing.T) {
 			t.Errorf("event %d mismatch:\n got %+v\nwant %+v", i, got[i], ev)
 		}
 	}
+}
+
+func TestResolveArtifactPaths_FileAndFolderForms(t *testing.T) {
+	dir := newBoardDir(t)
+	writeFileFormTask(t, dir, "backlog", "TB-1")
+	folderTaskPath := writeFolderFormTask(t, dir, "in-progress", "TB-2")
+
+	filePaths, err := ResolveArtifactPaths(dir, "TB-1")
+	if err != nil {
+		t.Fatalf("ResolveArtifactPaths file: %v", err)
+	}
+	if filePaths.Layout != ArtifactLayoutFile {
+		t.Fatalf("file layout: got %s, want %s", filePaths.Layout, ArtifactLayoutFile)
+	}
+	if want := filepath.Join(dir, ".agent-state", "TB-1.jsonl"); filePaths.StatePath != want {
+		t.Fatalf("file state path: got %s, want %s", filePaths.StatePath, want)
+	}
+	if want := filepath.Join(dir, ".agent-logs", "TB-1", "r_file.log"); filePaths.LogPath("r_file") != want {
+		t.Fatalf("file log path: got %s, want %s", filePaths.LogPath("r_file"), want)
+	}
+
+	folderPaths, err := ResolveArtifactPaths(dir, "TB-2")
+	if err != nil {
+		t.Fatalf("ResolveArtifactPaths folder: %v", err)
+	}
+	if folderPaths.Layout != ArtifactLayoutFolder {
+		t.Fatalf("folder layout: got %s, want %s", folderPaths.Layout, ArtifactLayoutFolder)
+	}
+	if want := filepath.Dir(folderTaskPath); folderPaths.TaskDir != want {
+		t.Fatalf("folder task dir: got %s, want %s", folderPaths.TaskDir, want)
+	}
+	if want := filepath.Join(dir, "in-progress", "TB-2", ".agent-state.jsonl"); folderPaths.StatePath != want {
+		t.Fatalf("folder state path: got %s, want %s", folderPaths.StatePath, want)
+	}
+	if want := filepath.Join(dir, "in-progress", "TB-2", ".agent-logs", "r_folder.log"); folderPaths.LogPath("r_folder") != want {
+		t.Fatalf("folder log path: got %s, want %s", folderPaths.LogPath("r_folder"), want)
+	}
+}
+
+func TestResolveArtifactPaths_DualFormPrefersFolderLayout(t *testing.T) {
+	dir := newBoardDir(t)
+	writeFileFormTask(t, dir, "backlog", "TB-1")
+	writeFolderFormTask(t, dir, "backlog", "TB-1")
+
+	paths, err := ResolveArtifactPaths(dir, "TB-1")
+	if err != nil {
+		t.Fatalf("ResolveArtifactPaths: %v", err)
+	}
+	if paths.Layout != ArtifactLayoutFolder {
+		t.Fatalf("layout: got %s, want %s", paths.Layout, ArtifactLayoutFolder)
+	}
+	if want := filepath.Join(dir, "backlog", "TB-1", ".agent-state.jsonl"); paths.StatePath != want {
+		t.Fatalf("state path: got %s, want %s", paths.StatePath, want)
+	}
+}
+
+func TestAppendEventAndLogWriter_MixedFormsDoNotCrossWrite(t *testing.T) {
+	dir := newBoardDir(t)
+	writeFileFormTask(t, dir, "backlog", "TB-1")
+	writeFolderFormTask(t, dir, "backlog", "TB-2")
+
+	if err := AppendEvent(dir, "TB-1", Event{TS: "2026-05-14T10:00:00Z", RunID: "r_file", Event: EvQueued}); err != nil {
+		t.Fatalf("AppendEvent file: %v", err)
+	}
+	if err := AppendEvent(dir, "TB-2", Event{TS: "2026-05-14T10:00:00Z", RunID: "r_folder", Event: EvQueued}); err != nil {
+		t.Fatalf("AppendEvent folder: %v", err)
+	}
+
+	fileLog, err := NewLogWriter(dir, "TB-1", "r_file")
+	if err != nil {
+		t.Fatalf("NewLogWriter file: %v", err)
+	}
+	if _, err := fileLog.Write([]byte("file line\n")); err != nil {
+		t.Fatalf("write file log: %v", err)
+	}
+	if err := fileLog.Close(); err != nil {
+		t.Fatalf("close file log: %v", err)
+	}
+
+	folderLog, err := NewLogWriter(dir, "TB-2", "r_folder")
+	if err != nil {
+		t.Fatalf("NewLogWriter folder: %v", err)
+	}
+	if _, err := folderLog.Write([]byte("folder line\n")); err != nil {
+		t.Fatalf("write folder log: %v", err)
+	}
+	if err := folderLog.Close(); err != nil {
+		t.Fatalf("close folder log: %v", err)
+	}
+
+	assertPathExists(t, filepath.Join(dir, ".agent-state", "TB-1.jsonl"))
+	assertPathExists(t, filepath.Join(dir, ".agent-logs", "TB-1", "r_file.log"))
+	assertPathMissing(t, filepath.Join(dir, "backlog", "TB-1", ".agent-state.jsonl"))
+	assertPathMissing(t, filepath.Join(dir, "backlog", "TB-1", ".agent-logs", "r_file.log"))
+
+	assertPathExists(t, filepath.Join(dir, "backlog", "TB-2", ".agent-state.jsonl"))
+	assertPathExists(t, filepath.Join(dir, "backlog", "TB-2", ".agent-logs", "r_folder.log"))
+	assertPathMissing(t, filepath.Join(dir, ".agent-state", "TB-2.jsonl"))
+	assertPathMissing(t, filepath.Join(dir, ".agent-logs", "TB-2", "r_folder.log"))
 }
 
 func TestAppendEvent_MissingBoardDirReturnsTypedError(t *testing.T) {

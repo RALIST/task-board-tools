@@ -129,36 +129,62 @@ func (b *BoardService) setBoardDir(dir string) {
 	b.triageGen++
 }
 
-// findTaskFile searches the same status directories the CLI does. Accepts
-// either a fully-qualified ID ("TB-1") or a bare number ("1"); the latter
-// is resolved by scanning the status directories for any filename ending in
-// `-<id>.md`. This mirrors cli/move.go:normalizeTaskID's tolerance.
+// findTaskFile searches the same status directories the CLI does, honoring
+// both folder-form tasks (<status>/<ID>/TASK.md) and legacy file-form tasks
+// (<status>/<ID>.md). Folder form wins when both exist, matching the CLI's
+// resolveTaskRefInStatus precedence. Accepts either a fully-qualified ID
+// ("TB-1") or a bare number ("1"); the latter is resolved by scanning each
+// status directory for a matching folder or file entry. This mirrors
+// cli/move.go:normalizeTaskID's tolerance.
 func findTaskFile(boardDir, id string) (string, error) {
 	upper := strings.ToUpper(strings.TrimSpace(id))
 	dirs := []string{"backlog", "in-progress", "done", "archive"}
 
 	if strings.Contains(upper, "-") {
-		filename := upper + ".md"
 		for _, dir := range dirs {
-			p := filepath.Join(boardDir, dir, filename)
-			if _, err := os.Stat(p); err == nil {
-				return p, nil
+			folder := filepath.Join(boardDir, dir, upper, "TASK.md")
+			if info, err := os.Stat(folder); err == nil && !info.IsDir() {
+				return folder, nil
+			}
+			file := filepath.Join(boardDir, dir, upper+".md")
+			if info, err := os.Stat(file); err == nil && !info.IsDir() {
+				return file, nil
 			}
 		}
 		return "", ErrNotFound
 	}
 
-	// Bare number — search every status dir for `<PREFIX>-<id>.md`.
-	suffix := "-" + upper + ".md"
+	// Bare number — search every status dir for a folder ending in `-<id>`
+	// or a file ending in `-<id>.md`. Folder form wins on tie within a dir.
+	folderSuffix := "-" + upper
+	fileSuffix := "-" + upper + ".md"
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(filepath.Join(boardDir, dir))
 		if err != nil {
 			continue
 		}
+		var folderHit, fileHit string
 		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), suffix) {
-				return filepath.Join(boardDir, dir, e.Name()), nil
+			name := e.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
 			}
+			if e.IsDir() && strings.HasSuffix(name, folderSuffix) {
+				candidate := filepath.Join(boardDir, dir, name, "TASK.md")
+				if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+					folderHit = candidate
+				}
+				continue
+			}
+			if !e.IsDir() && strings.HasSuffix(name, fileSuffix) {
+				fileHit = filepath.Join(boardDir, dir, name)
+			}
+		}
+		if folderHit != "" {
+			return folderHit, nil
+		}
+		if fileHit != "" {
+			return fileHit, nil
 		}
 	}
 	return "", ErrNotFound

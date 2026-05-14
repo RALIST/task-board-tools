@@ -61,6 +61,7 @@ GUI does not exist yet; planned to live in `gui/` with `wails3 build`.
 - **Agent state is hybrid**: `Agent` / `AgentStatus` fields in task `.md` (current state, visible to humans/CLI); `board/.agent-state/<ID>.jsonl` (append-only run history); `board/.agent-logs/<ID>/<run_id>.log` (full stdout/stderr).
 - **`AgentStatus` values**: `queued | running | success | failed | cancelled`. `cancelled` is user-initiated; stale-recovery never overwrites it.
 - **`.next-id` allocator** detects collisions on every allocation — don't bypass it.
+- **Folder-form tasks.** Tasks may be stored as `<status>/<ID>.md` (file form) or `<status>/<ID>/TASK.md` (folder form, with `attachments/` and task-local `.agent-state.jsonl` / `.agent-logs/`). The contract — resolution order, lock semantics, atomic-write rules for files inside a task folder, the file → folder promotion procedure, and which paths deliberately differ between forms — is specified in [`docs/ARCHITECTURE.md` → "Folder-form tasks"](docs/ARCHITECTURE.md#folder-form-tasks). Implementations of the TB-93 epic must conform to that section.
 
 ## Working conventions
 

@@ -56,14 +56,16 @@ Two binaries built from one repo, sharing the same on-disk format.
     │   └── PR-3.md
     ├── archive/                     # tasks closed via `tb close`
     │   └── PR-4.md
-    ├── .agent-state/                # one JSONL file per task with run history
+    ├── .agent-state/                # one JSONL file per file-form task with run history
     │   └── PR-2.jsonl
-    └── .agent-logs/                 # full stdout/stderr per run
+    └── .agent-logs/                 # full stdout/stderr per run (file-form tasks only)
         └── PR-2/
             └── r_a1b2c3d4.log
 ```
 
 The CLI manages `BOARD.md`, `.next-id`, all status dirs, and `archive/`. The GUI manages `.agent-state/` and `.agent-logs/` (the CLI doesn't touch them).
+
+Tasks can be stored either as a single `.md` file or as a directory; the layout above shows the file form. See "Folder-form tasks" below for the directory form and the rules that govern both.
 
 ## Task file format
 
@@ -100,6 +102,128 @@ One-sentence objective.
 - Only the first 15 lines are scanned for metadata (performance).
 - `Agent` and `AgentStatus` are new optional fields. Missing = unassigned.
 - Valid `AgentStatus` values: `queued`, `running`, `success`, `failed`, `cancelled`. `cancelled` is reserved for user-initiated cancellation; the daemon never writes it from a crash or timeout.
+
+## Folder-form tasks
+
+A task is stored on disk in one of two forms. Both are first-class and coexist on the same board.
+
+### Side-by-side layout
+
+```
+<boardDir>/                          # shared regardless of form
+├── BOARD.md                         # generated; board-wide (see "Path-visible differences")
+├── .next-id                         # board-wide ID allocator
+├── .board.lock                      # board-wide flock target
+├── backlog/
+│   ├── TB-1.md                      # file form: task = a single markdown file
+│   └── TB-2/                        # folder form: task = a directory
+│       ├── TASK.md                  #   canonical markdown (same format as file form)
+│       ├── attachments/             #   user attachments live here
+│       │   ├── design.pdf
+│       │   └── screenshot.png
+│       ├── .agent-state.jsonl       #   task-local agent run history
+│       └── .agent-logs/             #   task-local agent stdout/stderr
+│           └── r_a1b2c3d4.log
+├── in-progress/                     # folder-form layout repeats per status
+├── done/
+├── archive/
+├── .agent-state/                    # board-root agent state (file-form tasks only)
+│   └── TB-1.jsonl
+└── .agent-logs/                     # board-root agent logs (file-form tasks only)
+    └── TB-1/
+        └── r_x.log
+```
+
+### File form vs folder form
+
+| Aspect              | File form                                | Folder form                                  |
+|---------------------|------------------------------------------|----------------------------------------------|
+| Path                | `<status>/<ID>.md`                       | `<status>/<ID>/TASK.md`                      |
+| Status = directory  | the `.md` lives in the status dir        | the task dir lives in the status dir         |
+| Attachments         | not supported in-place                   | `<status>/<ID>/attachments/<filename>`       |
+| Agent state JSONL   | `<boardDir>/.agent-state/<ID>.jsonl`     | `<status>/<ID>/.agent-state.jsonl`           |
+| Agent run logs      | `<boardDir>/.agent-logs/<ID>/<rid>.log`  | `<status>/<ID>/.agent-logs/<rid>.log`        |
+| Created by          | legacy / explicit opt-in flag            | `tb create` default                          |
+
+The task ID, title, metadata block, body, log section, and `BOARD.md` rendering are identical across forms. A reader that has resolved the task content does not need to know which form it came from.
+
+### Resolution (which form wins)
+
+For a given `<ID>` in a status directory, both the CLI and the GUI parser resolve in this order:
+
+1. If `<status>/<ID>/TASK.md` exists → folder form.
+2. Else if `<status>/<ID>.md` exists → file form.
+3. Else → the task is not in that status.
+
+The status-directory scanner ignores entries whose name begins with `.` (e.g. the promotion staging dir below, any future dotfile). The two namespaces — `<ID>` (directory) and `<ID>.md` (file) — are disjoint, so a status dir cannot contain a collision.
+
+If both `<ID>/TASK.md` and `<ID>.md` are present at the same time, that is a **crash-recovery transient**, not steady state — it can only occur if a process died mid-promotion (see below). The resolver picks folder form and logs a warning; the orphan `<ID>.md` is removed by the next structured mutation or by an explicit recovery sweep on startup. Dual-form is never created by design.
+
+### Attachments section in `TASK.md`
+
+A folder-form task may carry an optional `## Attachments` section in the body. It lists what is in the `attachments/` directory, one entry per line:
+
+```markdown
+## Attachments
+
+- attachments/design.pdf
+- attachments/screenshot.png
+```
+
+The section is maintained by `tb attach` / `tb attach --rm` — it is not hand-edited. File-form tasks do not have this section.
+
+### Lock semantics
+
+`.board.lock` (POSIX `flock` at board root) serializes every structured mutation regardless of form. The lock scope is unchanged from the file-form world:
+
+- Every write to `TASK.md`, every attachment add or remove, every cross-status rename of a task directory, and the promotion procedure below all acquire `LOCK_EX` for the duration of the operation.
+- Lock-free readers (the GUI parser and the fsnotify watcher) still do not take the lock; they rely on the atomic-write rule below and on the resolution order.
+
+### Atomic-write rule for files inside a task folder
+
+Every write that produces a task-content file inside a task folder goes through `writeFileAtomic` (temp file in the same directory + fsync + `os.Rename`):
+
+- `<status>/<ID>/TASK.md` — exactly the same rule as `<status>/<ID>.md` in the file form. Direct `os.WriteFile` of a `.md` file is forbidden outside `cli/atomicfs.go`.
+- `<status>/<ID>/attachments/<filename>` — each attachment is staged in the same directory under a `.tmp.*` name and renamed into place, so a reader either sees the previous bytes (if any) or the full new bytes, never a half-copied file.
+
+Per-task agent state (`.agent-state.jsonl`) keeps the same write semantics as its board-root predecessor — append-only via the agent runtime. The atomic-write invariant is about task-content files (the markdown and attachments); JSONL append behavior is owned by the daemon and documented in "Agent state" below.
+
+### File → folder promotion
+
+Promotion runs when a file-form task acquires its first attachment, or by explicit request. It is atomic from the reader's perspective and never produces a state where the task appears to be missing:
+
+1. Acquire `.board.lock` (`LOCK_EX`).
+2. Re-read `<status>/<ID>.md` and confirm the task still exists in file form (defends against a race lost to a concurrent move).
+3. Create a staging directory `<status>/.<ID>.promote.<pid>.<rand>/`. The leading `.` keeps the staging dir invisible to the status-directory scanner.
+4. Copy the existing `.md` body into `<staging>/TASK.md` via `writeFileAtomic`.
+5. If the operation that triggered promotion brings inbound attachments, stage them under `<staging>/attachments/` via `writeFileAtomic`. Update the staged `TASK.md`'s `## Attachments` section accordingly.
+6. `os.Rename(<staging>, <status>/<ID>)`. This single rename publishes the folder. Because `<ID>` (directory) and `<ID>.md` (file) are disjoint names, the rename cannot collide; from this point on the resolver returns folder form.
+7. `os.Remove(<status>/<ID>.md)`. The legacy file disappears.
+8. Append a `## Log` entry to `<status>/<ID>/TASK.md` (`Promoted to folder form on <date>`) via `writeFileAtomic`.
+9. `regenerateBoard` (still under lock).
+10. Release the lock.
+
+The ordering is load-bearing:
+
+- The folder appears (step 6) before the file disappears (step 7), so any lock-free reader that interleaves between the two steps still resolves the task — to the folder form by the resolution order above. The task is never "missing" from a reader's point of view.
+- If the process dies between step 6 and step 7, the next CLI invocation finds both forms; the resolver prefers folder form, and the next structured mutation or an explicit `tb`-side recovery sweep removes the orphan `<ID>.md`. This is the only path to a dual-form state and it is self-healing.
+- The staging name's `.<ID>.promote.` prefix means partially-built staging dirs left by a crash mid-build (before step 6) are ignored by readers and can be GC'd by startup recovery.
+
+Demotion (folder → file) is **not supported**. Once promoted, a task stays in folder form even if its attachments are later removed. This keeps the resolution order total and avoids a second class of transient states.
+
+### Move / archive of folder tasks
+
+`tb mv`, `tb start`, `tb done`, `tb close`, and archive/restore move a folder-form task by a single `os.Rename` of `<status_from>/<ID>` to `<status_to>/<ID>`, under `.board.lock`. Attachments, the task-local `.agent-state.jsonl`, and the task-local `.agent-logs/` ride along inside the renamed directory — there is no separate cleanup of board-root agent paths for folder tasks. File-form tasks continue to move only their `.md` file; their board-root `.agent-state/<ID>.jsonl` and `.agent-logs/<ID>/` are unaffected by status moves, because status is encoded in the file's parent directory and not in the agent-state path.
+
+### Path-visible differences between forms
+
+Most of the contract is form-agnostic. The deliberate exceptions, each with its one-line rationale:
+
+- **`BOARD.md` lives at `<boardDir>/BOARD.md` for both forms.** It is a single board-wide view, not task-owned content; placing it inside a task folder would break the "one kanban view per board" UX.
+- **Board-root `.agent-state/` and `.agent-logs/` exist only for file-form tasks.** Folder-form tasks own their agent artifacts so they travel on rename; the daemon looks board-local for file tasks and task-local for folder tasks.
+- **The `<status>/<ID>.md` filename is reserved for file form; the `<status>/<ID>/` directory is reserved for folder form.** The two namespaces are disjoint so the resolution order is total.
+
+No other path differs between forms. `BOARD.md` content, `tb --json` output, watcher event shapes, and agent JSONL event shapes are identical across forms.
 
 ## Component responsibilities
 

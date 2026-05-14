@@ -22,9 +22,10 @@ import (
 type pidLivenessFunc func(pid int, expectedAgent string) bool
 
 // RecoveryService implements daemon.Recovery on top of AgentService. It
-// reads `<boardDir>/.agent-state/<ID>.jsonl` for each AgentStatus=running
-// task, checks whether the most recent run has a finished event, and
-// reconciles the .md via `tb edit --agent-status …`.
+// resolves the task's JSONL run history for each AgentStatus=running task,
+// checks whether the most recent run has a finished event, and reconciles
+// the task markdown via `tb edit --agent-status …`. File-form tasks use the
+// legacy board-root agent state; folder-form tasks use task-local state.
 //
 // The two reconciliation outcomes:
 //
@@ -212,9 +213,8 @@ type finishedEvent struct {
 	Reason   string
 }
 
-// readLatestRun parses <boardDir>/.agent-state/<taskID>.jsonl and
-// returns the latest run's reconciled view. `ok==false` when the file
-// is missing or empty.
+// readLatestRun parses the task's resolved agent state JSONL and returns the
+// latest run's reconciled view. `ok==false` when the file is missing or empty.
 //
 // "Latest" here is the last run_id observed in the file in order. We
 // don't sort by timestamp because the writer is append-only and the

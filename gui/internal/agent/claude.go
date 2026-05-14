@@ -2,10 +2,16 @@ package agent
 
 import "context"
 
-// ClaudeRunner shells out to `claude -p <prompt>` (positional prompt arg
-// after the -p flag) in non-interactive mode. The prompt is the full
-// rendered text (see RenderPrompt) — Claude reads it once, runs to
-// completion, exits.
+// ClaudeRunner shells out to `claude -p <prompt> --output-format stream-json
+// --verbose` in non-interactive mode. The prompt is the full rendered text
+// (see RenderPrompt) — Claude reads it once, runs to completion, exits.
+//
+// stream-json is the structured event stream Claude emits when --verbose is
+// also set; we wrap RunInput.Stdout with a translator (claude_stream.go) that
+// converts each event into a Codex-style human-readable line. The JSONL
+// state stream still captures the translated lines verbatim, and the
+// per-run .log file is what the user actually reads. Codex's plain output
+// is already human-readable, so it stays untouched.
 type ClaudeRunner struct{}
 
 // NewClaudeRunner returns a ready-to-use ClaudeRunner. The runner is
@@ -16,9 +22,14 @@ func NewClaudeRunner() *ClaudeRunner { return &ClaudeRunner{} }
 // `**Agent:**` metadata field.
 func (r *ClaudeRunner) Name() string { return "claude" }
 
-// Run invokes `claude -p <prompt>`. See runExternal for the full lifecycle
-// (process group, env whitelist, output streaming, cancel/timeout handling).
+// Run invokes `claude -p <prompt> --output-format stream-json --verbose`.
+// See runExternal for the full lifecycle (process group, env whitelist,
+// output streaming, cancel/timeout handling).
 func (r *ClaudeRunner) Run(ctx context.Context, in RunInput) (RunResult, error) {
-	res, _ := runExternal(ctx, in, "claude", []string{"-p", in.Prompt})
+	if in.Stdout != nil {
+		in.Stdout = newClaudeTranslator(in.Stdout)
+	}
+	args := []string{"-p", in.Prompt, "--output-format", "stream-json", "--verbose"}
+	res, _ := runExternal(ctx, in, "claude", args)
 	return res, res.Err
 }

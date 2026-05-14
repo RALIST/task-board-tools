@@ -40,7 +40,7 @@ type Run struct {
 // frontend renders an empty pane rather than a crash.
 var ErrRunLogNotFound = errors.New("run log not found")
 
-// ListRuns reads `<boardDir>/.agent-state/<taskID>.jsonl`, groups events by
+// ListRuns reads the task's resolved agent state JSONL, groups events by
 // `run_id`, and returns one Run per group, sorted by StartedAt desc. A
 // queued-but-never-started run sorts by QueuedAt.
 //
@@ -156,9 +156,8 @@ func sortKey(r Run) time.Time {
 	return time.Time{}
 }
 
-// GetRunLog returns the full text of `<boardDir>/.agent-logs/<taskID>/
-// <runID>.log`. Returns ErrRunLogNotFound for a missing file (the frontend
-// renders an empty pane).
+// GetRunLog returns the full text of the resolved per-run log file. Returns
+// ErrRunLogNotFound for a missing file (the frontend renders an empty pane).
 //
 // Takes both IDs explicitly — without taskID the service would need an
 // in-memory runID→taskID index, which adds a coordination burden the

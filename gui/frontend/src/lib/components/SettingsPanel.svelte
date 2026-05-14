@@ -3,6 +3,20 @@
   import { get } from 'svelte/store';
   import { preferencesStore, type DefaultAgent, type PreferencesState } from '$lib/stores/preferences';
   import { pushToast } from '$lib/stores/toast';
+  import {
+    EnableClaudeUsageTap,
+    DisableClaudeUsageTap,
+    GetClaudeUsageTap,
+  } from '../../../bindings/tools/tb-gui/app/settingsservice.js';
+  import { refresh as refreshUsage } from '$lib/stores/usage';
+
+  interface ClaudeUsageTapStatus {
+    enabled: boolean;
+    scriptPath: string;
+    settingsPath: string;
+    usagePath: string;
+    reason?: string;
+  }
 
   interface Props {
     open: boolean;
@@ -20,6 +34,8 @@
   let saving = $state(false);
   let opened = $state(false);
   let seededLoaded = $state(false);
+  let tapStatus = $state<ClaudeUsageTapStatus | null>(null);
+  let tapBusy = $state(false);
   let baseline = $state<EditablePreferences>({
     maxWorkers: 1,
     agentTimeoutMinutes: 30,
@@ -53,8 +69,45 @@
       resetFromPreferences(prefs);
       opened = true;
       seededLoaded = prefs.loaded;
+      void refreshTapStatus();
     }
   });
+
+  async function refreshTapStatus() {
+    try {
+      tapStatus = (await GetClaudeUsageTap()) as ClaudeUsageTapStatus;
+    } catch (err) {
+      pushToast(`Could not read claude tap status: ${errorMessage(err)}`);
+      tapStatus = null;
+    }
+  }
+
+  async function toggleTap() {
+    if (tapBusy || tapStatus == null) return;
+    tapBusy = true;
+    try {
+      const next = tapStatus.enabled
+        ? ((await DisableClaudeUsageTap()) as ClaudeUsageTapStatus)
+        : ((await EnableClaudeUsageTap()) as ClaudeUsageTapStatus);
+      tapStatus = next;
+      void refreshUsage();
+      pushToast(
+        next.enabled
+          ? 'Claude usage tap enabled — run claude once to populate data'
+          : 'Claude usage tap disabled',
+        'success',
+      );
+    } catch (err) {
+      pushToast(`Tap toggle failed: ${errorMessage(err)}`);
+    } finally {
+      tapBusy = false;
+    }
+  }
+
+  function errorMessage(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return String(err);
+  }
 
   async function save() {
     if (!dirty || saving) return;
@@ -218,6 +271,37 @@
             <button class="secondary" type="button" onclick={browseCLIPath}>Browse…</button>
           </div>
         </label>
+
+        <div class="field tap">
+          <span>Claude usage tap</span>
+          <div class="tap-row">
+            <button
+              class="secondary"
+              type="button"
+              disabled={tapBusy || tapStatus == null}
+              onclick={toggleTap}>
+              {#if tapStatus?.enabled}
+                Disable tap
+              {:else}
+                Enable tap
+              {/if}
+            </button>
+            <small class="tap-status">
+              {#if tapStatus == null}
+                checking…
+              {:else if tapStatus.enabled}
+                installed at {tapStatus.scriptPath}
+              {:else}
+                {tapStatus.reason || 'not installed'}
+              {/if}
+            </small>
+          </div>
+          <small class="tap-help">
+            Installs a project-local statusline hook in <code>.claude/settings.local.json</code>
+            so the header can read claude's <code>/usage</code> data. Run <code>claude</code> once
+            after enabling to populate the value.
+          </small>
+        </div>
       </section>
 
       <footer>
@@ -320,6 +404,28 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
+  }
+  .tap-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .tap-status {
+    color: var(--fg-dim);
+    font-size: 11px;
+    word-break: break-all;
+  }
+  .tap-help {
+    color: var(--fg-dim);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .tap-help code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 1px 4px;
+    border-radius: 3px;
   }
   footer {
     margin-top: auto;

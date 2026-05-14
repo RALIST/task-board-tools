@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -79,6 +80,7 @@ type BoardService struct {
 	mu       sync.RWMutex
 	client   *cli.Client
 	boardDir string // populated by SetBoardDir; used by direct-write paths
+	openFile attachmentOpener
 
 	triageMu    sync.RWMutex
 	triageCache map[string][]string
@@ -129,7 +131,7 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 
 	var tasks []Task
 	if err := c.RunJSON(ctx, &tasks, "ls", "--json", "--status", statusArg); err != nil {
-		return BoardSnapshot{}, err
+		return BoardSnapshot{}, boardLoadError(err, statusArg)
 	}
 
 	snap := BoardSnapshot{
@@ -417,4 +419,89 @@ func isNotFoundErr(err error) bool {
 		return false
 	}
 	return strings.Contains(exit.Stderr, "not found in any directory")
+}
+
+type duplicateCanonicalPathError struct {
+	id      string
+	pathA   string
+	pathB   string
+	statusA string
+	statusB string
+}
+
+func boardLoadError(err error, statusArg string) error {
+	dup, ok := parseDuplicateCanonicalPathError(err)
+	if !ok {
+		return err
+	}
+	return fmt.Errorf(
+		"cannot load %s board: task %s appears in multiple status directories (%s: %s; %s: %s). Move or remove one duplicate task file, then reload.",
+		statusArg,
+		dup.id,
+		dup.statusA,
+		dup.pathA,
+		dup.statusB,
+		dup.pathB,
+	)
+}
+
+func parseDuplicateCanonicalPathError(err error) (duplicateCanonicalPathError, bool) {
+	var exit *cli.ExitError
+	if !errors.As(err, &exit) {
+		return duplicateCanonicalPathError{}, false
+	}
+	lines := strings.Split(exit.Stderr, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if dup, ok := parseDuplicateCanonicalPathLine(lines[i]); ok {
+			return dup, true
+		}
+	}
+	return duplicateCanonicalPathError{}, false
+}
+
+func parseDuplicateCanonicalPathLine(line string) (duplicateCanonicalPathError, bool) {
+	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "error: "))
+	const middle = " resolves to multiple canonical markdown paths in requested status scope: "
+	if !strings.HasPrefix(line, "task ") {
+		return duplicateCanonicalPathError{}, false
+	}
+	rest := strings.TrimPrefix(line, "task ")
+	idx := strings.Index(rest, middle)
+	if idx == -1 {
+		return duplicateCanonicalPathError{}, false
+	}
+	id := strings.TrimSpace(rest[:idx])
+	paths := rest[idx+len(middle):]
+	pathSep := strings.LastIndex(paths, " and ")
+	if id == "" || pathSep == -1 {
+		return duplicateCanonicalPathError{}, false
+	}
+	pathA := strings.TrimSpace(paths[:pathSep])
+	pathB := strings.TrimSpace(paths[pathSep+len(" and "):])
+	if pathA == "" || pathB == "" {
+		return duplicateCanonicalPathError{}, false
+	}
+	return duplicateCanonicalPathError{
+		id:      id,
+		pathA:   pathA,
+		pathB:   pathB,
+		statusA: statusFromCanonicalTaskPath(pathA),
+		statusB: statusFromCanonicalTaskPath(pathB),
+	}, true
+}
+
+func statusFromCanonicalTaskPath(path string) string {
+	clean := filepath.Clean(path)
+	if filepath.Base(clean) == "TASK.md" {
+		status := filepath.Base(filepath.Dir(filepath.Dir(clean)))
+		if status != "." && status != string(filepath.Separator) {
+			return status
+		}
+		return "unknown"
+	}
+	status := filepath.Base(filepath.Dir(clean))
+	if status == "." || status == string(filepath.Separator) {
+		return "unknown"
+	}
+	return status
 }

@@ -53,6 +53,26 @@ func writeBoardFixture(t *testing.T, status, id, body string) (boardDir, taskPat
 	return boardDir, taskPath
 }
 
+// writeBoardFolderFixture sets up a folder-form task at <board>/<status>/<id>/TASK.md.
+func writeBoardFolderFixture(t *testing.T, status, id, body string) (boardDir, taskPath string) {
+	t.Helper()
+	boardDir = t.TempDir()
+	for _, d := range []string{"backlog", "in-progress", "done", "archive"} {
+		if err := os.MkdirAll(filepath.Join(boardDir, d), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	taskDir := filepath.Join(boardDir, status, id)
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatalf("mkdir task folder: %v", err)
+	}
+	taskPath = filepath.Join(taskDir, "TASK.md")
+	if err := os.WriteFile(taskPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	return boardDir, taskPath
+}
+
 func newServiceForBody(t *testing.T, boardDir string) *BoardService {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -127,6 +147,60 @@ func TestEditTaskBody_NoBoard(t *testing.T) {
 	err := svc.EditTaskBody(context.Background(), "TB-1", "anything")
 	if !errors.Is(err, ErrNoBoard) {
 		t.Fatalf("want ErrNoBoard, got %v", err)
+	}
+}
+
+func TestEditTaskBody_FolderForm(t *testing.T) {
+	boardDir, taskPath := writeBoardFolderFixture(t, "in-progress", "TB-124", sampleTaskBody)
+	svc := newServiceForBody(t, boardDir)
+
+	newBody := strings.Replace(sampleTaskBody, "Old goal text.", "Folder-form body edit.", 1)
+	if err := svc.EditTaskBody(context.Background(), "TB-124", newBody); err != nil {
+		t.Fatalf("EditTaskBody: %v", err)
+	}
+
+	got, _ := os.ReadFile(taskPath)
+	if !strings.Contains(string(got), "Folder-form body edit.") {
+		t.Fatalf("body not updated: %s", got)
+	}
+	if !strings.Contains(string(got), ": Edited body via GUI") {
+		t.Fatalf("log entry missing: %s", got)
+	}
+}
+
+func TestEditTaskBody_FolderFormPreferredOverFileForm(t *testing.T) {
+	boardDir, folderPath := writeBoardFolderFixture(t, "in-progress", "TB-124", sampleTaskBody)
+	siblingFile := filepath.Join(boardDir, "in-progress", "TB-124.md")
+	if err := os.WriteFile(siblingFile, []byte("# TB-124: stale legacy\n\n**Type:** bug\n\n## Goal\n\nstale\n"), 0o644); err != nil {
+		t.Fatalf("write sibling: %v", err)
+	}
+	svc := newServiceForBody(t, boardDir)
+
+	newBody := strings.Replace(sampleTaskBody, "Old goal text.", "Picked folder form.", 1)
+	if err := svc.EditTaskBody(context.Background(), "TB-124", newBody); err != nil {
+		t.Fatalf("EditTaskBody: %v", err)
+	}
+	got, _ := os.ReadFile(folderPath)
+	if !strings.Contains(string(got), "Picked folder form.") {
+		t.Fatalf("folder-form body not updated: %s", got)
+	}
+	stale, _ := os.ReadFile(siblingFile)
+	if strings.Contains(string(stale), "Picked folder form.") {
+		t.Fatalf("legacy file form was written to; should have been left alone:\n%s", stale)
+	}
+}
+
+func TestEditTaskBody_FolderFormBareNumber(t *testing.T) {
+	boardDir, taskPath := writeBoardFolderFixture(t, "in-progress", "TB-124", sampleTaskBody)
+	svc := newServiceForBody(t, boardDir)
+
+	newBody := strings.Replace(sampleTaskBody, "Old goal text.", "Bare-id folder edit.", 1)
+	if err := svc.EditTaskBody(context.Background(), "124", newBody); err != nil {
+		t.Fatalf("EditTaskBody bare id: %v", err)
+	}
+	got, _ := os.ReadFile(taskPath)
+	if !strings.Contains(string(got), "Bare-id folder edit.") {
+		t.Fatalf("body not updated: %s", got)
 	}
 }
 

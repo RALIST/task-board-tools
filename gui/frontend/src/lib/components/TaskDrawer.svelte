@@ -3,18 +3,24 @@
   import DOMPurify from 'dompurify';
   import { Events } from '@wailsio/runtime';
   import {
+    addAttachments,
     assignAgent,
     cancelRun,
     closeTask as apiCloseTask,
     editTask,
     editTaskBody,
+    errorString,
     getTask,
     groomTask,
+    listAttachments,
     listRuns,
+    openAttachment,
+    pickAttachmentFiles,
+    removeAttachments,
     runAgent,
     type AgentName,
+    type Attachment,
     type EditTaskInput,
-    type Task,
     type TaskDetail,
   } from '$lib/api';
   import { pushToast } from '$lib/stores/toast';
@@ -65,11 +71,12 @@
   let cancelPrompt = $state(false);
   let cancelTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Agent dropdown's current selection — derived from detail.metadata.agent
-  // but stored separately so the user can pick "claude" without immediately
-  // firing AssignAgent until the dropdown commits.
-  let formAgent = $state<AgentName>('');
   let agentSaving = $state(false);
+  // True after the user explicitly picked "(none)" on the current task. We
+  // need this to suppress the default-agent fallback in `displayedAgent` —
+  // otherwise clearing the agent silently snaps back to the configured
+  // default. Resets on every taskId change.
+  let userClearedAgent = $state(false);
   let runStarting = $state(false);
   let groomStarting = $state(false);
   let groomReasons = $state<string[]>([]);
@@ -81,12 +88,22 @@
   let runs: Run[] = $state([]);
   let runsUnsub: (() => void) | null = null;
 
+  // Attachment list state. Hydrated on taskId change and refreshed via the
+  // watcher's board:reloaded event after add/remove. The drawer only ever
+  // *reads* attachments directly; mutations go through `tb attach` via
+  // BoardService.
+  let attachments = $state<Attachment[]>([]);
+  let attachmentsLoading = $state(false);
+  let attachmentsBusy = $state(false);
+
   $effect(() => {
     const id = taskId;
+    userClearedAgent = false;
     if (!id) {
       detail = null; err = null; loading = false;
       editMode = false; bodyDirty = false; archivePrompt = false;
       cancelPrompt = false; runs = [];
+      attachments = []; attachmentsLoading = false; attachmentsBusy = false;
       runsUnsub?.(); runsUnsub = null;
       return;
     }
@@ -106,7 +123,6 @@
           formSize = d.metadata.size ?? '';
           formModule = d.metadata.module ?? '';
           formTags = (d.metadata.tags ?? []).join(', ');
-          formAgent = (d.metadata.agent ?? '') as AgentName;
           // Don't replace bodyDraft while the editor is open — preserve the
           // user's in-progress buffer. If they Discard, we'll snap it back
           // to d.body via the Discard handler.
@@ -125,6 +141,10 @@
       setRunsForTask(id, list as Run[]);
     }).catch(() => { /* empty list is fine */ });
 
+    // Hydrate attachments. Refreshes inside fetchOnce via board:reloaded
+    // events when the user attaches or removes files.
+    refreshAttachments(id, cancelled);
+
     const taskRunsStore = runsForTask(id);
     runsUnsub?.();
     runsUnsub = taskRunsStore.subscribe((list) => {
@@ -142,8 +162,14 @@
     //    since both CLI and GUI write atomically via temp+rename).
     //  - board:reloaded fires for atomic writes (Create/Rename) and is
     //    the dominant refresh signal in practice.
-    const offTask = Events.On(`task:updated:${id}`, () => fetchOnce());
-    const offBoard = Events.On('board:reloaded', () => fetchOnce());
+    const offTask = Events.On(`task:updated:${id}`, () => {
+      fetchOnce();
+      refreshAttachments(id, cancelled);
+    });
+    const offBoard = Events.On('board:reloaded', () => {
+      fetchOnce();
+      refreshAttachments(id, cancelled);
+    });
 
     return () => {
       cancelled = true;
@@ -162,8 +188,15 @@
   let runBusy = $derived(liveStatus === 'queued' || liveStatus === 'running' || runStarting || groomStarting);
   let groomEmphasized = $derived(groomReasons.length > 0 || groomHighlight);
   let persistedAgent = $derived((detail?.metadata.agent ?? '') as AgentName);
+  // The dropdown falls back to the configured default agent only when the
+  // task has no agent set AND the user hasn't explicitly cleared the agent
+  // on this task — otherwise picking "(none)" would silently snap back to
+  // the default.
   let displayedAgent = $derived(
-    persistedAgent || ($defaultAgentPreference === 'none' ? '' : $defaultAgentPreference),
+    persistedAgent
+      || (userClearedAgent || $defaultAgentPreference === 'none'
+        ? ''
+        : $defaultAgentPreference),
   );
 
   $effect(() => {
@@ -199,7 +232,9 @@
     if (!detail) return;
     const id = detail.metadata.id;
     const target = (((ev.currentTarget as HTMLSelectElement).value as AgentName) || 'none') as AgentName;
-    formAgent = target === 'none' ? '' : target;
+    // Explicit "(none)" suppresses the default-agent fallback for this task.
+    // Any other pick re-allows it (since the user committed to a real agent).
+    userClearedAgent = target === 'none';
     const prev = (detail.metadata.agent ?? '') as AgentName;
     if (target === prev || (target === 'none' && prev === '')) return;
     agentSaving = true;
@@ -208,11 +243,31 @@
       pushToast(target === 'none' ? `Cleared agent for ${id}` : `Assigned ${target} to ${id}`, 'success');
     } catch (e) {
       pushToast(`Assign failed: ${e instanceof Error ? e.message : String(e)}`);
-      // Snap dropdown back to disk state on failure.
-      formAgent = (detail.metadata.agent ?? '') as AgentName;
     } finally {
       agentSaving = false;
     }
+  }
+
+  // If the dropdown's value comes from the config default rather than the
+  // task's stored agent, persist it before kicking off a run. The backend
+  // RunAgent/GroomTask read agent from the task file, so the fallback has
+  // to be written first or it would fail with ErrNoAgent.
+  // `'none'` is never produced by the CLI parser for Task.Agent — the CLI
+  // treats it as a clear sentinel — so casting `displayedAgent` (which can
+  // be the AgentName union plus the 'claude'|'codex' branches of
+  // DefaultAgent) to AgentName is safe here.
+  async function ensureAgentPersisted(): Promise<AgentName | null> {
+    if (!detail) return null;
+    const target = displayedAgent as AgentName;
+    if (!target) return null;
+    if (persistedAgent === target) return target;
+    try {
+      await assignAgent(detail.metadata.id, target);
+    } catch (e) {
+      pushToast(`Assign failed: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+    return target;
   }
 
   async function onRunClick() {
@@ -220,13 +275,18 @@
     const id = detail.metadata.id;
     runStarting = true;
     try {
+      const agentName = await ensureAgentPersisted();
+      // Null means either the buttons were clicked while disabled (no agent
+      // displayed) or the assign step failed and already pushed its own
+      // toast — either way, don't proceed to runAgent/groomTask.
+      if (!agentName) return;
       const runId = await runAgent(id);
       // Optimistically insert a queued row so the UI is responsive even
       // before the Wails event arrives (avoids a flicker).
       upsertRun({
         runId,
         taskId: id,
-        agent: detail.metadata.agent ?? '',
+        agent: agentName,
         mode: 'implement',
         status: 'queued',
         queuedAt: new Date().toISOString(),
@@ -245,11 +305,16 @@
     const id = detail.metadata.id;
     groomStarting = true;
     try {
+      const agentName = await ensureAgentPersisted();
+      // Null means either the buttons were clicked while disabled (no agent
+      // displayed) or the assign step failed and already pushed its own
+      // toast — either way, don't proceed to runAgent/groomTask.
+      if (!agentName) return;
       const runId = await groomTask(id);
       upsertRun({
         runId,
         taskId: id,
-        agent: detail.metadata.agent ?? '',
+        agent: agentName,
         mode: 'groom',
         status: 'queued',
         queuedAt: new Date().toISOString(),
@@ -460,6 +525,77 @@
     editMode = false;
   }
 
+  function refreshAttachments(id: string, cancelled: boolean) {
+    attachmentsLoading = true;
+    listAttachments(id)
+      .then((list) => {
+        if (cancelled || taskId !== id) return;
+        attachments = list;
+        attachmentsLoading = false;
+      })
+      .catch((e) => {
+        if (cancelled || taskId !== id) return;
+        attachments = [];
+        attachmentsLoading = false;
+        pushToast(`Could not list attachments: ${errorString(e)}`);
+      });
+  }
+
+  async function onAddAttachments() {
+    if (!detail || attachmentsBusy) return;
+    const id = detail.metadata.id;
+    let picked: string[] = [];
+    try {
+      picked = await pickAttachmentFiles();
+    } catch (e) {
+      pushToast(`File picker failed: ${errorString(e)}`);
+      return;
+    }
+    if (picked.length === 0) return;
+    attachmentsBusy = true;
+    try {
+      await addAttachments(id, picked);
+      pushToast(`Attached ${picked.length} file(s) to ${id}`, 'success');
+      // Refresh is driven by the watcher's board:reloaded; the drawer
+      // already listens for it. Don't fetchOnce here — that violates
+      // TB-104's "no duplicate refresh" criterion.
+    } catch (e) {
+      pushToast(`Attach failed: ${errorString(e)}`);
+    } finally {
+      attachmentsBusy = false;
+    }
+  }
+
+  async function onRemoveAttachment(name: string) {
+    if (!detail || attachmentsBusy) return;
+    const id = detail.metadata.id;
+    attachmentsBusy = true;
+    try {
+      await removeAttachments(id, [name]);
+      pushToast(`Removed ${name} from ${id}`, 'info');
+    } catch (e) {
+      pushToast(`Remove failed: ${errorString(e)}`);
+    } finally {
+      attachmentsBusy = false;
+    }
+  }
+
+  async function onOpenAttachment(name: string) {
+    if (!detail) return;
+    try {
+      await openAttachment(detail.metadata.id, name);
+    } catch (e) {
+      pushToast(`Open failed: ${errorString(e)}`);
+    }
+  }
+
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
   function onKeydown(ev: KeyboardEvent) {
     if (!taskId) return;
     if (ev.key === 'Escape') {
@@ -512,14 +648,6 @@
     return body;
   }
 
-  function meta(t: Task): Array<[string, string]> {
-    const rows: Array<[string, string]> = [];
-    if (t.status) rows.push(['Status', t.status]);
-    if (t.branch) rows.push(['Branch', t.branch]);
-    if (t.parent) rows.push(['Parent', t.parent]);
-    if (t.agent) rows.push(['Agent', t.agent + (t.agentStatus ? ` (${t.agentStatus})` : '')]);
-    return rows;
-  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -533,176 +661,233 @@
     tabindex="-1"
     onclick={onBackdropClick}
     onkeydown={() => {}}>
-    <aside class="drawer">
-      <header>
-        {#if detail}
-          <div>
+    <section
+      class="surface"
+      data-file-drop-target
+      data-task-id={taskId}>
+      <header class="surface-head">
+        <div class="title-block">
+          {#if detail}
             <span class="id">{detail.metadata.id}</span>
             <h2>{detail.metadata.title}</h2>
-          </div>
-        {:else}
-          <h2>{taskId}</h2>
-        {/if}
-        <button class="close" type="button" onclick={tryClose} aria-label="Close">×</button>
+          {:else}
+            <span class="id">{taskId}</span>
+            <h2>Loading…</h2>
+          {/if}
+        </div>
+        <button class="close" type="button" onclick={tryClose} aria-label="Close" title="Close (Esc)">×</button>
       </header>
 
       {#if loading && !detail}
-        <p class="hint">Loading…</p>
+        <p class="hint pad">Loading…</p>
       {:else if err}
-        <p class="err">{err}</p>
+        <p class="err pad">{err}</p>
       {:else if detail}
-        <section class="meta-edit">
-          <div class="meta-row">
-            <label>
-              <span>Priority</span>
-              <select bind:value={formPriority}>
-                <option value=""></option>
-                <option>P0</option><option>P1</option><option>P2</option><option>P3</option>
-              </select>
-            </label>
-            <label>
-              <span>Type</span>
-              <select bind:value={formType}>
-                <option value=""></option>
-                <option value="bug">bug</option>
-                <option value="feature">feature</option>
-                <option value="tech-debt">tech-debt</option>
-                <option value="improvement">improvement</option>
-                <option value="spike">spike</option>
-              </select>
-            </label>
-            <label>
-              <span>Size</span>
-              <select bind:value={formSize}>
-                <option value=""></option>
-                <option>S</option><option>M</option><option>L</option><option>XL</option>
-              </select>
-            </label>
-          </div>
-          <div class="meta-row">
-            <label class="grow">
-              <span>Module</span>
-              <input bind:value={formModule} placeholder="module" />
-            </label>
-            <label class="grow">
-              <span>Tags</span>
-              <input bind:value={formTags} placeholder="comma,separated" />
-            </label>
-          </div>
-          <div class="row save-row">
-            <button class="primary" type="button" onclick={saveMetadata} disabled={!metadataDirty || saving}>
-              {saving ? 'Saving…' : (metadataDirty ? 'Save' : 'Saved')}
-            </button>
-          </div>
-        </section>
-
-        {#if meta(detail.metadata).length > 0}
-          <dl class="meta">
-            {#each meta(detail.metadata) as [k, v]}
-              <dt>{k}</dt><dd>{v}</dd>
-            {/each}
-          </dl>
-        {/if}
-
-        <section class="agent-section">
-          <header class="agent-head">
-            <h3>Agent</h3>
-            {#if liveStatus}
-              <span class={`pill pill-${liveStatus}`}>{liveStatus}</span>
-            {/if}
-          </header>
-          <div class="agent-controls">
-            <label class="agent-dropdown">
-              <span>Assigned</span>
-              <select
-                aria-label="Agent"
-                disabled={agentSaving}
-                value={displayedAgent}
-                onchange={onAgentChange}>
-                <option value="">(none)</option>
-                <option value="claude">claude</option>
-                <option value="codex">codex</option>
-              </select>
-            </label>
-            <div class="agent-buttons">
-              <button
-                class="primary"
-                type="button"
-                disabled={!persistedAgent || runBusy}
-                title={!persistedAgent ? 'Assign an agent first' : (liveStatus === 'running' ? 'Already running' : '')}
-                onclick={onRunClick}>
-                {runStarting ? 'Starting…' : 'Run'}
-              </button>
-              <button
-                class:emphasized={groomEmphasized && !runBusy}
-                class="secondary"
-                type="button"
-                disabled={!persistedAgent || runBusy}
-                title={groomReasons.length > 0 ? `Needs grooming: ${groomReasons.join(', ')}` : (!persistedAgent ? 'Assign an agent first' : '')}
-                onclick={onGroomClick}>
-                {groomStarting ? 'Grooming…' : 'Groom'}
-              </button>
-              {#if liveStatus === 'running'}
-                <button class="danger" type="button" onclick={startCancel}>
-                  {cancelPrompt ? 'Click again to cancel' : 'Cancel'}
-                </button>
-              {/if}
-            </div>
-          </div>
-
-          {#if runs.length > 0}
-            <ul class="run-list" aria-label="Past runs">
-              {#each runs as r}
-                <li>
-                  <button
-                    type="button"
-                    class:active={$selectedRunID === r.runId}
-                    onclick={() => pickRun(r.runId)}>
-                    <span class="when">{fmtRelative(r.startedAt || r.queuedAt)}</span>
-                    <span class="mode">{r.mode || 'implement'}</span>
-                    <span class={`pill pill-${r.status || 'idle'}`}>{r.status || 'idle'}</span>
-                    <span class="agent">{r.agent}</span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-
-          <AgentRunLog runId={$selectedRunID} taskId={detail.metadata.id} />
-        </section>
-
-        <section class="body-section">
-          <div class="body-toolbar">
-            <h3>Body</h3>
-            <div class="toolbar-actions">
+        <div class="grid">
+          <div class="main">
+            <section class="body-section">
+              <div class="section-head">
+                <h3>Description</h3>
+                <div class="toolbar-actions">
+                  {#if editMode}
+                    <button class="ghost compact" type="button" onclick={discardBody}>Discard</button>
+                    <button class="primary compact" type="button" onclick={saveBody} disabled={!bodyDirty}>Save body</button>
+                  {:else}
+                    <button class="ghost compact" type="button" onclick={enterEdit}>Edit</button>
+                  {/if}
+                </div>
+              </div>
               {#if editMode}
-                <button class="ghost" type="button" onclick={discardBody}>Discard</button>
-                <button class="primary" type="button" onclick={saveBody} disabled={!bodyDirty}>Save body</button>
+                <BodyEditor
+                  bind:value={bodyDraft}
+                  originalBody={detail.body}
+                  onDirtyChange={(d) => bodyDirty = d}
+                />
               {:else}
-                <button class="ghost" type="button" onclick={enterEdit}>Edit</button>
+                <article class="body markdown">
+                  {@html renderMarkdown(stripFrontmatter(detail.body))}
+                </article>
               {/if}
-            </div>
-          </div>
-          {#if editMode}
-            <BodyEditor
-              bind:value={bodyDraft}
-              originalBody={detail.body}
-              onDirtyChange={(d) => bodyDirty = d}
-            />
-          {:else}
-            <article class="body markdown">
-              {@html renderMarkdown(stripFrontmatter(detail.body))}
-            </article>
-          {/if}
-        </section>
+            </section>
 
-        <footer class="drawer-footer">
-          <button class="danger" type="button" onclick={startArchive}>
-            {archivePrompt ? 'Click again to archive' : 'Archive'}
-          </button>
-        </footer>
+            <section class="attachments-section">
+              <div class="section-head">
+                <h3>Attachments</h3>
+                <button
+                  class="ghost compact"
+                  type="button"
+                  disabled={attachmentsBusy}
+                  onclick={onAddAttachments}>
+                  {attachmentsBusy ? 'Working…' : 'Add files…'}
+                </button>
+              </div>
+              {#if attachmentsLoading && attachments.length === 0}
+                <p class="hint">Loading attachments…</p>
+              {:else if attachments.length === 0}
+                <p class="hint">No attachments. Add files via the button above or drag-and-drop onto the task.</p>
+              {:else}
+                <ul class="attachment-list">
+                  {#each attachments as a (a.name)}
+                    <li>
+                      <button class="att-name" type="button" title="Open in OS" onclick={() => onOpenAttachment(a.name)}>
+                        {a.name}
+                      </button>
+                      <span class="att-size">{formatSize(a.size)}</span>
+                      <button
+                        class="att-remove"
+                        type="button"
+                        disabled={attachmentsBusy}
+                        aria-label={`Remove ${a.name}`}
+                        title="Remove attachment"
+                        onclick={() => onRemoveAttachment(a.name)}>×</button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </section>
+          </div>
+
+          <aside class="rail">
+            <section class="rail-section details-section">
+              <div class="section-head">
+                <h3>Details</h3>
+                <button
+                  class="primary compact"
+                  type="button"
+                  onclick={saveMetadata}
+                  disabled={!metadataDirty || saving}>
+                  {saving ? 'Saving…' : (metadataDirty ? 'Save' : 'Saved')}
+                </button>
+              </div>
+
+              <dl class="readonly-meta">
+                <dt>Status</dt>
+                <dd>{detail.metadata.status || '—'}</dd>
+                {#if detail.metadata.parent}
+                  <dt>Parent</dt>
+                  <dd>{detail.metadata.parent}</dd>
+                {/if}
+                {#if detail.metadata.branch}
+                  <dt>Branch</dt>
+                  <dd class="mono">{detail.metadata.branch}</dd>
+                {/if}
+              </dl>
+
+              <div class="field">
+                <span class="field-label">Priority</span>
+                <select bind:value={formPriority}>
+                  <option value=""></option>
+                  <option>P0</option><option>P1</option><option>P2</option><option>P3</option>
+                </select>
+              </div>
+              <div class="field">
+                <span class="field-label">Type</span>
+                <select bind:value={formType}>
+                  <option value=""></option>
+                  <option value="bug">bug</option>
+                  <option value="feature">feature</option>
+                  <option value="tech-debt">tech-debt</option>
+                  <option value="improvement">improvement</option>
+                  <option value="spike">spike</option>
+                </select>
+              </div>
+              <div class="field">
+                <span class="field-label">Size</span>
+                <select bind:value={formSize}>
+                  <option value=""></option>
+                  <option>S</option><option>M</option><option>L</option><option>XL</option>
+                </select>
+              </div>
+              <div class="field">
+                <span class="field-label">Module</span>
+                <input bind:value={formModule} placeholder="module" />
+              </div>
+              <div class="field">
+                <span class="field-label">Tags</span>
+                <input bind:value={formTags} placeholder="comma,separated" />
+              </div>
+            </section>
+
+            <section class="rail-section agent-section">
+              <div class="section-head">
+                <h3>Agent</h3>
+                {#if liveStatus}
+                  <span class={`pill pill-${liveStatus}`}>{liveStatus}</span>
+                {/if}
+              </div>
+              <div class="field">
+                <span class="field-label">Assigned</span>
+                <select
+                  aria-label="Agent"
+                  disabled={agentSaving}
+                  value={displayedAgent}
+                  onchange={onAgentChange}>
+                  <option value="">(none)</option>
+                  <option value="claude">claude</option>
+                  <option value="codex">codex</option>
+                </select>
+              </div>
+              <div class="agent-buttons">
+                <button
+                  class="primary compact"
+                  type="button"
+                  disabled={!displayedAgent || runBusy}
+                  title={!displayedAgent ? 'Select an agent first' : (liveStatus === 'running' ? 'Already running' : '')}
+                  onclick={onRunClick}>
+                  {runStarting ? 'Starting…' : 'Run'}
+                </button>
+                <button
+                  class:emphasized={groomEmphasized && !runBusy}
+                  class="secondary compact"
+                  type="button"
+                  disabled={!displayedAgent || runBusy}
+                  title={groomReasons.length > 0 ? `Needs grooming: ${groomReasons.join(', ')}` : (!displayedAgent ? 'Select an agent first' : '')}
+                  onclick={onGroomClick}>
+                  {groomStarting ? 'Grooming…' : 'Groom'}
+                </button>
+                {#if liveStatus === 'running'}
+                  <button class="danger compact" type="button" onclick={startCancel}>
+                    {cancelPrompt ? 'Click again to cancel' : 'Cancel'}
+                  </button>
+                {/if}
+              </div>
+
+              {#if runs.length > 0}
+                <div class="rail-subhead">Run history</div>
+                <ul class="run-list" aria-label="Past runs">
+                  {#each runs as r}
+                    <li>
+                      <button
+                        type="button"
+                        class:active={$selectedRunID === r.runId}
+                        onclick={() => pickRun(r.runId)}>
+                        <span class="when">{fmtRelative(r.startedAt || r.queuedAt)}</span>
+                        <span class="mode">{r.mode || 'implement'}</span>
+                        <span class={`pill pill-${r.status || 'idle'}`}>{r.status || 'idle'}</span>
+                        <span class="agent">{r.agent}</span>
+                      </button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+
+              <div class="run-log-wrap">
+                <AgentRunLog runId={$selectedRunID} taskId={detail.metadata.id} />
+              </div>
+            </section>
+
+            <section class="rail-section danger-section">
+              <div class="section-head">
+                <h3>Danger zone</h3>
+              </div>
+              <button class="danger full" type="button" onclick={startArchive}>
+                {archivePrompt ? 'Click again to archive' : 'Archive'}
+              </button>
+            </section>
+          </aside>
+        </div>
       {/if}
-    </aside>
+    </section>
   </div>
 {/if}
 
@@ -710,156 +895,120 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(0, 0, 0, 0.55);
     display: flex;
-    justify-content: flex-end;
-    z-index: 50;
-  }
-  .drawer {
-    background: var(--bg-elev);
-    width: min(720px, 96vw);
-    height: 100%;
-    overflow-y: auto;
-    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.45);
-    padding: 20px 22px;
+    justify-content: center;
+    align-items: stretch;
+    padding: 16px;
     box-sizing: border-box;
-    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    z-index: 50;
+    backdrop-filter: blur(2px);
   }
-  header {
+  .surface {
+    background: var(--bg-elev);
+    width: 100%;
+    max-width: 1600px;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  /* Whole-drawer file drop affordance. The Wails runtime tags the matched
+     [data-file-drop-target] element with .file-drop-target-active while the
+     OS drag is hovering, so styling it here makes the entire drawer body a
+     visible target — see TB-125. The ::after layer is an inset accent
+     border drawn over the drawer chrome without nudging layout. */
+  .surface:global(.file-drop-target-active)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    border: 2px dashed var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(74, 141, 248, 0.35),
+                0 0 0 1px rgba(74, 141, 248, 0.2);
+    background: rgba(74, 141, 248, 0.06);
+    z-index: 1;
+  }
+  .surface-head {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 18px;
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
   }
+  .title-block { min-width: 0; flex: 1 1 auto; }
   .id {
     display: inline-block;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 11px;
     color: var(--fg-dim);
     margin-bottom: 4px;
+    letter-spacing: 0.03em;
   }
-  header h2 {
+  .surface-head h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: 20px;
     line-height: 1.3;
     font-weight: 600;
+    word-break: break-word;
   }
   .close {
     background: none;
     border: 0;
-    font-size: 22px;
+    font-size: 24px;
     line-height: 1;
     cursor: pointer;
-    padding: 4px 8px;
+    padding: 4px 10px;
     color: var(--fg-dim);
-    border-radius: 4px;
+    border-radius: 6px;
+    flex: 0 0 auto;
   }
   .close:hover { background: rgba(255, 255, 255, 0.06); color: var(--fg); }
 
-  .meta-edit {
-    background: rgba(255, 255, 255, 0.03);
-    padding: 12px;
-    border-radius: 6px;
+  .grid {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+    gap: 0;
+    overflow: hidden;
+  }
+  .main {
+    overflow-y: auto;
+    padding: 20px 24px 28px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-bottom: 14px;
+    gap: 18px;
+    min-width: 0;
   }
-  .meta-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 8px;
-  }
-  .meta-edit label {
+  .rail {
+    overflow-y: auto;
+    padding: 20px 22px 28px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(0, 0, 0, 0.12);
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    font-size: 11px;
-    color: var(--fg-dim);
+    gap: 16px;
+    min-width: 0;
   }
-  .meta-edit input,
-  .meta-edit select {
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: var(--fg);
-    border-radius: 4px;
-    padding: 5px 7px;
-    font: inherit;
-    font-size: 12px;
-  }
-  .save-row { justify-content: flex-end; display: flex; }
-  .primary {
-    background: var(--accent);
-    color: white;
-    border: 0;
-    border-radius: 5px;
-    padding: 5px 14px;
-    cursor: pointer;
-    font-weight: 600;
-    font: inherit;
-    font-size: 12px;
-  }
-  .primary:disabled { opacity: 0.4; cursor: not-allowed; }
-  .secondary {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--fg);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 5px;
-    padding: 5px 14px;
-    cursor: pointer;
-    font-weight: 600;
-    font: inherit;
-    font-size: 12px;
-  }
-  .secondary:hover { background: rgba(255, 255, 255, 0.10); }
-  .secondary:disabled { opacity: 0.4; cursor: not-allowed; }
-  .secondary.emphasized {
-    border-color: rgba(255, 184, 108, 0.62);
-    box-shadow: 0 0 0 2px rgba(255, 184, 108, 0.18);
-    color: var(--p1);
-  }
-  .ghost {
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: var(--fg);
-    border-radius: 5px;
-    padding: 5px 14px;
-    cursor: pointer;
-    font: inherit;
-    font-size: 12px;
-  }
-  .ghost:hover { background: rgba(255, 255, 255, 0.06); }
 
-  .meta {
-    display: grid;
-    grid-template-columns: 96px 1fr;
-    column-gap: 14px;
-    row-gap: 6px;
-    margin: 0 0 18px;
-    padding: 12px 14px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 6px;
-    font-size: 12px;
-  }
-  .meta dt {
-    color: var(--fg-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-size: 10px;
-    margin: 0;
-    align-self: center;
-  }
-  .meta dd { margin: 0; word-break: break-word; }
+  .pad { padding: 20px 24px; }
 
-  .body-section { display: flex; flex-direction: column; gap: 8px; }
-  .body-toolbar {
+  .section-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    margin-bottom: 8px;
   }
-  .body-toolbar h3 {
+  .section-head h3 {
     margin: 0;
     font-size: 11px;
     text-transform: uppercase;
@@ -868,44 +1017,122 @@
     font-weight: 600;
   }
   .toolbar-actions { display: flex; gap: 6px; }
-
-  .body {
-    background: rgba(255, 255, 255, 0.03);
-    padding: 12px 16px;
-    border-radius: 6px;
-    margin: 0;
-    font-size: 13px;
-    line-height: 1.6;
-    overflow-x: auto;
-  }
-  .markdown :global(h1),
-  .markdown :global(h2),
-  .markdown :global(h3) {
-    margin: 14px 0 6px;
+  .rail-subhead {
+    margin-top: 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
     font-weight: 600;
-    line-height: 1.3;
   }
-  .markdown :global(h1) { font-size: 16px; }
-  .markdown :global(h2) { font-size: 14px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.06em; }
-  .markdown :global(h3) { font-size: 13px; }
-  .markdown :global(p) { margin: 0 0 8px; }
-  .markdown :global(ul), .markdown :global(ol) { margin: 0 0 8px; padding-left: 20px; }
-  .markdown :global(li) { margin: 2px 0; }
-  .markdown :global(li input[type='checkbox']) { margin-right: 6px; pointer-events: none; }
-  .markdown :global(code) { background: rgba(255, 255, 255, 0.06); padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 12px; }
-  .markdown :global(pre) { background: rgba(0, 0, 0, 0.25); padding: 10px 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }
-  .markdown :global(pre code) { background: none; padding: 0; }
-  .markdown :global(a) { color: var(--accent); }
-  .markdown :global(strong) { color: var(--fg); }
-  .markdown :global(blockquote) { border-left: 3px solid rgba(255, 255, 255, 0.1); padding-left: 10px; margin: 8px 0; color: var(--fg-dim); }
 
-  .drawer-footer {
-    margin-top: 22px;
-    padding-top: 14px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  .rail-section {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 12px 14px;
     display: flex;
-    justify-content: flex-end;
+    flex-direction: column;
+    gap: 8px;
   }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .field-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fg-dim);
+    font-weight: 600;
+  }
+  .rail input,
+  .rail select {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 12px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .rail input:focus,
+  .rail select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .readonly-meta {
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    column-gap: 10px;
+    row-gap: 4px;
+    margin: 0 0 4px;
+    font-size: 12px;
+  }
+  .readonly-meta dt {
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 10px;
+    margin: 0;
+    align-self: center;
+    font-weight: 600;
+  }
+  .readonly-meta dd { margin: 0; word-break: break-word; }
+  .readonly-meta dd.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+
+  .primary {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    border-radius: 5px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-weight: 600;
+    font: inherit;
+    font-size: 12px;
+  }
+  .primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .primary.compact { padding: 4px 10px; font-size: 11px; }
+
+  .secondary {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--fg);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 5px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-weight: 600;
+    font: inherit;
+    font-size: 12px;
+  }
+  .secondary:hover { background: rgba(255, 255, 255, 0.10); }
+  .secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .secondary.compact { padding: 4px 10px; font-size: 11px; }
+  .secondary.emphasized {
+    border-color: rgba(255, 184, 108, 0.62);
+    box-shadow: 0 0 0 2px rgba(255, 184, 108, 0.18);
+    color: var(--p1);
+  }
+
+  .ghost {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--fg);
+    border-radius: 5px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+  }
+  .ghost:hover { background: rgba(255, 255, 255, 0.06); }
+  .ghost.compact { padding: 4px 10px; font-size: 11px; }
+
   .danger {
     background: rgba(255, 90, 82, 0.12);
     color: var(--p0);
@@ -917,55 +1144,44 @@
     font-size: 12px;
   }
   .danger:hover { background: rgba(255, 90, 82, 0.2); }
+  .danger.compact { padding: 4px 10px; font-size: 11px; }
+  .danger.full { width: 100%; padding: 8px 14px; }
 
-  .agent-section {
-    margin: 18px 0;
-    padding: 12px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .agent-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .agent-head h3 {
+  .body-section { display: flex; flex-direction: column; gap: 8px; }
+  .body {
+    background: transparent;
+    padding: 4px 0 0;
+    border-radius: 0;
     margin: 0;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--fg-dim);
+    font-size: 14px;
+    line-height: 1.65;
+    overflow-x: auto;
+  }
+  .markdown :global(h1),
+  .markdown :global(h2),
+  .markdown :global(h3) {
+    margin: 16px 0 6px;
     font-weight: 600;
+    line-height: 1.3;
   }
-  .agent-controls {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .agent-dropdown {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 11px;
-    color: var(--fg-dim);
-  }
-  .agent-dropdown select {
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: var(--fg);
-    border-radius: 4px;
-    padding: 5px 7px;
-    font: inherit;
-    font-size: 12px;
-  }
+  .markdown :global(h1) { font-size: 18px; }
+  .markdown :global(h2) { font-size: 13px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 22px; }
+  .markdown :global(h3) { font-size: 13px; }
+  .markdown :global(p) { margin: 0 0 10px; }
+  .markdown :global(ul), .markdown :global(ol) { margin: 0 0 10px; padding-left: 20px; }
+  .markdown :global(li) { margin: 2px 0; }
+  .markdown :global(li input[type='checkbox']) { margin-right: 6px; pointer-events: none; }
+  .markdown :global(code) { background: rgba(255, 255, 255, 0.06); padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 12px; }
+  .markdown :global(pre) { background: rgba(0, 0, 0, 0.25); padding: 10px 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }
+  .markdown :global(pre code) { background: none; padding: 0; }
+  .markdown :global(a) { color: var(--accent); }
+  .markdown :global(strong) { color: var(--fg); }
+  .markdown :global(blockquote) { border-left: 3px solid rgba(255, 255, 255, 0.1); padding-left: 10px; margin: 8px 0; color: var(--fg-dim); }
+
   .agent-buttons {
     display: flex;
     gap: 6px;
-    margin-left: auto;
+    flex-wrap: wrap;
   }
   .pill {
     font-size: 10px;
@@ -981,6 +1197,7 @@
   .pill-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .pill-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
   .pill-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
+
   .run-list {
     list-style: none;
     margin: 0;
@@ -993,7 +1210,7 @@
   .run-list button {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     width: 100%;
     padding: 4px 6px;
     background: none;
@@ -1004,6 +1221,7 @@
     font: inherit;
     font-size: 11px;
     border-radius: 3px;
+    flex-wrap: wrap;
   }
   .run-list button:hover { background: rgba(255, 255, 255, 0.04); }
   .run-list button.active { background: rgba(74, 141, 248, 0.12); }
@@ -1017,6 +1235,97 @@
   }
   .run-list .agent { color: var(--fg-dim); }
 
+  .run-log-wrap {
+    min-height: 0;
+  }
+
   .hint { color: var(--fg-dim); font-size: 12px; }
   .err { color: var(--p0); font-size: 12px; }
+
+  .attachments-section {
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .attachment-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .attachment-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .attachment-list li:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .att-name {
+    flex: 1 1 auto;
+    text-align: left;
+    background: none;
+    border: 0;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-family: ui-monospace, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0;
+  }
+  .att-name:hover { text-decoration: underline; }
+  .att-size {
+    color: var(--fg-dim);
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    flex: 0 0 auto;
+  }
+  .att-remove {
+    flex: 0 0 auto;
+    background: none;
+    border: 0;
+    color: var(--fg-dim);
+    cursor: pointer;
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 4px;
+    border-radius: 3px;
+  }
+  .att-remove:hover {
+    color: var(--p0);
+    background: rgba(255, 90, 82, 0.1);
+  }
+  .att-remove:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Narrow viewport: stack the rail below the main content so all controls
+     remain reachable without horizontal overflow. */
+  @media (max-width: 960px) {
+    .backdrop { padding: 0; }
+    .surface { border-radius: 0; border: 0; }
+    .grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto;
+      overflow-y: auto;
+    }
+    .main, .rail {
+      overflow-y: visible;
+    }
+    .rail {
+      border-left: 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+  }
 </style>

@@ -244,6 +244,32 @@ func (s *SettingsService) SetCLIPath(path string) error {
 	return nil
 }
 
+// GetClaudeUsageTap returns the on-disk state of the claude usage tap for the
+// active board. Safe to call when no board is open — returns Enabled=false
+// with a reason.
+func (s *SettingsService) GetClaudeUsageTap() ClaudeUsageTapStatus {
+	return GetClaudeUsageTapStatus(s.GetProjectRoot())
+}
+
+// EnableClaudeUsageTap installs the tap script + settings.local.json patch in
+// the active board's .claude directory.
+func (s *SettingsService) EnableClaudeUsageTap() (ClaudeUsageTapStatus, error) {
+	root := s.GetProjectRoot()
+	if root == "" {
+		return ClaudeUsageTapStatus{}, ErrNoBoard
+	}
+	return EnableClaudeUsageTap(root)
+}
+
+// DisableClaudeUsageTap removes the tap from the active board.
+func (s *SettingsService) DisableClaudeUsageTap() (ClaudeUsageTapStatus, error) {
+	root := s.GetProjectRoot()
+	if root == "" {
+		return ClaudeUsageTapStatus{}, ErrNoBoard
+	}
+	return DisableClaudeUsageTap(root)
+}
+
 // PickBoardDialog opens the native folder picker and returns the selected
 // path. Returns ErrCancelled when the user dismisses the dialog.
 //

@@ -58,10 +58,11 @@ func assignTask(boardDir, taskID, agent string) error {
 	}
 	defer lock.unlock()
 
-	taskPath, err := findTask(boardDir, taskID)
+	ref, err := resolveTaskRef(boardDir, taskID, allStatusDirs)
 	if err != nil {
 		return err
 	}
+	taskPath := ref.Path
 
 	data, err := os.ReadFile(taskPath)
 	if err != nil {
@@ -78,6 +79,9 @@ func assignTask(boardDir, taskID, agent string) error {
 
 	if err := writeFileAtomic(taskPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("cannot write %s: %w", taskPath, err)
+	}
+	if err := cleanupOrphanFileFormSibling(boardDir, ref.Status, ref.ID); err != nil {
+		return err
 	}
 	if err := regenerateBoard(boardDir); err != nil {
 		return fmt.Errorf("cannot regenerate BOARD.md: %w", err)

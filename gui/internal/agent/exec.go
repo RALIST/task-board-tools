@@ -184,9 +184,10 @@ func streamLines(src io.Reader, dst io.Writer) error {
 		dst = io.Discard
 	}
 	sc := bufio.NewScanner(src)
-	// 1MiB max line — long enough for agent JSON tool-use blobs, short
-	// enough that a runaway stream can't OOM the process.
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	// 16 MiB max line — a single Claude stream-json `tool_result` can carry
+	// a full file or a long Bash output in one line. 1 MiB used to truncate
+	// the scan mid-run. 16 MiB still bounds memory if a stream goes rogue.
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<24)
 	for sc.Scan() {
 		line := append(sc.Bytes(), '\n')
 		if _, err := dst.Write(line); err != nil {

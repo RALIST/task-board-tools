@@ -103,6 +103,57 @@ func TestRegenerateBoardLockedWaitsForBoardLock(t *testing.T) {
 	}
 }
 
+func TestRegenerateBoardStorageFormsByteIdentical(t *testing.T) {
+	cases := []struct {
+		name  string
+		forms map[string]string
+	}{
+		{
+			name:  "all-file",
+			forms: map[string]string{"TB-1": "file", "TB-2": "file", "TB-3": "file", "TB-4": "file", "TB-5": "file"},
+		},
+		{
+			name:  "all-folder",
+			forms: map[string]string{"TB-1": "folder", "TB-2": "folder", "TB-3": "folder", "TB-4": "folder", "TB-5": "folder"},
+		},
+		{
+			name:  "mixed",
+			forms: map[string]string{"TB-1": "folder", "TB-2": "file", "TB-3": "folder", "TB-4": "file", "TB-5": "folder"},
+		},
+	}
+
+	want, err := os.ReadFile(filepath.Join("testdata", "board_storage_forms.golden.md"))
+	if err != nil {
+		t.Fatalf("read golden BOARD.md snapshot: %v", err)
+	}
+
+	var baseline []byte
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			boardDir := newFolderFixtureBoard(t, tc.forms)
+			if err := regenerateBoard(boardDir); err != nil {
+				t.Fatalf("regenerateBoard: %v", err)
+			}
+
+			got, err := os.ReadFile(filepath.Join(boardDir, "BOARD.md"))
+			if err != nil {
+				t.Fatalf("read regenerated BOARD.md: %v", err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("regenerated BOARD.md for %s differs from golden snapshot\n--- got ---\n%s\n--- want ---\n%s", tc.name, got, want)
+			}
+
+			if baseline == nil {
+				baseline = append([]byte(nil), got...)
+				return
+			}
+			if !bytes.Equal(got, baseline) {
+				t.Fatalf("regenerated BOARD.md for %s differs from all-file baseline\n--- got ---\n%s\n--- baseline ---\n%s", tc.name, got, baseline)
+			}
+		})
+	}
+}
+
 func holdRegenerateLockForTest(t *testing.T) {
 	t.Helper()
 

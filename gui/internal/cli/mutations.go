@@ -1,4 +1,4 @@
-// Mutation wrappers around `tb create/edit/mv/close/regenerate`.
+// Mutation wrappers around `tb create/edit/mv/close/regenerate/attach`.
 //
 // Every wrapper returns a typed error so callers can branch on stable
 // categories rather than parsing stderr at the call site. Stderr is
@@ -38,7 +38,7 @@ const (
 // exit codes when needed.
 type MutationError struct {
 	Kind   MutationErrKind
-	Op     string   // command name: "create", "edit", "mv", "close", "regenerate"
+	Op     string   // command name: "create", "edit", "mv", "close", "regenerate", "attach"
 	Args   []string // full args passed to tb
 	Stderr string
 	Cause  error
@@ -209,21 +209,35 @@ func (c *Client) Create(ctx context.Context, in CreateInput) (CreateResult, erro
 	return CreateResult{ID: id, Path: path}, nil
 }
 
-// idFromPath turns "board/backlog/TB-42.md" into "TB-42". Returns "" if the
-// basename doesn't match the expected <PREFIX>-<digits>.md shape.
-var idBasenameRe = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9]*-\d+)\.md$`)
+// idFromPath turns "board/backlog/TB-42.md" or "board/backlog/TB-42/TASK.md"
+// into "TB-42". Returns "" if neither layout matches.
+var (
+	idBasenameRe = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9]*-\d+)\.md$`)
+	idDirRe      = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9]*-\d+)$`)
+)
 
 func idFromPath(p string) string {
-	// strip directories
-	base := p
+	base, parent := splitLast(p)
+	if m := idBasenameRe.FindStringSubmatch(base); m != nil {
+		return m[1]
+	}
+	// Folder-form: <status>/<ID>/TASK.md — the ID is the parent directory.
+	if base == "TASK.md" {
+		dir, _ := splitLast(parent)
+		if m := idDirRe.FindStringSubmatch(dir); m != nil {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// splitLast returns (last-segment, everything-before). If p has no separator
+// the parent is "".
+func splitLast(p string) (string, string) {
 	if i := strings.LastIndexAny(p, "/\\"); i >= 0 {
-		base = p[i+1:]
+		return p[i+1:], p[:i]
 	}
-	m := idBasenameRe.FindStringSubmatch(base)
-	if m == nil {
-		return ""
-	}
-	return m[1]
+	return p, ""
 }
 
 // EditInput is the shape consumed by Client.Edit. Empty fields are skipped.
@@ -310,4 +324,34 @@ func (c *Client) Regenerate(ctx context.Context) error {
 	args := []string{"regenerate"}
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("regenerate", args, err)
+}
+
+// Attach runs `tb attach <id> <path>...`. The CLI owns source validation,
+// collision handling, and legacy file-task promotion; this wrapper only
+// ensures the call shape is non-empty before exec.
+func (c *Client) Attach(ctx context.Context, id string, paths []string) error {
+	if strings.TrimSpace(id) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "attach", Stderr: "task id is required"}
+	}
+	if len(paths) == 0 {
+		return &MutationError{Kind: ErrKindValidation, Op: "attach", Stderr: "at least one attachment path is required"}
+	}
+	args := []string{"attach", id}
+	args = append(args, paths...)
+	_, err := c.Run(ctx, args...)
+	return wrapMutation("attach", args, err)
+}
+
+// RemoveAttachments runs `tb attach --rm <id> <attachment-name>...`.
+func (c *Client) RemoveAttachments(ctx context.Context, id string, names []string) error {
+	if strings.TrimSpace(id) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "attach", Stderr: "task id is required"}
+	}
+	if len(names) == 0 {
+		return &MutationError{Kind: ErrKindValidation, Op: "attach", Stderr: "at least one attachment name is required"}
+	}
+	args := []string{"attach", "--rm", id}
+	args = append(args, names...)
+	_, err := c.Run(ctx, args...)
+	return wrapMutation("attach", args, err)
 }

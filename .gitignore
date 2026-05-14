@@ -18,3 +18,8 @@ board/.board.lock
 /gui/frontend/.svelte-kit
 /board/.agent-log
 /board/.agent-state
+
+# tb-gui claude usage tap (auto-added)
+/.claude/settings.local.json
+/.claude/tb-gui-statusline.sh
+/.claude/tb-gui-usage.json

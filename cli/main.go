@@ -48,6 +48,8 @@ func main() {
 		cmdClose(os.Args[2:])
 	case "edit":
 		cmdEdit(os.Args[2:])
+	case "attach":
+		cmdAttach(os.Args[2:])
 	case "assign":
 		cmdAssign(os.Args[2:])
 	case "show", "cat":
@@ -84,7 +86,9 @@ Usage:
   tb start <ID>                                                          Start working
   tb done <ID>                                                           Mark done
   tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled] [--goal file|-] [--acceptance file|-]
+  tb attach <ID> <path>...                                               Copy files into task attachments
   tb assign <ID> <agent>                                                 Assign claude|codex and queue for daemon pickup
+  tb attach --rm <ID> <attachment-name>...                                Remove task attachments
   tb close <ID>                                                          Archive task
   tb show <ID> [--json]                                                  Print task content (or {metadata, body} JSON)
   tb open <ID>                                                           Open in default editor
@@ -103,6 +107,7 @@ Commands:
   start             Move task to in-progress
   done              Move task to done
   edit              Edit task metadata and Goal/Acceptance Criteria sections
+  attach            Copy files into task attachments; --rm: Remove task attachments by name
   assign            Assign a runnable agent and set AgentStatus=queued for daemon pickup
   close             Archive task (moves to archive/)
   show, cat         Print task content to stdout

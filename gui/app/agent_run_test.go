@@ -70,7 +70,75 @@ func realTbBoardForRun(t *testing.T, agentName string, stub *stubRunner) (*Agent
 	return realTbBoardForRunWithOptions(t, agentName, stub, nil)
 }
 
+func realTbFolderBoardForRun(t *testing.T, agentName string, stub *stubRunner) (*AgentService, string) {
+	return realTbBoardForRunWithStorage(t, agentName, stub, nil, true)
+}
+
+func realTbMixedBoardForRun(t *testing.T, agentName string, stub *stubRunner) (*AgentService, string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only board flock")
+	}
+	tbBinary := buildTbForIntegration(t)
+
+	root := t.TempDir()
+	boardDir := filepath.Join(root, "board")
+	for _, d := range []string{"backlog", "in-progress", "done", "archive"} {
+		if err := os.MkdirAll(filepath.Join(boardDir, d), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, ".tb.yaml"), []byte("board: board\nprefix: TB\n"), 0o644); err != nil {
+		t.Fatalf(".tb.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(boardDir, ".next-id"), []byte("3\n"), 0o644); err != nil {
+		t.Fatalf(".next-id: %v", err)
+	}
+
+	fileTaskBody := agentTaskBodyForTest("TB-1", agentName)
+	if err := os.WriteFile(filepath.Join(boardDir, "backlog", "TB-1.md"), []byte(fileTaskBody), 0o644); err != nil {
+		t.Fatalf("file task md: %v", err)
+	}
+	folderTaskDir := filepath.Join(boardDir, "backlog", "TB-2")
+	if err := os.MkdirAll(folderTaskDir, 0o755); err != nil {
+		t.Fatalf("folder task dir: %v", err)
+	}
+	folderTaskBody := agentTaskBodyForTest("TB-2", agentName)
+	if err := os.WriteFile(filepath.Join(folderTaskDir, "TASK.md"), []byte(folderTaskBody), 0o644); err != nil {
+		t.Fatalf("folder task md: %v", err)
+	}
+
+	c, err := cli.NewClient(cli.Options{BinaryPath: tbBinary, Cwd: root})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	board := NewBoardService()
+	board.setClient(c)
+	board.setBoardDir(boardDir)
+	em := newRecordingEmitter()
+	svc := NewAgentService(AgentServiceOptions{Board: board, Emitter: em})
+	if stub != nil {
+		svc.setRunnerFactory(func(name string) (agent.Runner, error) {
+			return stub, nil
+		})
+	}
+	t.Cleanup(func() {
+		svc.mu.Lock()
+		for id, ar := range svc.active {
+			ar.Cancel()
+			<-ar.Done
+			_ = id
+		}
+		svc.mu.Unlock()
+	})
+	return svc, boardDir
+}
+
 func realTbBoardForRunWithOptions(t *testing.T, agentName string, stub *stubRunner, configure func(*AgentServiceOptions)) (*AgentService, string) {
+	return realTbBoardForRunWithStorage(t, agentName, stub, configure, false)
+}
+
+func realTbBoardForRunWithStorage(t *testing.T, agentName string, stub *stubRunner, configure func(*AgentServiceOptions), folderForm bool) (*AgentService, string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX-only board flock")
@@ -90,9 +158,19 @@ func realTbBoardForRunWithOptions(t *testing.T, agentName string, stub *stubRunn
 	if err := os.WriteFile(filepath.Join(boardDir, ".next-id"), []byte("2\n"), 0o644); err != nil {
 		t.Fatalf(".next-id: %v", err)
 	}
-	taskBody := strings.Replace(sampleTaskBody, "**Branch:** —", "**Branch:** —\n**Agent:** "+agentName, 1)
-	if err := os.WriteFile(filepath.Join(boardDir, "backlog", "TB-1.md"), []byte(taskBody), 0o644); err != nil {
-		t.Fatalf("task md: %v", err)
+	taskBody := agentTaskBodyForTest("TB-1", agentName)
+	if folderForm {
+		taskDir := filepath.Join(boardDir, "backlog", "TB-1")
+		if err := os.MkdirAll(taskDir, 0o755); err != nil {
+			t.Fatalf("task dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(taskDir, "TASK.md"), []byte(taskBody), 0o644); err != nil {
+			t.Fatalf("task md: %v", err)
+		}
+	} else {
+		if err := os.WriteFile(filepath.Join(boardDir, "backlog", "TB-1.md"), []byte(taskBody), 0o644); err != nil {
+			t.Fatalf("task md: %v", err)
+		}
 	}
 
 	c, err := cli.NewClient(cli.Options{BinaryPath: tbBinary, Cwd: root})
@@ -124,6 +202,18 @@ func realTbBoardForRunWithOptions(t *testing.T, agentName string, stub *stubRunn
 		svc.mu.Unlock()
 	})
 	return svc, boardDir
+}
+
+func agentTaskBodyForTest(id, agentName string) string {
+	body := strings.Replace(sampleTaskBody, "# TB-1: Sample title", "# "+id+": Sample title", 1)
+	return strings.Replace(body, "**Branch:** —", "**Branch:** —\n**Agent:** "+agentName, 1)
+}
+
+func assertAppPathMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to be missing, got err=%v", path, err)
+	}
 }
 
 func waitForRunCompletion(t *testing.T, svc *AgentService, id string, timeout time.Duration) {
@@ -223,6 +313,130 @@ func TestRunAgent_HappyPath_Success(t *testing.T) {
 	taskBytes, _ := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
 	if !strings.Contains(string(taskBytes), "**AgentStatus:** success") {
 		t.Errorf("AgentStatus not success:\n%s", taskBytes)
+	}
+}
+
+func TestRunAgent_FolderTaskUsesTaskLocalArtifacts(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"folder-line"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbFolderBoardForRun(t, "claude", stub)
+
+	runID, err := svc.RunAgent(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("RunAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	wantState := filepath.Join(boardDir, "backlog", "TB-1", ".agent-state.jsonl")
+	if got := agent.StatePath(boardDir, "TB-1"); got != wantState {
+		t.Fatalf("StatePath: got %s, want %s", got, wantState)
+	}
+	events := readEvents(t, boardDir, "TB-1")
+	if len(events) == 0 || events[len(events)-1].Status != agent.StatusSuccess {
+		t.Fatalf("events did not finish successfully: %+v", events)
+	}
+
+	wantLog := filepath.Join(boardDir, "backlog", "TB-1", ".agent-logs", runID+".log")
+	if got := agent.LogPath(boardDir, "TB-1", runID); got != wantLog {
+		t.Fatalf("LogPath: got %s, want %s", got, wantLog)
+	}
+	logBytes, err := os.ReadFile(wantLog)
+	if err != nil {
+		t.Fatalf("read folder log: %v", err)
+	}
+	if !strings.Contains(string(logBytes), "folder-line") {
+		t.Fatalf("folder log missing runner output:\n%s", logBytes)
+	}
+
+	assertAppPathMissing(t, filepath.Join(boardDir, ".agent-state", "TB-1.jsonl"))
+	assertAppPathMissing(t, filepath.Join(boardDir, ".agent-logs", "TB-1", runID+".log"))
+
+	taskBytes, _ := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1", "TASK.md"))
+	if !strings.Contains(string(taskBytes), "**AgentStatus:** success") {
+		t.Errorf("AgentStatus not success:\n%s", taskBytes)
+	}
+}
+
+func TestRunAgent_MixedBoardRunsListAndReadLogsInOwnLayouts(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"mixed-output"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbMixedBoardForRun(t, "claude", stub)
+
+	fileRunID, err := svc.RunAgent(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("RunAgent file task: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	folderRunID, err := svc.RunAgent(context.Background(), "TB-2")
+	if err != nil {
+		t.Fatalf("RunAgent folder task: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-2", 5*time.Second)
+
+	for _, tc := range []struct {
+		name          string
+		taskID        string
+		runID         string
+		wantStatePath string
+		wantLogPath   string
+		wrongState    string
+		wrongLog      string
+	}{
+		{
+			name:          "file",
+			taskID:        "TB-1",
+			runID:         fileRunID,
+			wantStatePath: filepath.Join(boardDir, ".agent-state", "TB-1.jsonl"),
+			wantLogPath:   filepath.Join(boardDir, ".agent-logs", "TB-1", fileRunID+".log"),
+			wrongState:    filepath.Join(boardDir, "backlog", "TB-1", ".agent-state.jsonl"),
+			wrongLog:      filepath.Join(boardDir, "backlog", "TB-1", ".agent-logs", fileRunID+".log"),
+		},
+		{
+			name:          "folder",
+			taskID:        "TB-2",
+			runID:         folderRunID,
+			wantStatePath: filepath.Join(boardDir, "backlog", "TB-2", ".agent-state.jsonl"),
+			wantLogPath:   filepath.Join(boardDir, "backlog", "TB-2", ".agent-logs", folderRunID+".log"),
+			wrongState:    filepath.Join(boardDir, ".agent-state", "TB-2.jsonl"),
+			wrongLog:      filepath.Join(boardDir, ".agent-logs", "TB-2", folderRunID+".log"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := agent.StatePath(boardDir, tc.taskID); got != tc.wantStatePath {
+				t.Fatalf("StatePath: got %s, want %s", got, tc.wantStatePath)
+			}
+			if got := agent.LogPath(boardDir, tc.taskID, tc.runID); got != tc.wantLogPath {
+				t.Fatalf("LogPath: got %s, want %s", got, tc.wantLogPath)
+			}
+
+			runs, err := svc.ListRuns(context.Background(), tc.taskID)
+			if err != nil {
+				t.Fatalf("ListRuns: %v", err)
+			}
+			if len(runs) != 1 {
+				t.Fatalf("got %d runs, want 1: %+v", len(runs), runs)
+			}
+			if runs[0].RunID != tc.runID || runs[0].Status != string(agent.StatusSuccess) || runs[0].LogPath != tc.wantLogPath {
+				t.Fatalf("run summary: %+v", runs[0])
+			}
+
+			logText, err := svc.GetRunLog(context.Background(), tc.taskID, tc.runID)
+			if err != nil {
+				t.Fatalf("GetRunLog: %v", err)
+			}
+			if !strings.Contains(logText, "mixed-output") {
+				t.Fatalf("log missing output:\n%s", logText)
+			}
+			assertAppPathMissing(t, tc.wrongState)
+			assertAppPathMissing(t, tc.wrongLog)
+		})
 	}
 }
 
@@ -344,6 +558,60 @@ func TestRunQueuedAgentSync_GroomQueuedEventUsesGroomPrompt(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestRunQueuedAgentSync_FolderQueuedEventUsesTaskLocalState(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"queued-folder"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbFolderBoardForRun(t, "claude", stub)
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatal("missing cli client")
+	}
+
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:     time.Now().UTC().Format(time.RFC3339),
+		RunID:  "r_folderq",
+		TaskID: "TB-1",
+		Event:  agent.EvQueued,
+		Agent:  "claude",
+		Mode:   agent.ModeImplement.String(),
+	}); err != nil {
+		t.Fatalf("append queued: %v", err)
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("edit queued: %v", err)
+	}
+
+	status, err := svc.RunQueuedAgentSync(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("RunQueuedAgentSync: %v", err)
+	}
+	if status != "success" {
+		t.Fatalf("status: %s, want success", status)
+	}
+
+	events := readEvents(t, boardDir, "TB-1")
+	var sawStarted, sawFinished bool
+	for _, ev := range events {
+		if ev.RunID != "r_folderq" {
+			t.Fatalf("RunQueuedAgentSync should reuse folder-local queued run; got event %+v", ev)
+		}
+		switch ev.Event {
+		case agent.EvStarted:
+			sawStarted = true
+		case agent.EvFinished:
+			sawFinished = ev.Status == agent.StatusSuccess
+		}
+	}
+	if !sawStarted || !sawFinished {
+		t.Fatalf("missing started/finished events: %+v", events)
+	}
+	assertAppPathMissing(t, filepath.Join(boardDir, ".agent-state", "TB-1.jsonl"))
+	assertAppPathMissing(t, filepath.Join(boardDir, ".agent-logs", "TB-1"))
 }
 
 func TestRunAgent_NonZeroExit_MapsToFailed(t *testing.T) {
