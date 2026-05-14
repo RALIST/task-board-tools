@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -104,32 +106,49 @@ func TestFolderTaskJSONFilePathsUseCanonicalMarkdownPath(t *testing.T) {
 	assertContains(t, show.Body, filepath.Join("done", "TB-2", "attachments", "evidence.txt"))
 }
 
-func TestFolderTaskDuplicateFormsPreferFolder(t *testing.T) {
+func TestFolderTaskDuplicateFormsFailLoudly(t *testing.T) {
+	if os.Getenv("TB_TEST_DUPLICATE_FOLDER_TASK") == "1" {
+		cfg = tbConfig{
+			RootDir:        filepath.Dir(os.Getenv("TB_TEST_BOARD_DIR")),
+			BoardDir:       os.Getenv("TB_TEST_BOARD_DIR"),
+			Prefix:         "TB",
+			WipLimit:       2,
+			ScanExtensions: defaultScanExtensions(),
+		}
+		cmdList([]string{"--json", "--status", "backlog"})
+		return
+	}
+
 	boardDir := newCommandTestBoard(t)
 	task := baseFolderFixtures()[0]
 	writeFolderFixtureTask(t, boardDir, task, "file")
 	writeFolderFixtureTask(t, boardDir, task, "folder")
 
-	refs, err := discoverTaskRefs(boardDir, []string{"backlog"})
-	if err != nil {
-		t.Fatalf("discoverTaskRefs: %v", err)
+	_, err := discoverTaskRefs(boardDir, []string{"backlog"})
+	if err == nil {
+		t.Fatal("discoverTaskRefs succeeded, want duplicate-form error")
 	}
-	if len(refs) != 1 {
-		t.Fatalf("refs len = %d, want 1: %#v", len(refs), refs)
-	}
-	if refs[0].Path != filepath.Join(boardDir, "backlog", "TB-1", folderTaskFileName) {
-		t.Fatalf("resolved path = %s, want folder TASK.md", refs[0].Path)
-	}
+	assertContains(t, err.Error(), "both file-form and folder-form")
+	assertContains(t, err.Error(), "TB-1")
 
-	out := captureStdout(t, func() {
-		cmdList([]string{"--json", "--status", "backlog"})
-	})
-	var got []taskJSON
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatalf("unmarshal ls JSON: %v\n%s", err, out)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestFolderTaskDuplicateFormsFailLoudly$")
+	cmd.Env = append(os.Environ(),
+		"TB_TEST_DUPLICATE_FOLDER_TASK=1",
+		"TB_TEST_BOARD_DIR="+boardDir,
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	if runErr == nil {
+		t.Fatal("cmdList succeeded, want non-zero duplicate-form error")
 	}
-	assertTaskIDs(t, got, []string{"TB-1"})
-	assertPathSuffix(t, got[0].FilePath, filepath.Join("backlog", "TB-1", folderTaskFileName))
+	if stdout.Len() != 0 {
+		t.Fatalf("duplicate-form error wrote stdout:\n%s", stdout.String())
+	}
+	assertContains(t, stderr.String(), "both file-form and folder-form")
+	assertContains(t, stderr.String(), "TB-1")
 }
 
 func TestMalformedFolderTaskWarnsAndIsSkipped(t *testing.T) {

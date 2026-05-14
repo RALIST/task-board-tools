@@ -249,6 +249,9 @@ func resolveTaskRefInStatus(boardDir, status, taskID string) (taskRef, bool, err
 		return taskRef{}, false, fmt.Errorf("cannot stat file-form task %s: %w", filePath, err)
 	}
 
+	if folderExists && fileExists {
+		return taskRef{}, false, duplicateTaskFormError(taskID, status, filePath, folderPath)
+	}
 	if folderExists {
 		return taskRef{ID: taskID, Status: status, Path: folderPath}, true, nil
 	}
@@ -323,6 +326,12 @@ func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
 			if info.IsDir() {
 				return nil, fmt.Errorf("folder-form task %s is a directory, expected markdown file", taskPath)
 			}
+			fileSibling := taskFilePath(boardDir, status, name)
+			if _, err := os.Stat(fileSibling); err == nil {
+				return nil, duplicateTaskFormError(name, status, fileSibling, taskPath)
+			} else if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("cannot stat file-form task %s: %w", fileSibling, err)
+			}
 			if err := addTaskRef(refsByID, taskRef{ID: name, Status: status, Path: taskPath}); err != nil {
 				return nil, err
 			}
@@ -334,6 +343,12 @@ func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
 			continue
 		}
 		taskPath := filepath.Join(dirPath, name)
+		folderSibling := taskFolderMarkdownPath(boardDir, status, id)
+		if _, err := os.Stat(folderSibling); err == nil {
+			return nil, duplicateTaskFormError(id, status, taskPath, folderSibling)
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("cannot stat folder-form task %s: %w", folderSibling, err)
+		}
 		if err := addTaskRef(refsByID, taskRef{ID: id, Status: status, Path: taskPath}); err != nil {
 			return nil, err
 		}
@@ -351,13 +366,6 @@ func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
 
 func addTaskRef(refsByID map[string]taskRef, ref taskRef) error {
 	if prev, ok := refsByID[ref.ID]; ok {
-		if isFolderTaskPath(prev.Path) {
-			return nil
-		}
-		if isFolderTaskPath(ref.Path) {
-			refsByID[ref.ID] = ref
-			return nil
-		}
 		return duplicateTaskFormError(ref.ID, ref.Status, prev.Path, ref.Path)
 	}
 	refsByID[ref.ID] = ref
