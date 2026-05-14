@@ -97,7 +97,7 @@
       selected={f.modules}
       onToggle={(v) => toggle('modules', v)} />
   {/if}
-  {#if tags.length > 0}
+  {#if tags.length > 1}
     <FilterDropdown
       label="Tags"
       options={tags}
@@ -152,6 +152,7 @@
   }
   .check { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; color: var(--fg-dim); }
   .clear {
+    font: inherit;
     margin-left: auto;
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -160,7 +161,6 @@
     padding: 3px 10px;
     font-size: 11px;
     cursor: pointer;
-    font: inherit;
   }
   .clear:hover { color: var(--fg); }
 </style>
