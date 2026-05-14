@@ -1,0 +1,15 @@
+{
+  "PostToolUse": [
+    {
+      "matcher": "apply_patch",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash \"$(git rev-parse --show-toplevel)\"/.codex/post-edit.sh",
+          "timeout": 30,
+          "statusMessage": "Formatter is running..."
+        }
+      ]
+    }
+  ]
+}
