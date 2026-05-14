@@ -2,48 +2,44 @@ import { get } from 'svelte/store';
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BoardSnapshot, Task } from '$lib/api';
-import { FILTER_BAR_INLINE_TAG_LIMIT } from '$lib/filtering';
 import { filter, initialFilter } from '$lib/stores/filter';
 import FilterBar from './FilterBar.svelte';
 
 let component: ReturnType<typeof mount> | null = null;
 
-function task(id: string, tag: string): Task {
+function task(id: string, overrides: Partial<Task> = {}): Task {
   return {
     id,
-    title: tag,
+    title: id,
     type: 'task',
     priority: 'P2',
     size: 'M',
     module: 'core',
-    tags: [tag],
+    tags: [],
     branch: '',
     parent: '',
     status: 'backlog',
     filePath: '',
     agent: '',
     agentStatus: '',
+    ...overrides,
   };
 }
 
-function snapshot(tags: string[]): BoardSnapshot {
-  return {
-    backlog: tags.map((tag, index) => task(`TB-${index + 1}`, tag)),
-    inProgress: [],
-    done: [],
-    archive: [],
-  };
+function snapshot(tasks: Task[]): BoardSnapshot {
+  return { backlog: tasks, inProgress: [], done: [], archive: [] };
 }
 
-function inlineTagTexts(): string[] {
-  return [...document.querySelectorAll<HTMLButtonElement>('.group.tags > button.chip.tag')]
-    .map((button) => button.textContent?.trim() ?? '');
+function triggers(): HTMLButtonElement[] {
+  return [...document.querySelectorAll<HTMLButtonElement>('.fd-trigger')];
 }
 
-function moreButton(): HTMLButtonElement {
-  const button = document.querySelector<HTMLButtonElement>('.tag-more-trigger');
-  if (!button) throw new Error('more button not found');
-  return button;
+function triggerByLabel(label: string): HTMLButtonElement {
+  for (const t of triggers()) {
+    const text = t.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    if (text === label || text.startsWith(`${label} `) || text.startsWith(`${label}:`)) return t;
+  }
+  throw new Error(`trigger for label "${label}" not found; saw: ${triggers().map((t) => t.textContent?.trim()).join(', ')}`);
 }
 
 beforeEach(() => {
@@ -57,147 +53,111 @@ afterEach(async () => {
   filter.set({ ...initialFilter });
 });
 
-describe('FilterBar tag overflow', () => {
-  it('renders unchanged with no overflow indicator when there are at most 10 tags', async () => {
-    const tags = Array.from(
-      { length: FILTER_BAR_INLINE_TAG_LIMIT },
-      (_, index) => `tag-${String(index + 1).padStart(2, '0')}`,
-    );
-    component = mount(FilterBar, {
-      target: document.body,
-      props: { snapshot: snapshot(tags) },
-    });
+describe('FilterBar layout', () => {
+  it('renders one dropdown per category that has more than one observed value', async () => {
+    const snap = snapshot([
+      task('TB-1', { type: 'bug', priority: 'P1', module: 'cli', agent: 'claude', tags: ['ui'] }),
+      task('TB-2', { type: 'feature', priority: 'P0', module: 'gui', agent: 'codex', tags: ['docs'] }),
+    ]);
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
     await tick();
 
-    expect(inlineTagTexts()).toEqual(tags);
-    expect(document.querySelector('.tag-more')).toBeNull();
+    const labels = triggers().map((t) => t.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    expect(labels.some((l) => l === 'Type' || l.startsWith('Type '))).toBe(true);
+    expect(labels.some((l) => l === 'Priority' || l.startsWith('Priority '))).toBe(true);
+    expect(labels.some((l) => l === 'Module' || l.startsWith('Module '))).toBe(true);
+    expect(labels.some((l) => l === 'Tags' || l.startsWith('Tags '))).toBe(true);
+    expect(labels.some((l) => l === 'Agent' || l.startsWith('Agent '))).toBe(true);
+    expect(labels.find((l) => l.startsWith('Epic'))).toBeUndefined();
   });
 
-  it('caps inline tag chips at 10 even when active filters are in overflow', async () => {
-    const tags = Array.from(
-      { length: FILTER_BAR_INLINE_TAG_LIMIT + 1 },
-      (_, index) => `tag-${String(index + 1).padStart(2, '0')}`,
-    );
-    const overflowTag = tags[FILTER_BAR_INLINE_TAG_LIMIT];
-    component = mount(FilterBar, {
-      target: document.body,
-      props: { snapshot: snapshot(tags) },
-    });
+  it('hides categories with one or zero distinct values', async () => {
+    const snap = snapshot([
+      task('TB-1', { type: 'bug', priority: 'P1', module: 'cli' }),
+      task('TB-2', { type: 'bug', priority: 'P1', module: 'cli' }),
+    ]);
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
     await tick();
 
-    expect(inlineTagTexts()).toEqual(tags.slice(0, FILTER_BAR_INLINE_TAG_LIMIT));
-    expect(moreButton().textContent?.replace(/\s+/g, ' ').trim()).toBe('+1 more');
-    expect(moreButton().getAttribute('aria-expanded')).toBe('false');
-    moreButton().click();
-    await tick();
-    expect(moreButton().getAttribute('aria-expanded')).toBe('true');
-
-    const overflowButton = document.querySelector<HTMLButtonElement>('.tag-menu .tag-option');
-    expect(overflowButton?.textContent?.trim()).toBe(overflowTag);
-    overflowButton?.click();
-    await tick();
-
-    // Activating an overflow tag must NOT promote it inline — the inline row
-    // stays capped at 10 chips and the overflow indicator still shows "+1 more".
-    expect(get(filter).tags).toEqual([overflowTag]);
-    expect(inlineTagTexts()).toEqual(tags.slice(0, FILTER_BAR_INLINE_TAG_LIMIT));
-    expect(inlineTagTexts()).not.toContain(overflowTag);
-    expect(moreButton().textContent?.replace(/\s+/g, ' ').trim()).toBe('+1 more');
-
-    // The popover still surfaces the active overflow tag via class:on so the
-    // user can see and deselect it.
-    moreButton().click();
-    await tick();
-    const overflowOption = document.querySelector<HTMLButtonElement>('.tag-menu .tag-option');
-    expect(overflowOption?.classList.contains('on')).toBe(true);
-    overflowOption?.click();
-    await tick();
-    expect(get(filter).tags).toEqual([]);
+    const labels = triggers().map((t) => t.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    expect(labels.find((l) => l.startsWith('Type'))).toBeUndefined();
+    expect(labels.find((l) => l.startsWith('Priority'))).toBeUndefined();
+    expect(labels.find((l) => l.startsWith('Module'))).toBeUndefined();
   });
 
-  it('keeps inline at exactly 10 chips when many overflow tags are active', async () => {
-    const tags = Array.from(
-      { length: FILTER_BAR_INLINE_TAG_LIMIT + 5 },
-      (_, index) => `tag-${String(index + 1).padStart(2, '0')}`,
-    );
-    const overflowTags = tags.slice(FILTER_BAR_INLINE_TAG_LIMIT);
-    filter.set({ ...initialFilter, tags: [...overflowTags] });
-    component = mount(FilterBar, {
-      target: document.body,
-      props: { snapshot: snapshot(tags) },
-    });
+  it('shows a count badge on the trigger label when filters are selected', async () => {
+    const snap = snapshot([
+      task('TB-1', { type: 'bug' }),
+      task('TB-2', { type: 'feature' }),
+    ]);
+    filter.set({ ...initialFilter, types: ['bug', 'feature'] });
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
     await tick();
 
-    expect(inlineTagTexts()).toEqual(tags.slice(0, FILTER_BAR_INLINE_TAG_LIMIT));
-    expect(document.querySelectorAll('.group.tags > button.chip.tag')).toHaveLength(
-      FILTER_BAR_INLINE_TAG_LIMIT,
-    );
-    expect(moreButton().textContent?.replace(/\s+/g, ' ').trim()).toBe('+5 more');
+    const typeTriggerText = triggerByLabel('Type').textContent?.replace(/\s+/g, ' ').trim();
+    expect(typeTriggerText).toContain('Type (2)');
   });
 
-  it('closes the overflow menu on outside click, Escape, and focus leaving the menu', async () => {
-    const tags = Array.from(
-      { length: FILTER_BAR_INLINE_TAG_LIMIT + 2 },
-      (_, index) => `tag-${String(index + 1).padStart(2, '0')}`,
-    );
-    const outside = document.createElement('button');
-    outside.textContent = 'outside';
-    document.body.append(outside);
-    component = mount(FilterBar, {
-      target: document.body,
-      props: { snapshot: snapshot(tags) },
-    });
+  it('renders ActiveFilters only when at least one filter is set', async () => {
+    const snap = snapshot([
+      task('TB-1', { type: 'bug' }),
+      task('TB-2', { type: 'feature' }),
+    ]);
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
     await tick();
+    expect(document.querySelector('.af')).toBeNull();
 
-    moreButton().click();
+    filter.set({ ...initialFilter, types: ['bug'] });
     await tick();
-    expect(document.querySelector('.tag-menu')).not.toBeNull();
-
-    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    await tick();
-    expect(document.querySelector('.tag-menu')).toBeNull();
-
-    moreButton().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    await tick();
-    expect(document.querySelector('.tag-menu')).not.toBeNull();
-
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await tick();
-    expect(document.querySelector('.tag-menu')).toBeNull();
-
-    moreButton().click();
-    await tick();
-    const option = document.querySelector<HTMLButtonElement>('.tag-option');
-    option?.focus();
-    option?.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside }));
-    await tick();
-    expect(document.querySelector('.tag-menu')).toBeNull();
+    expect(document.querySelector('.af')).not.toBeNull();
+    expect(document.querySelector('.af-chip')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('bug ×');
   });
 
-  it('moves keyboard focus through overflow tags with arrow keys', async () => {
-    const tags = Array.from(
-      { length: FILTER_BAR_INLINE_TAG_LIMIT + 3 },
-      (_, index) => `tag-${String(index + 1).padStart(2, '0')}`,
+  it('removes a single filter when its active chip is clicked', async () => {
+    const snap = snapshot([
+      task('TB-1', { type: 'bug', priority: 'P1' }),
+      task('TB-2', { type: 'feature', priority: 'P0' }),
+    ]);
+    filter.set({ ...initialFilter, types: ['bug', 'feature'], priorities: ['P1'] });
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
+    await tick();
+    const bugChip = [...document.querySelectorAll<HTMLButtonElement>('.af-chip')].find(
+      (b) => b.textContent?.includes('bug'),
     );
-    component = mount(FilterBar, {
-      target: document.body,
-      props: { snapshot: snapshot(tags) },
-    });
+    bugChip?.click();
+    await tick();
+    expect(get(filter).types).toEqual(['feature']);
+    expect(get(filter).priorities).toEqual(['P1']);
+  });
+
+  it('clear button resets every filter category but preserves showArchive', async () => {
+    const snap = snapshot([task('TB-1', { type: 'bug' }), task('TB-2', { type: 'feature' })]);
+    filter.set({ ...initialFilter, types: ['bug'], priorities: ['P1'], showArchive: true });
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
     await tick();
 
-    moreButton().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    document.querySelector<HTMLButtonElement>('button.clear')?.click();
     await tick();
-    await tick();
+    expect(get(filter).types).toEqual([]);
+    expect(get(filter).priorities).toEqual([]);
+    expect(get(filter).showArchive).toBe(true);
+  });
 
-    const options = [...document.querySelectorAll<HTMLButtonElement>('.tag-option')];
-    expect(document.activeElement).toBe(options[0]);
-
-    options[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  it('multi-toggles values inside a Type dropdown popover', async () => {
+    const snap = snapshot([
+      task('TB-1', { type: 'bug' }),
+      task('TB-2', { type: 'feature' }),
+      task('TB-3', { type: 'spike' }),
+    ]);
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
     await tick();
-    expect(document.activeElement).toBe(options[1]);
-
-    options[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    triggerByLabel('Type').click();
     await tick();
-    expect(document.activeElement).toBe(options[options.length - 1]);
+    const opts = [...document.querySelectorAll<HTMLButtonElement>('.fd-option')];
+    opts.find((b) => b.textContent?.trim() === 'bug')?.click();
+    await tick();
+    opts.find((b) => b.textContent?.trim() === 'spike')?.click();
+    await tick();
+    expect(get(filter).types).toEqual(['bug', 'spike']);
   });
 });

@@ -4,8 +4,6 @@
 import type { BoardSnapshot, Task } from './api';
 import type { BoardFilter } from './stores/filter';
 
-export const FILTER_BAR_INLINE_TAG_LIMIT = 10;
-
 function allTasks(snap: BoardSnapshot): Task[] {
   return [...snap.backlog, ...snap.inProgress, ...snap.done, ...(snap.archive ?? [])];
 }
@@ -40,9 +38,6 @@ export function applyFilter(snap: BoardSnapshot, f: BoardFilter): BoardSnapshot 
   } as BoardSnapshot;
 }
 
-// observedValues walks the snapshot and returns the union of values seen in
-// the given field. Used to populate FilterBar dropdowns dynamically so we
-// don't ship a hardcoded list.
 export function observedValues(snap: BoardSnapshot, field: 'type' | 'priority' | 'module' | 'agent'): string[] {
   const set = new Set<string>();
   for (const t of allTasks(snap)) {
@@ -60,25 +55,6 @@ export function observedTags(snap: BoardSnapshot): string[] {
   return [...counts.entries()]
     .sort(([tagA, countA], [tagB, countB]) => countB - countA || tagA.localeCompare(tagB))
     .map(([tag]) => tag);
-}
-
-export interface InlineTagSelection {
-  inline: string[];
-  overflow: string[];
-}
-
-// Hard cap on tag chips shown in the FilterBar header. Active tags that fall
-// outside the cap stay accessible via the overflow popover (where their
-// selected state is reflected by `class:on`); they are never promoted inline.
-export function selectInlineTags(
-  rankedTags: string[],
-  limit = FILTER_BAR_INLINE_TAG_LIMIT,
-): InlineTagSelection {
-  const cap = Math.max(0, limit);
-  return {
-    inline: rankedTags.slice(0, cap),
-    overflow: rankedTags.slice(cap),
-  };
 }
 
 export function observedEpics(snap: BoardSnapshot): Task[] {
