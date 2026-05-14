@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-93 | Move from file-based to folder-based approach | 0/0 | backlog |  |
+| TB-93 | Move from file-based to folder-based approach | 2/13 | backlog | cli |
 
 ## Finished Epics
 
@@ -22,19 +22,32 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-96 | CLI: read folder-form tasks identically to file-form | P0 | cli | — |
+| TB-97 | CLI: tb create defaults to folder form | P0 | cli | — |
+| TB-99 | CLI: tb attach <ID> <path>... with auto-promotion from file to folder | P0 | cli | — |
 
 ## Backlog
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-92 | Limit showed tags in header to 10 | bug | P1 | M |  |
-| TB-93 | Move from file-based to folder-based approach | feature | P0 | XL |  |
+| TB-93 | Move from file-based to folder-based approach | feature | P0 | XL | cli |
+| TB-98 | CLI: move folder tasks as whole directories across statuses and archive | feature | P0 | M | cli |
+| TB-100 | CLI: remove attachments via `tb attach --rm` safely | feature | P0 | S | cli |
+| TB-101 | CLI: BOARD.md byte-identical regardless of storage form | feature | P0 | S | cli |
+| TB-102 | Agent: task-local logs/state for folder tasks + stale recovery | feature | P0 | M | gui |
+| TB-103 | GUI: TaskDrawer attachments list, add via picker, remove via tb | feature | P1 | M | gui |
+| TB-104 | GUI: drag-and-drop attachments onto task card and drawer | feature | P1 | M | gui |
+| TB-105 | GUI: watcher emits one logical refresh per attachment op and folder move | feature | P1 | S | gui |
+| TB-106 | Mixed-board final smoke test for TB-93 | spike | P0 | M | cli |
+| TB-107 | Show per-agent usage | feature | P1 | M | gui |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-95 | Publish TB-93 folder-task milestone in docs | improvement | docs |
+| TB-94 | Spec folder-task contract in docs/ARCHITECTURE.md | feature | docs |
+| TB-92 | Limit showed tags in header to 10 | bug |  |
 | TB-91 | Task card is bigger then column | improvement |  |
 | TB-90 | Board switching is not working | bug |  |
 | TB-89 | Click outside should close dropdown | bug | gui |
@@ -82,6 +95,3 @@
 | TB-47 | AgentService.RunAgent: enqueue, spawn runner, bridge Wails events | feature | gui |
 | TB-46 | AgentService.AssignAgent via tb edit -a | feature | gui |
 | TB-45 | Agent state writer: JSONL events + per-run log file | feature | gui |
-| TB-44 | ClaudeRunner and CodexRunner: exec.CommandContext with own process group | feature | gui |
-| TB-43 | Agent Runner interface, Mode type, and embedded implement.md prompt | feature | gui |
-| TB-41 | Frontend Toast.svelte component | feature | gui |
