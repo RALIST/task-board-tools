@@ -28,6 +28,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-90 | Board switching is not working | bug |  |
 | TB-89 | Click outside should close dropdown | bug | gui |
 | TB-88 | GUI triage fails when active tb binary lacks JSON support | bug | gui |
 | TB-87 | Parent epic filter hides the epic card itself | bug | gui |
@@ -77,4 +78,3 @@
 | TB-43 | Agent Runner interface, Mode type, and embedded implement.md prompt | feature | gui |
 | TB-41 | Frontend Toast.svelte component | feature | gui |
 | TB-40 | BoardService.LoadBoard: archive-aware status mode | feature | gui |
-| TB-39 | Make CLI task-section scans ignore quoted Markdown headings | bug | cli |

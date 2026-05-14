@@ -153,8 +153,10 @@ export async function pickBoardDialog(): Promise<string> {
     CanChooseDirectories: true,
     CanChooseFiles: false,
     CanCreateDirectories: false,
+    AllowsMultipleSelection: false,
     Title: 'Open tb board',
     Message: 'Pick a directory that contains .tb.yaml',
+    ButtonText: 'Open',
   });
   return Array.isArray(result) ? (result[0] ?? '') : result;
 }
