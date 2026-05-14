@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-6 | M6: Groom flow for AI-assisted task refinement | 0/0 | backlog | gui |
+| TB-6 | M6: Groom flow for AI-assisted task refinement | 0/11 | backlog | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 0/0 | backlog | gui |
 
 ## Finished Epics
@@ -29,13 +29,23 @@
 |----|-------|------|----------|------|--------|
 | TB-6 | M6: Groom flow for AI-assisted task refinement | feature | P2 | L | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | feature | P2 | L | gui |
-| TB-27 | cmdRegenerate should take .board.lock | bug | P2 | S | cli |
 | TB-28 | collectAllTasks / findChildren: archive inclusion semantics | improvement | P3 | M | cli |
 | TB-29 | parseTaskFile should reject malformed task files | bug | P3 | S | cli |
 | TB-30 | tb assign sugar for paired Agent + AgentStatus writes | feature | P3 | S | cli |
 | TB-39 | addChildToSubtasks corrupts task body when '## ' headers appear inside backticks | bug | P2 | S | cli |
 | TB-63 | GUI tag header overflows when too many tags — collapse to popular + dropdown | bug | P1 | M | gui |
 | TB-64 | GUI "Open project" button only works once, subsequent clicks do nothing | bug | P1 | S | gui |
+| TB-65 | prompts/groom.md template + agent.PromptGroom embed | feature | P2 | S | gui |
+| TB-66 | GroomingDecorator: wrap a Runner, swap prompt template | feature | P2 | M | gui |
+| TB-67 | AgentService.GroomTask: queue a groom run distinct from a normal run | feature | P2 | M | gui |
+| TB-68 | Daemon: honor Mode=groom from queued JSONL event so pickup uses GroomingDecorator | feature | P2 | S | gui |
+| TB-69 | CLI: tb triage --json structured output | feature | P2 | S | cli |
+| TB-70 | BoardService.Triage(): wrap tb triage --json, cache + invalidate on watcher events | feature | P2 | M | gui |
+| TB-71 | Frontend api.ts + triageStore.ts: groomTask, getTriage, watcher-driven refresh | feature | P2 | S | gui |
+| TB-72 | TaskDrawer: Groom button next to Run, shared Cancel, mode-labelled past runs | feature | P2 | M | gui |
+| TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | feature | P2 | M | gui |
+| TB-74 | Docs: flip M6 markers — IMPLEMENTATION.md / FEATURES.md F6.1+F6.2 / ARCHITECTURE.md GroomingDecorator | improvement | P2 | S | docs |
+| TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | feature | P2 | M | cli |
 
 ## Recently Done
 
@@ -71,6 +81,7 @@
 | TB-33 | BoardService: EditTaskBody direct-write under .board.lock | feature | gui |
 | TB-32 | BoardService: CreateTask, EditTask, MoveTask, CloseTask, Regenerate via exec tb | feature | gui |
 | TB-31 | CLI wrapper: mutation commands (create/edit/mv/close/regenerate) | feature | gui |
+| TB-27 | cmdRegenerate should take .board.lock | bug | cli |
 | TB-26 | Atomic write for .next-id under board lock | tech-debt | cli |
 | TB-24 | Frontend TaskDrawer: read-only markdown body | feature | gui |
 | TB-23 | Frontend kanban: Board, Column, Card components (read-only) | feature | gui |
@@ -90,4 +101,3 @@
 | TB-9 | Add cli/atomicfs.go writeFileAtomic helper | feature | cli |
 | TB-8 | Rename tb/ to cli/ and add go.work | tech-debt | cli |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | feature | gui |
-| TB-4 | M4: Agent assignment and manual runs from GUI | feature | gui |
