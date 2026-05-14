@@ -105,11 +105,17 @@ func (s *AgentService) ListRuns(ctx context.Context, id string) ([]Run, error) {
 			}
 		case agent.EvStarted:
 			r.StartedAt = ev.TS
+			if ev.Mode != "" {
+				r.Mode = ev.Mode
+			}
 			if r.Status == "queued" || r.Status == "" {
 				r.Status = "running"
 			}
 		case agent.EvFinished:
 			r.FinishedAt = ev.TS
+			if ev.Mode != "" {
+				r.Mode = ev.Mode
+			}
 			r.Status = string(ev.Status)
 			r.ExitCode = ev.ExitCode
 		}

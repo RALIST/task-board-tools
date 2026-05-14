@@ -9,6 +9,7 @@
     editTask,
     editTaskBody,
     getTask,
+    groomTask,
     listRuns,
     runAgent,
     type AgentName,
@@ -24,6 +25,8 @@
     upsertRun,
     type Run,
   } from '$lib/stores/runs';
+  import { consumeGroomSuggestion, groomSuggestedFor } from '$lib/stores/groomSuggestion';
+  import { triageForTask } from '$lib/stores/triage';
   import BodyEditor from './BodyEditor.svelte';
   import AgentRunLog from './AgentRunLog.svelte';
 
@@ -67,6 +70,10 @@
   let formAgent = $state<AgentName>('');
   let agentSaving = $state(false);
   let runStarting = $state(false);
+  let groomStarting = $state(false);
+  let groomReasons = $state<string[]>([]);
+  let groomHighlight = $state(false);
+  let groomHighlightTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Past-run subscription. runsStore is keyed by run_id; we project the
   // task's slice via runsForTask. Hydrated on every taskId change.
@@ -151,6 +158,37 @@
   // which lags by one tb edit).
   let selectedRun = $derived(runs.find((r) => r.runId === $selectedRunID) ?? null);
   let liveStatus = $derived(selectedRun?.status ?? '');
+  let runBusy = $derived(liveStatus === 'queued' || liveStatus === 'running' || runStarting || groomStarting);
+  let groomEmphasized = $derived(groomReasons.length > 0 || groomHighlight);
+
+  $effect(() => {
+    const id = taskId;
+    if (!id) {
+      groomReasons = [];
+      groomHighlight = false;
+      return;
+    }
+    const offTriage = triageForTask(id).subscribe((reasons) => {
+      groomReasons = reasons;
+    });
+    const offSuggest = groomSuggestedFor.subscribe(() => {
+      if (!consumeGroomSuggestion(id)) return;
+      groomHighlight = true;
+      if (groomHighlightTimer) clearTimeout(groomHighlightTimer);
+      groomHighlightTimer = setTimeout(() => {
+        groomHighlight = false;
+        groomHighlightTimer = null;
+      }, 2400);
+    });
+    return () => {
+      offTriage();
+      offSuggest();
+      if (groomHighlightTimer) {
+        clearTimeout(groomHighlightTimer);
+        groomHighlightTimer = null;
+      }
+    };
+  });
 
   async function onAgentChange() {
     if (!detail) return;
@@ -193,6 +231,30 @@
       pushToast(`Run failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       runStarting = false;
+    }
+  }
+
+  async function onGroomClick() {
+    if (!detail) return;
+    const id = detail.metadata.id;
+    groomStarting = true;
+    try {
+      const runId = await groomTask(id);
+      upsertRun({
+        runId,
+        taskId: id,
+        agent: detail.metadata.agent ?? '',
+        mode: 'groom',
+        status: 'queued',
+        queuedAt: new Date().toISOString(),
+      });
+      selectedRunID.set(runId);
+      groomHighlight = false;
+      pushToast(`Started grooming ${id}`, 'success');
+    } catch (e) {
+      pushToast(`Groom failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      groomStarting = false;
     }
   }
 
@@ -560,10 +622,19 @@
               <button
                 class="primary"
                 type="button"
-                disabled={!formAgent || runStarting || liveStatus === 'queued' || liveStatus === 'running'}
+                disabled={!formAgent || runBusy}
                 title={!formAgent ? 'Assign an agent first' : (liveStatus === 'running' ? 'Already running' : '')}
                 onclick={onRunClick}>
-                {runStarting ? 'Starting…' : 'Run agent'}
+                {runStarting ? 'Starting…' : 'Run'}
+              </button>
+              <button
+                class:emphasized={groomEmphasized && !runBusy}
+                class="secondary"
+                type="button"
+                disabled={!formAgent || runBusy}
+                title={groomReasons.length > 0 ? `Needs grooming: ${groomReasons.join(', ')}` : (!formAgent ? 'Assign an agent first' : '')}
+                onclick={onGroomClick}>
+                {groomStarting ? 'Grooming…' : 'Groom'}
               </button>
               {#if liveStatus === 'running'}
                 <button class="danger" type="button" onclick={startCancel}>
@@ -582,6 +653,7 @@
                     class:active={$selectedRunID === r.runId}
                     onclick={() => pickRun(r.runId)}>
                     <span class="when">{fmtRelative(r.startedAt || r.queuedAt)}</span>
+                    <span class="mode">{r.mode || 'implement'}</span>
                     <span class={`pill pill-${r.status || 'idle'}`}>{r.status || 'idle'}</span>
                     <span class="agent">{r.agent}</span>
                   </button>
@@ -723,6 +795,24 @@
     font-size: 12px;
   }
   .primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .secondary {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--fg);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 5px;
+    padding: 5px 14px;
+    cursor: pointer;
+    font-weight: 600;
+    font: inherit;
+    font-size: 12px;
+  }
+  .secondary:hover { background: rgba(255, 255, 255, 0.10); }
+  .secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .secondary.emphasized {
+    border-color: rgba(255, 184, 108, 0.62);
+    box-shadow: 0 0 0 2px rgba(255, 184, 108, 0.18);
+    color: var(--p1);
+  }
   .ghost {
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -912,6 +1002,13 @@
   .run-list button:hover { background: rgba(255, 255, 255, 0.04); }
   .run-list button.active { background: rgba(74, 141, 248, 0.12); }
   .run-list .when { color: var(--fg-dim); font-family: ui-monospace, monospace; }
+  .run-list .mode {
+    color: var(--p1);
+    border: 1px solid rgba(255, 184, 108, 0.24);
+    border-radius: 3px;
+    padding: 0 5px;
+    font-family: ui-monospace, monospace;
+  }
   .run-list .agent { color: var(--fg-dim); }
 
   .hint { color: var(--fg-dim); font-size: 12px; }

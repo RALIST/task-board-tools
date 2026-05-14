@@ -29,12 +29,16 @@ type stubRunner struct {
 	runErr      error
 	startedOnce bool
 	startedDone chan struct{}
+	lastInput   agent.RunInput
 	mu          sync.Mutex
 }
 
 func (s *stubRunner) Name() string { return s.name }
 
 func (s *stubRunner) Run(ctx context.Context, in agent.RunInput) (agent.RunResult, error) {
+	s.mu.Lock()
+	s.lastInput = in
+	s.mu.Unlock()
 	if in.OnStarted != nil {
 		s.mu.Lock()
 		s.startedOnce = true
@@ -51,6 +55,12 @@ func (s *stubRunner) Run(ctx context.Context, in agent.RunInput) (agent.RunResul
 		_, _ = in.Stderr.Write([]byte(ln + "\n"))
 	}
 	return agent.RunResult{ExitCode: s.exitCode, Err: s.runErr}, s.runErr
+}
+
+func (s *stubRunner) input() agent.RunInput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastInput
 }
 
 // realTbBoardForRun builds a real `tb` board with one assigned task in
@@ -205,6 +215,98 @@ func TestRunAgent_HappyPath_Success(t *testing.T) {
 	taskBytes, _ := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
 	if !strings.Contains(string(taskBytes), "**AgentStatus:** success") {
 		t.Errorf("AgentStatus not success:\n%s", taskBytes)
+	}
+}
+
+func TestGroomTask_HappyPath_Success(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"groomed"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbBoardForRun(t, "claude", stub)
+
+	runID, err := svc.GroomTask(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("GroomTask: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	in := stub.input()
+	if in.Mode != agent.ModeGroom {
+		t.Fatalf("runner mode: %s, want groom", in.Mode)
+	}
+	if !strings.Contains(in.Prompt, "tb edit TB-1 --goal -") {
+		t.Fatalf("runner prompt did not use groom template:\n%s", in.Prompt)
+	}
+	if strings.Contains(in.Prompt, "Implement the task") {
+		t.Fatalf("runner prompt still looks like implement template:\n%s", in.Prompt)
+	}
+
+	events := readEvents(t, boardDir, "TB-1")
+	for _, ev := range events {
+		switch ev.Event {
+		case agent.EvQueued, agent.EvStarted, agent.EvFinished:
+			if ev.RunID == runID && ev.Mode != agent.ModeGroom.String() {
+				t.Fatalf("%s mode: %q, want groom; event=%+v", ev.Event, ev.Mode, ev)
+			}
+		}
+	}
+	last := events[len(events)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusSuccess {
+		t.Fatalf("final event: %+v", last)
+	}
+}
+
+func TestRunQueuedAgentSync_GroomQueuedEventUsesGroomPrompt(t *testing.T) {
+	stub := &stubRunner{
+		name:     "claude",
+		exitCode: 0,
+	}
+	svc, boardDir := realTbBoardForRun(t, "claude", stub)
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatal("missing cli client")
+	}
+
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:     time.Now().UTC().Format(time.RFC3339),
+		RunID:  "r_groom001",
+		TaskID: "TB-1",
+		Event:  agent.EvQueued,
+		Agent:  "claude",
+		Mode:   agent.ModeGroom.String(),
+	}); err != nil {
+		t.Fatalf("append queued: %v", err)
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("edit queued: %v", err)
+	}
+
+	status, err := svc.RunQueuedAgentSync(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("RunQueuedAgentSync: %v", err)
+	}
+	if status != "success" {
+		t.Fatalf("status: %s, want success", status)
+	}
+
+	in := stub.input()
+	if in.Mode != agent.ModeGroom {
+		t.Fatalf("runner mode: %s, want groom", in.Mode)
+	}
+	if !strings.Contains(in.Prompt, "tb edit TB-1 --acceptance -") {
+		t.Fatalf("runner prompt did not use groom template:\n%s", in.Prompt)
+	}
+
+	events := readEvents(t, boardDir, "TB-1")
+	for _, ev := range events {
+		switch ev.Event {
+		case agent.EvQueued, agent.EvStarted, agent.EvFinished:
+			if ev.RunID == "r_groom001" && ev.Mode != agent.ModeGroom.String() {
+				t.Fatalf("%s mode: %q, want groom; event=%+v", ev.Event, ev.Mode, ev)
+			}
+		}
 	}
 }
 

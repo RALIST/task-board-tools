@@ -45,10 +45,10 @@ const (
 // Schema (locked here; the documentation table in TB-47 cross-references):
 //
 //	queued   {ts, run_id, task_id, event:"queued",   agent, mode}
-//	started  {ts, run_id, task_id, event:"started",  pid}
-//	stdout   {ts, run_id, task_id, event:"stdout",   line}
-//	stderr   {ts, run_id, task_id, event:"stderr",   line}
-//	finished {ts, run_id, task_id, event:"finished", status, exit_code, reason?}
+//	started  {ts, run_id, task_id, event:"started",  agent, mode, pid}
+//	stdout   {ts, run_id, task_id, event:"stdout",   mode, line}
+//	stderr   {ts, run_id, task_id, event:"stderr",   mode, line}
+//	finished {ts, run_id, task_id, event:"finished", agent, mode, status, exit_code, reason?}
 type Event struct {
 	TS       string    `json:"ts"`
 	RunID    string    `json:"run_id"`

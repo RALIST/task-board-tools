@@ -31,13 +31,13 @@ const metadataScanCap = 30
 // the rename succeeds, runs `tb regenerate` to refresh BOARD.md.
 //
 // The contract (from docs/ARCHITECTURE.md → "GUI direct writes"):
-//   1. Open .board.lock with LOCK_EX.
-//   2. Read the existing file.
-//   3. Reject if newBody's first metadataLineCap lines differ from disk.
-//   4. Append `- YYYY-MM-DD: Edited body via GUI` to the ## Log section.
-//   5. writeFileAtomic (temp + fsync + rename).
-//   6. Release the lock.
-//   7. exec `tb regenerate`.
+//  1. Open .board.lock with LOCK_EX.
+//  2. Read the existing file.
+//  3. Reject if newBody's first metadataLineCap lines differ from disk.
+//  4. Append `- YYYY-MM-DD: Edited body via GUI` to the ## Log section.
+//  5. writeFileAtomic (temp + fsync + rename).
+//  6. Release the lock.
+//  7. exec `tb regenerate`.
 func (b *BoardService) EditTaskBody(ctx context.Context, id, newBody string) error {
 	c := b.snapshot()
 	if c == nil {
@@ -118,9 +118,15 @@ func (b *BoardService) resolveBoardDir(ctx context.Context) (string, error) {
 // active CLI client, then have the next exec'd `tb regenerate` clobber the
 // wrong BOARD.md. The active board dir is owned by SettingsService.
 func (b *BoardService) setBoardDir(dir string) {
+	b.triageMu.Lock()
+	defer b.triageMu.Unlock()
+
 	b.mu.Lock()
 	b.boardDir = dir
 	b.mu.Unlock()
+
+	b.triageCache = nil
+	b.triageGen++
 }
 
 // findTaskFile searches the same status directories the CLI does. Accepts

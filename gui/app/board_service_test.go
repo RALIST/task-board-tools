@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"tools/tb-gui/internal/cli"
@@ -160,6 +162,105 @@ func TestLoadBoardWithMode_DefaultsToActive(t *testing.T) {
 	}
 	if len(snap.Backlog) != 1 {
 		t.Fatalf("expected 1 backlog task, got %d", len(snap.Backlog))
+	}
+}
+
+func TestTriage_ReturnsReasonMapAndCaches(t *testing.T) {
+	jsonPath := filepath.Join(t.TempDir(), "triage.json")
+	if err := os.WriteFile(jsonPath, []byte(`[{"id":"TB-1","title":"A","reasons":["no goal","no module"]}]`), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+	stub := makeStub(t, fmt.Sprintf(`cat %q`, jsonPath))
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	first, err := svc.Triage(context.Background())
+	if err != nil {
+		t.Fatalf("Triage first: %v", err)
+	}
+	if got := first["TB-1"]; len(got) != 2 || got[0] != "no goal" || got[1] != "no module" {
+		t.Fatalf("triage map: %#v", first)
+	}
+
+	if err := os.WriteFile(jsonPath, []byte(`[{"id":"TB-2","title":"B","reasons":["no acceptance criteria"]}]`), 0o644); err != nil {
+		t.Fatalf("rewrite json: %v", err)
+	}
+	second, err := svc.Triage(context.Background())
+	if err != nil {
+		t.Fatalf("Triage cached: %v", err)
+	}
+	if _, ok := second["TB-2"]; ok {
+		t.Fatalf("cache was not used: %#v", second)
+	}
+}
+
+func TestBoardWatcherSink_InvalidatesTriageWithoutRefreshing(t *testing.T) {
+	jsonPath := filepath.Join(t.TempDir(), "triage.json")
+	if err := os.WriteFile(jsonPath, []byte(`[{"id":"TB-1","reasons":["no goal"]}]`), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+	callsPath := filepath.Join(t.TempDir(), "calls.log")
+	stub := makeStub(t, fmt.Sprintf(`
+printf 'triage\n' >> %q
+cat %q
+`, callsPath, jsonPath))
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+	sink := NewBoardWatcherSink(svc)
+
+	initial, err := svc.Triage(context.Background())
+	if err != nil {
+		t.Fatalf("Triage initial: %v", err)
+	}
+	if !containsTriageID(initial, "TB-1") {
+		t.Fatalf("initial triage missing TB-1: %#v", initial)
+	}
+	assertTriageCalls(t, callsPath, 1)
+
+	if err := os.WriteFile(jsonPath, []byte(`[]`), 0o644); err != nil {
+		t.Fatalf("rewrite json: %v", err)
+	}
+	sink.Emit("task:updated:TB-1", "TB-1")
+	assertTriageCalls(t, callsPath, 1)
+
+	updated, err := svc.Triage(context.Background())
+	if err != nil {
+		t.Fatalf("Triage after task update: %v", err)
+	}
+	if containsTriageID(updated, "TB-1") {
+		t.Fatalf("task update did not invalidate cache: %#v", updated)
+	}
+	assertTriageCalls(t, callsPath, 2)
+
+	if err := os.WriteFile(jsonPath, []byte(`[{"id":"TB-2","reasons":["no module"]}]`), 0o644); err != nil {
+		t.Fatalf("rewrite json: %v", err)
+	}
+	sink.Emit("board:reloaded")
+	assertTriageCalls(t, callsPath, 2)
+
+	reloaded, err := svc.Triage(context.Background())
+	if err != nil {
+		t.Fatalf("Triage after board reload: %v", err)
+	}
+	if !containsTriageID(reloaded, "TB-2") {
+		t.Fatalf("board reload did not invalidate cache: %#v", reloaded)
+	}
+	assertTriageCalls(t, callsPath, 3)
+}
+
+func containsTriageID(m map[string][]string, id string) bool {
+	_, ok := m[id]
+	return ok
+}
+
+func assertTriageCalls(t *testing.T, path string, want int) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read calls: %v", err)
+	}
+	if got := strings.Count(string(raw), "triage\n"); got != want {
+		t.Fatalf("triage calls: got %d want %d; log=%q", got, want, raw)
 	}
 }
 

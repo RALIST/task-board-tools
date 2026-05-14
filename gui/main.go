@@ -60,7 +60,8 @@ func main() {
 
 	// Watcher emits to both the Wails app and the daemon sink (TB-58).
 	sink := daemon.NewEventSink(d, logger)
-	tee := daemon.TeeEmitter{A: emitter, B: sink}
+	boardSink := tbapp.NewBoardWatcherSink(boardService)
+	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: boardSink}}
 	w := watcher.New(teeShim{tee: tee}, logger)
 
 	settingsService := tbapp.NewSettingsService(tbapp.SettingsOptions{

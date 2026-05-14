@@ -4,6 +4,10 @@
 
 This repo builds two tools over the same markdown board format. `cli/` contains the `tb` Go CLI (`module tools/tb`) as a single `package main`; tests live beside the command files. `gui/` contains the Wails3 desktop app (`module tools/tb-gui`): exported services are in `gui/app/`, non-exported helpers in `gui/internal/`, and the Svelte 5 frontend in `gui/frontend/src/`. Wails build config and platform assets live under `gui/build/`; frontend static assets live in `gui/frontend/static/`. `docs/` is the product and architecture source of truth. `board/` is this repo's own task board; do not hand-edit generated `board/BOARD.md`.
 
+## Workflow
+
+Read `board/CONVENTIONS.md` for the task board workflow. In short: create tasks for work items and move them across columns as they progress.
+
 ## Build, Test, and Development Commands
 
 - `cd cli && go build -o tb .` builds the CLI.

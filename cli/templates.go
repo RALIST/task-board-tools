@@ -147,17 +147,18 @@ Quick capture: `+"`tb create \"Title\" -m module -d \"description\"`"+`
 tb init [path] [--board-path=board] [--prefix=%[1]s]
 tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic]
 tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status all]
-tb mv <%[1]s-NNN> <status>               — Move task between statuses
-tb start <%[1]s-NNN>                     — Move to in-progress
-tb done <%[1]s-NNN>                      — Move to done
-tb close <%[1]s-NNN>                     — Delete task from board
-tb show <%[1]s-NNN>                      — Print task content
-tb open <%[1]s-NNN>                      — Open in default editor
-tb epic <%[1]s-NNN>                      — Show epic progress and children
-tb triage                                — Find tasks needing grooming
-tb grep <pattern> [--status all] [-l]    — Search tasks by regex
-tb scan [--apply] [--path dir]           — Find untagged TODOs, create tasks
-tb regenerate                            — Regenerate BOARD.md
+tb mv <%[1]s-NNN> <status>                              — Move task between statuses
+tb start <%[1]s-NNN>                                    — Move to in-progress
+tb done <%[1]s-NNN>                                     — Move to done
+tb edit <%[1]s-NNN> [--goal file|-] [--acceptance file|-] — Edit metadata/body sections
+tb close <%[1]s-NNN>                                    — Delete task from board
+tb show <%[1]s-NNN>                                     — Print task content
+tb open <%[1]s-NNN>                                     — Open in default editor
+tb epic <%[1]s-NNN>                                     — Show epic progress and children
+tb triage [--json]                                      — Find tasks needing grooming
+tb grep <pattern> [--status all] [-l]                   — Search tasks by regex
+tb scan [--apply] [--path dir]                          — Find untagged TODOs, create tasks
+tb regenerate                                           — Regenerate BOARD.md
 `+"```"+`
 
 **Defaults:** type=bug, priority=P2, size=M.
@@ -294,11 +295,12 @@ tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID]  Lis
 tb mv <%[1]s-NNN> <status>                                               Move task
 tb start <%[1]s-NNN>                                                     Start working
 tb done <%[1]s-NNN>                                                      Mark done
+tb edit <%[1]s-NNN> [--goal file|-] [--acceptance file|-]                Edit metadata/body sections
 tb close <%[1]s-NNN>                                                     Delete task
 tb show <%[1]s-NNN>                                                      Print task content
 tb open <%[1]s-NNN>                                                      Open in default editor
 tb epic <%[1]s-NNN>                                                      Show epic progress
-tb triage                                                                Find tasks needing grooming
+tb triage [--json]                                                       Find tasks needing grooming
 tb grep <pattern> [--status all] [-s] [-l]                               Search tasks by regex
 tb scan [--apply] [--path dir]                                           Find untagged TODOs
 tb regenerate                                                            Regenerate BOARD.md
@@ -314,6 +316,7 @@ tb regenerate                                                            Regener
 | `+"`mv`"+` | `+"`move`"+` | Move task between statuses |
 | `+"`start`"+` | | Move task to in-progress |
 | `+"`done`"+` | | Move task to done |
+| `+"`edit`"+` | | Edit task metadata and Goal/Acceptance Criteria sections |
 | `+"`close`"+` | | Delete task from board |
 | `+"`show`"+` | `+"`cat`"+` | Print task content to stdout |
 | `+"`open`"+` | | Open task file in default editor/app |

@@ -17,7 +17,7 @@ export interface Run {
   runId: string;
   taskId: string;
   agent: string;
-  mode: string;
+  mode: 'implement' | 'groom';
   queuedAt: string;
   startedAt: string;
   finishedAt: string;
@@ -107,7 +107,7 @@ export function registerAgentEventHandlers(
         runId: String(p.run_id),
         taskId: String(p.task_id ?? ''),
         agent: String(p.agent ?? ''),
-        mode: String(p.mode ?? ''),
+        mode: normalizeMode(p.mode),
         status: 'queued',
         queuedAt: nowISO(),
       });
@@ -122,7 +122,7 @@ export function registerAgentEventHandlers(
         runId: String(p.run_id),
         taskId: String(p.task_id ?? ''),
         agent: String(p.agent ?? ''),
-        mode: String(p.mode ?? ''),
+        mode: normalizeMode(p.mode),
         status: 'running',
         startedAt: nowISO(),
       });
@@ -167,7 +167,7 @@ function emptyRun(runId: string): Run {
     runId,
     taskId: '',
     agent: '',
-    mode: '',
+    mode: 'implement',
     queuedAt: '',
     startedAt: '',
     finishedAt: '',
@@ -178,7 +178,7 @@ function emptyRun(runId: string): Run {
 }
 
 function normalize(r: Run): Run {
-  return { ...r, taskId: r.taskId ?? '' };
+  return { ...r, taskId: r.taskId ?? '', mode: normalizeMode(r.mode) };
 }
 
 function compareDesc(a: Run, b: Run): number {
@@ -196,4 +196,9 @@ function pickPayload(e: { data: unknown[] }): Record<string, unknown> | null {
 
 function nowISO(): string {
   return new Date().toISOString();
+}
+
+function normalizeMode(mode: unknown): Run['mode'] {
+  if (mode === 'groom') return 'groom';
+  return 'implement';
 }

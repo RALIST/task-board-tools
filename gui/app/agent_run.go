@@ -50,6 +50,28 @@ func (s *AgentService) runnerFor(name string) (agent.Runner, error) {
 	return f(name)
 }
 
+func runnerForMode(runner agent.Runner, mode agent.Mode, detail TaskDetail) agent.Runner {
+	if mode == agent.ModeGroom {
+		return agent.NewGroomingDecorator(runner, promptVarsFromDetail(detail))
+	}
+	return runner
+}
+
+func promptVarsFromDetail(detail TaskDetail) agent.PromptVars {
+	return agent.PromptVars{
+		TaskID:    detail.Metadata.ID,
+		TaskTitle: detail.Metadata.Title,
+		TaskBody:  detail.Body,
+	}
+}
+
+func runMethodName(mode agent.Mode) string {
+	if mode == agent.ModeGroom {
+		return "GroomTask"
+	}
+	return "RunAgent"
+}
+
 // setRunnerFactory swaps the Runner factory. Unexported so the Wails
 // binding generator doesn't surface it to the frontend; tests reach it
 // via the test-only setRunnerFactoryForTest helper.
@@ -76,6 +98,17 @@ func (s *AgentService) setRunnerFactory(f runnerFactory) {
 // rollback semantics on failure (entry is removed if a setup step errors
 // out before the runner goroutine is spawned).
 func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) {
+	return s.startAgentRun(ctx, id, agent.ModeImplement)
+}
+
+// GroomTask kicks off a new run for the given task in grooming mode. It
+// intentionally reuses the same lifecycle as RunAgent; only the queued mode
+// and runner decorator differ.
+func (s *AgentService) GroomTask(ctx context.Context, id string) (string, error) {
+	return s.startAgentRun(ctx, id, agent.ModeGroom)
+}
+
+func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.Mode) (string, error) {
 	if s.board == nil {
 		return "", ErrNoBoard
 	}
@@ -100,6 +133,7 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	runner = runnerForMode(runner, mode, detail)
 	switch detail.Metadata.AgentStatus {
 	case "queued", "running":
 		return "", ErrAlreadyRunning
@@ -115,7 +149,7 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 		RunID:  runID,
 		TaskID: id,
 		Agent:  agentName,
-		Mode:   agent.ModeImplement.String(),
+		Mode:   mode.String(),
 		Cancel: cancel,
 		Done:   make(chan struct{}),
 	}
@@ -146,10 +180,10 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 		TaskID: id,
 		Event:  agent.EvQueued,
 		Agent:  agentName,
-		Mode:   agent.ModeImplement.String(),
+		Mode:   mode.String(),
 	}); err != nil {
 		rollback()
-		return "", fmt.Errorf("RunAgent: append queued: %w", err)
+		return "", fmt.Errorf("%s: append queued: %w", runMethodName(mode), err)
 	}
 
 	// Step 2 — Wails queued.
@@ -157,14 +191,14 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 		"run_id":  runID,
 		"task_id": id,
 		"agent":   agentName,
-		"mode":    string(agent.ModeImplement),
+		"mode":    mode.String(),
 	})
 
 	// Step 3 — AgentStatus: queued. Synchronous tb edit so a frontend
 	// re-render after RunAgent's return sees the right state.
 	if err := c.Edit(ctx, id, cli.EditInput{AgentStatus: "queued"}); err != nil {
 		rollback()
-		return "", fmt.Errorf("RunAgent: AgentStatus queued: %w", err)
+		return "", fmt.Errorf("%s: AgentStatus queued: %w", runMethodName(mode), err)
 	}
 
 	// Step 4 — kick off the run.
@@ -222,12 +256,13 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 	//   - Drawer "Run" button via RunAgent (writes a queued JSONL event)
 	//   - CLI: `tb edit X --agent-status queued` (no JSONL trail because
 	//     the CLI doesn't know about the JSONL schema)
-	// When findQueuedRunID returns ErrNoQueuedRun, the daemon owns the
+	// When findQueuedRun returns ErrNoQueuedRun, the daemon owns the
 	// queued lifecycle: synthesise a fresh run_id + JSONL queued event +
 	// agent:run-queued emit so the frontend's run history surfaces it.
-	runID, err := findQueuedRunID(boardDir, id)
+	runID, mode, err := findQueuedRun(boardDir, id)
 	if errors.Is(err, ErrNoQueuedRun) {
 		runID = agent.GenerateRunID()
+		mode = agent.ModeImplement
 		now := time.Now().UTC().Format(time.RFC3339)
 		if err := agent.AppendEvent(boardDir, id, agent.Event{
 			TS:     now,
@@ -235,7 +270,7 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 			TaskID: id,
 			Event:  agent.EvQueued,
 			Agent:  agentName,
-			Mode:   agent.ModeImplement.String(),
+			Mode:   mode.String(),
 		}); err != nil {
 			return "", fmt.Errorf("RunQueuedAgentSync: append synthetic queued: %w", err)
 		}
@@ -243,18 +278,19 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 			"run_id":  runID,
 			"task_id": id,
 			"agent":   agentName,
-			"mode":    string(agent.ModeImplement),
+			"mode":    mode.String(),
 		})
 	} else if err != nil {
 		return "", fmt.Errorf("RunQueuedAgentSync: find queued run: %w", err)
 	}
+	runner = runnerForMode(runner, mode, detail)
 
 	runCtx, cancel := context.WithCancel(ctx)
 	ar := &activeRun{
 		RunID:  runID,
 		TaskID: id,
 		Agent:  agentName,
-		Mode:   agent.ModeImplement.String(),
+		Mode:   mode.String(),
 		Cancel: cancel,
 		Done:   make(chan struct{}),
 	}
@@ -355,15 +391,11 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 	stdoutSink := s.newLineSink(boardDir, ar, logWriter, "stdout")
 	stderrSink := s.newLineSink(boardDir, ar, logWriter, "stderr")
 
-	prompt := agent.RenderPrompt(agent.PromptImplement, agent.PromptVars{
-		TaskID:    detail.Metadata.ID,
-		TaskTitle: detail.Metadata.Title,
-		TaskBody:  detail.Body,
-	})
+	prompt := agent.RenderPrompt(agent.PromptImplement, promptVarsFromDetail(detail))
 
 	in := agent.RunInput{
 		TaskID:      ar.TaskID,
-		Mode:        agent.ModeImplement,
+		Mode:        agent.Mode(ar.Mode),
 		Prompt:      prompt,
 		ProjectRoot: c.Cwd(),
 		Timeout:     agentTimeoutDefault,
@@ -406,6 +438,7 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 				TaskID: ar.TaskID,
 				Event:  agent.EvStarted,
 				Agent:  ar.Agent,
+				Mode:   ar.Mode,
 				PID:    pid,
 			}); err != nil {
 				slog.Warn("agent: append started failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
@@ -457,6 +490,8 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 			RunID:    ar.RunID,
 			TaskID:   ar.TaskID,
 			Event:    agent.EvFinished,
+			Agent:    ar.Agent,
+			Mode:     ar.Mode,
 			Status:   status,
 			ExitCode: exitCode,
 			Reason:   reason,
@@ -469,6 +504,7 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 			"status":    string(status),
 			"exit_code": exitCode,
 			"reason":    reason,
+			"mode":      ar.Mode,
 		})
 		if err := c.Edit(context.Background(), ar.TaskID, cli.EditInput{AgentStatus: string(status)}); err != nil {
 			slog.Warn("agent: AgentStatus write failed", "task", ar.TaskID, "run", ar.RunID, "status", status, "err", err)
@@ -559,6 +595,7 @@ func (l *lineSink) Write(p []byte) (int, error) {
 		RunID:  l.ar.RunID,
 		TaskID: l.ar.TaskID,
 		Event:  ev,
+		Mode:   l.ar.Mode,
 		Line:   clean,
 	}); err != nil {
 		// Failed JSONL appends are not fatal — drop the event but keep

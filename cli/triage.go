@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +17,30 @@ type triageReason struct {
 	reasons []string
 }
 
-func cmdTriage(_ []string) {
+type triageReasonJSON struct {
+	taskJSON
+	Reasons []string `json:"reasons"`
+}
+
+func cmdTriage(args []string) {
+	fs := flag.NewFlagSet("triage", flag.ExitOnError)
+	jsonOut := fs.Bool("json", false, "emit JSON array with task metadata and grooming reasons")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: tb triage [--json]\n\n")
+		fs.PrintDefaults()
+	}
+
+	reordered := reorderArgs(args)
+	if err := fs.Parse(reordered); err != nil {
+		os.Exit(1)
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "error: unexpected argument %q\n", fs.Arg(0))
+		fs.Usage()
+		os.Exit(1)
+	}
+
 	boardDir := cfg.BoardDir
 
 	// Scan backlog for tasks needing grooming.
@@ -57,6 +82,13 @@ func cmdTriage(_ []string) {
 		return numericID(results[i].task.ID) < numericID(results[j].task.ID)
 	})
 
+	if *jsonOut {
+		if err := emitTriageJSON(results); err != nil {
+			fatal("%v", err)
+		}
+		return
+	}
+
 	if len(results) == 0 {
 		fmt.Println("No tasks need grooming.")
 		return
@@ -77,6 +109,20 @@ func cmdTriage(_ []string) {
 	}
 	w.Flush()
 	fmt.Printf("\nUse `tb show <ID>` to inspect, `/groom <ID>` to run a grooming session.\n")
+}
+
+func emitTriageJSON(results []triageReason) error {
+	payload := make([]triageReasonJSON, 0, len(results))
+	for _, result := range results {
+		payload = append(payload, triageReasonJSON{
+			taskJSON: marshalTask(result.task),
+			Reasons:  result.reasons,
+		})
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(payload)
 }
 
 // checkNeedsGrooming reads the full task file and returns reasons it needs grooming.
@@ -100,17 +146,17 @@ func checkNeedsGrooming(path string, t Task) []string {
 		reasons = append(reasons, "no module")
 	}
 
-	// 2. Goal is placeholder or missing.
+	// 3. Goal is placeholder or missing.
 	if hasPlaceholderSection(content, "## Goal") {
 		reasons = append(reasons, "no goal")
 	}
 
-	// 3. Acceptance criteria is placeholder or missing.
+	// 4. Acceptance criteria is placeholder or missing.
 	if hasPlaceholderSection(content, "## Acceptance Criteria") {
 		reasons = append(reasons, "no acceptance criteria")
 	}
 
-	// 4. Auto-created by tb scan.
+	// 5. Auto-created by tb scan.
 	if strings.Contains(content, "Created by `tb scan`") {
 		reasons = append(reasons, "auto-created by scan")
 	}

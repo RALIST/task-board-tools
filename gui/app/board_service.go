@@ -75,6 +75,10 @@ type BoardService struct {
 	mu       sync.RWMutex
 	client   *cli.Client
 	boardDir string // populated by SetBoardDir; used by direct-write paths
+
+	triageMu    sync.RWMutex
+	triageCache map[string][]string
+	triageGen   uint64
 }
 
 // NewBoardService returns a service with no client attached. The caller (a
@@ -88,9 +92,15 @@ func (b *BoardService) ServiceName() string { return "BoardService" }
 // setClient atomically swaps the active CLI client. Passing nil clears it
 // (LoadBoard then returns ErrNoBoard).
 func (b *BoardService) setClient(c *cli.Client) {
+	b.triageMu.Lock()
+	defer b.triageMu.Unlock()
+
 	b.mu.Lock()
 	b.client = c
 	b.mu.Unlock()
+
+	b.triageCache = nil
+	b.triageGen++
 }
 
 // LoadBoard returns the active task set (backlog + in-progress + done),
@@ -137,6 +147,43 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 		}
 	}
 	return snap, nil
+}
+
+// Triage returns task IDs that need grooming, keyed by ID with the CLI's
+// reason strings as the value. The first call shells out to `tb triage --json`;
+// subsequent calls return a copy of the cached map until watcher events
+// invalidate it.
+func (b *BoardService) Triage(ctx context.Context) (map[string][]string, error) {
+	for {
+		b.triageMu.RLock()
+		if b.triageCache != nil {
+			out := cloneTriageMap(b.triageCache)
+			b.triageMu.RUnlock()
+			return out, nil
+		}
+		gen := b.triageGen
+		b.triageMu.RUnlock()
+
+		c := b.snapshot()
+		if c == nil {
+			return nil, ErrNoBoard
+		}
+
+		next, err := b.loadTriage(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+
+		b.triageMu.Lock()
+		if b.triageGen != gen {
+			b.triageMu.Unlock()
+			continue
+		}
+		b.triageCache = cloneTriageMap(next)
+		out := cloneTriageMap(b.triageCache)
+		b.triageMu.Unlock()
+		return out, nil
+	}
 }
 
 // GetTask returns metadata + body for a single task. Returns ErrNotFound when
@@ -265,6 +312,63 @@ func (b *BoardService) snapshot() *cli.Client {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.client
+}
+
+type triageTask struct {
+	ID      string   `json:"id"`
+	Reasons []string `json:"reasons"`
+}
+
+func (b *BoardService) loadTriage(ctx context.Context, c *cli.Client) (map[string][]string, error) {
+	var rows []triageTask
+	if err := c.RunJSON(ctx, &rows, "triage", "--json"); err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string, len(rows))
+	for _, row := range rows {
+		if row.ID == "" {
+			continue
+		}
+		out[row.ID] = append([]string(nil), row.Reasons...)
+	}
+	return out, nil
+}
+
+func cloneTriageMap(in map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(in))
+	for id, reasons := range in {
+		out[id] = append([]string(nil), reasons...)
+	}
+	return out
+}
+
+func (b *BoardService) clearTriageCache() {
+	b.triageMu.Lock()
+	b.triageCache = nil
+	b.triageGen++
+	b.triageMu.Unlock()
+}
+
+// BoardWatcherSink is wired to the filesystem watcher so BoardService can keep
+// cached derived data in step with direct CLI writes.
+type BoardWatcherSink struct {
+	board *BoardService
+}
+
+func NewBoardWatcherSink(board *BoardService) *BoardWatcherSink {
+	return &BoardWatcherSink{board: board}
+}
+
+func (s *BoardWatcherSink) Emit(name string, data ...any) {
+	if s == nil || s.board == nil {
+		return
+	}
+	switch {
+	case name == "board:reloaded":
+		s.board.clearTriageCache()
+	case strings.HasPrefix(name, "task:updated:"):
+		s.board.clearTriageCache()
+	}
 }
 
 // isNotFoundErr inspects an *ExitError's stderr for the CLI's not-found

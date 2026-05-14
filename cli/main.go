@@ -81,12 +81,12 @@ Usage:
   tb mv <ID> <status>                                                    Move task (status: backlog|in-progress|done|archive)
   tb start <ID>                                                          Start working
   tb done <ID>                                                           Mark done
-  tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled]
+  tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled] [--goal file|-] [--acceptance file|-]
   tb close <ID>                                                          Archive task
   tb show <ID> [--json]                                                  Print task content (or {metadata, body} JSON)
   tb open <ID>                                                           Open in default editor
   tb epic <ID> [--status active|archive|all]                             Show epic progress
-  tb triage                                                              Find tasks needing grooming
+  tb triage [--json]                                                     Find tasks needing grooming
   tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l]   Search tasks by regex
   tb scan [--apply] [--path dir]                                         Find untagged TODOs
   tb regenerate                                                          Regenerate BOARD.md
@@ -99,7 +99,7 @@ Commands:
   mv, move          Move task between statuses
   start             Move task to in-progress
   done              Move task to done
-  edit              Edit task metadata (priority, type, size, module, tags)
+  edit              Edit task metadata and Goal/Acceptance Criteria sections
   close             Archive task (moves to archive/)
   show, cat         Print task content to stdout
   open              Open task file in default editor/app

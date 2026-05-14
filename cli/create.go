@@ -21,6 +21,7 @@ var (
 var flagsWithValue = map[string]bool{
 	"-p": true, "-T": true, "-s": true, "-m": true, "-t": true, "-d": true, "-a": true,
 	"--status": true, "--parent": true, "--agent": true, "--agent-status": true,
+	"--goal": true, "--acceptance": true,
 }
 
 func cmdCreate(args []string) {

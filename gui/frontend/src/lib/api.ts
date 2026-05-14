@@ -15,11 +15,13 @@ import {
   LoadBoardWithMode,
   MoveTask,
   Regenerate,
+  Triage,
 } from '../../bindings/tools/tb-gui/app/boardservice';
 import {
   AssignAgent,
   CancelRun,
   GetRunLog,
+  GroomTask,
   ListRuns,
   RunAgent,
 } from '../../bindings/tools/tb-gui/app/agentservice';
@@ -88,6 +90,15 @@ export async function regenerate(): Promise<void> {
   await Regenerate();
 }
 
+export async function getTriage(): Promise<Record<string, string[]>> {
+  const raw = await Triage();
+  const out: Record<string, string[]> = {};
+  for (const [id, reasons] of Object.entries(raw ?? {})) {
+    out[id] = [...(reasons ?? [])];
+  }
+  return out;
+}
+
 // --- Agent service wrappers ---
 
 export async function assignAgent(id: string, agent: string): Promise<void> {
@@ -96,6 +107,10 @@ export async function assignAgent(id: string, agent: string): Promise<void> {
 
 export async function runAgent(id: string): Promise<string> {
   return await RunAgent(id);
+}
+
+export async function groomTask(id: string): Promise<string> {
+  return await GroomTask(id);
 }
 
 export async function cancelRun(id: string): Promise<void> {

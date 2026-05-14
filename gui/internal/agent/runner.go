@@ -4,15 +4,15 @@
 //
 // Layering:
 //
-//	   gui/app/agent_service.go        ← coordinator; one struct per service
-//	          │
-//	          ▼
-//	   gui/internal/agent              ← this package
-//	    ├─ runner.go     (interface + Mode + RunInput/RunResult + RenderPrompt)
-//	    ├─ claude.go     (ClaudeRunner: shells out to `claude -p …`)
-//	    ├─ codex.go      (CodexRunner:  shells out to `codex exec --prompt …`)
-//	    ├─ state.go      (AppendEvent, NewLogWriter, GenerateRunID)
-//	    └─ prompts/*.md  (embedded prompt templates)
+//	gui/app/agent_service.go        ← coordinator; one struct per service
+//	       │
+//	       ▼
+//	gui/internal/agent              ← this package
+//	 ├─ runner.go     (interface + Mode + RunInput/RunResult + RenderPrompt)
+//	 ├─ claude.go     (ClaudeRunner: shells out to `claude -p …`)
+//	 ├─ codex.go      (CodexRunner:  shells out to `codex exec --prompt …`)
+//	 ├─ state.go      (AppendEvent, NewLogWriter, GenerateRunID)
+//	 └─ prompts/*.md  (embedded prompt templates)
 package agent
 
 import (
@@ -146,6 +146,13 @@ var (
 //go:embed prompts/implement.md
 var PromptImplement string
 
+// PromptGroom is the embedded "groom this task" template. It is intentionally
+// separate from PromptImplement because grooming is a markdown-only task-body
+// refinement flow with a narrower mutation contract.
+//
+//go:embed prompts/groom.md
+var PromptGroom string
+
 // PromptVars are the values RenderPrompt substitutes into a template. The
 // set is intentionally tiny — adding a new placeholder requires editing the
 // templates AND this struct AND RenderPrompt, so reviewers always see the
@@ -168,4 +175,24 @@ func RenderPrompt(template string, vars PromptVars) string {
 	s = strings.ReplaceAll(s, "{{TASK_TITLE}}", vars.TaskTitle)
 	s = strings.ReplaceAll(s, "{{TASK_BODY}}", vars.TaskBody)
 	return s
+}
+
+type groomingDecorator struct {
+	inner Runner
+	vars  PromptVars
+}
+
+// NewGroomingDecorator returns a Runner that replaces the incoming prompt with
+// the rendered grooming prompt before delegating to inner.
+func NewGroomingDecorator(inner Runner, vars PromptVars) Runner {
+	return &groomingDecorator{inner: inner, vars: vars}
+}
+
+func (r *groomingDecorator) Name() string {
+	return r.inner.Name()
+}
+
+func (r *groomingDecorator) Run(ctx context.Context, in RunInput) (RunResult, error) {
+	in.Prompt = RenderPrompt(PromptGroom, r.vars)
+	return r.inner.Run(ctx, in)
 }

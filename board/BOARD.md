@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-6 | M6: Groom flow for AI-assisted task refinement | 0/11 | backlog | gui |
+| TB-6 | M6: Groom flow for AI-assisted task refinement | 0/11 | in-progress | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 0/10 | backlog | gui |
 
 ## Finished Epics
@@ -21,30 +21,29 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-6 | M6: Groom flow for AI-assisted task refinement | P2 | gui | — |
+| TB-65 | prompts/groom.md template + agent.PromptGroom embed | P2 | gui | — |
+| TB-66 | GroomingDecorator: wrap a Runner, swap prompt template | P2 | gui | — |
+| TB-67 | AgentService.GroomTask: queue a groom run distinct from a normal run | P2 | gui | — |
+| TB-68 | Daemon: honor Mode=groom from queued JSONL event so pickup uses GroomingDecorator | P2 | gui | — |
+| TB-69 | CLI: tb triage --json structured output | P2 | cli | — |
+| TB-70 | BoardService.Triage(): wrap tb triage --json, cache + invalidate on watcher events | P2 | gui | — |
+| TB-71 | Frontend api.ts + triageStore.ts: groomTask, getTriage, watcher-driven refresh | P2 | gui | — |
+| TB-72 | TaskDrawer: Groom button next to Run, shared Cancel, mode-labelled past runs | P2 | gui | — |
+| TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | P2 | gui | — |
+| TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | P2 | cli | — |
 
 ## Backlog
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-6 | M6: Groom flow for AI-assisted task refinement | feature | P2 | L | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | feature | P2 | L | gui |
 | TB-29 | parseTaskFile should reject malformed task files | bug | P3 | S | cli |
 | TB-30 | tb assign sugar for paired Agent + AgentStatus writes | feature | P3 | S | cli |
 | TB-39 | Make CLI task-section scans ignore quoted Markdown headings | bug | P2 | M | cli |
 | TB-63 | GUI tag header overflows when too many tags — collapse to popular + dropdown | bug | P1 | M | gui |
 | TB-64 | GUI "Open project" button only works once, subsequent clicks do nothing | bug | P1 | S | gui |
-| TB-65 | prompts/groom.md template + agent.PromptGroom embed | feature | P2 | S | gui |
-| TB-66 | GroomingDecorator: wrap a Runner, swap prompt template | feature | P2 | M | gui |
-| TB-67 | AgentService.GroomTask: queue a groom run distinct from a normal run | feature | P2 | M | gui |
-| TB-68 | Daemon: honor Mode=groom from queued JSONL event so pickup uses GroomingDecorator | feature | P2 | S | gui |
-| TB-69 | CLI: tb triage --json structured output | feature | P2 | S | cli |
-| TB-70 | BoardService.Triage(): wrap tb triage --json, cache + invalidate on watcher events | feature | P2 | M | gui |
-| TB-71 | Frontend api.ts + triageStore.ts: groomTask, getTriage, watcher-driven refresh | feature | P2 | S | gui |
-| TB-72 | TaskDrawer: Groom button next to Run, shared Cancel, mode-labelled past runs | feature | P2 | M | gui |
-| TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | feature | P2 | M | gui |
 | TB-74 | Docs: flip M6 markers — IMPLEMENTATION.md / FEATURES.md F6.1+F6.2 / ARCHITECTURE.md GroomingDecorator | improvement | P2 | S | docs |
-| TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | feature | P2 | M | cli |
 | TB-76 | Preferences struct: add agent_timeout_minutes, default_agent, cli_path with clamps + tests | feature | P2 | S | gui |
 | TB-77 | Wire agent_timeout_minutes into agent_run.go (replace agentTimeoutDefault const) | feature | P2 | S | gui |
 | TB-78 | Wire cli_path preference into cli.NewClient at board open + reload on change | feature | P2 | S | gui |

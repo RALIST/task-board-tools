@@ -3,10 +3,23 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 )
+
+type editChange struct {
+	field string
+	value string
+	label string
+}
+
+type bodyEdit struct {
+	heading string
+	body    string
+	label   string
+}
 
 func cmdEdit(args []string) {
 	fs := flag.NewFlagSet("edit", flag.ExitOnError)
@@ -17,9 +30,11 @@ func cmdEdit(args []string) {
 	tags := fs.String("t", "", "tags (comma-separated, replaces existing)")
 	agent := fs.String("a", "", "agent (claude, codex)")
 	agentStatus := fs.String("agent-status", "", "agent status (queued, running, success, failed, cancelled)")
+	goalPath := fs.String("goal", "", "replace/insert ## Goal from file path or - for stdin")
+	acceptancePath := fs.String("acceptance", "", "replace/insert ## Acceptance Criteria from file path or - for stdin")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued] [--goal file|-] [--acceptance file|-]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -74,31 +89,52 @@ func cmdEdit(args []string) {
 		}
 	}
 
-	// Collect changes.
-	changes := map[string]string{}
+	// Collect metadata changes in flag order so stdout and log entries are stable.
+	var changes []editChange
 	if *priority != "" {
-		changes["Priority"] = *priority
+		changes = append(changes, editChange{field: "Priority", value: *priority, label: "priority=" + *priority})
 	}
 	if *taskType != "" {
-		changes["Type"] = *taskType
+		changes = append(changes, editChange{field: "Type", value: *taskType, label: "type=" + *taskType})
 	}
 	if *size != "" {
-		changes["Size"] = *size
+		changes = append(changes, editChange{field: "Size", value: *size, label: "size=" + *size})
 	}
 	if *module != "" {
-		changes["Module"] = *module
+		changes = append(changes, editChange{field: "Module", value: *module, label: "module=" + *module})
 	}
 	if *tags != "" {
-		changes["Tags"] = *tags
+		changes = append(changes, editChange{field: "Tags", value: *tags, label: "tags=" + *tags})
 	}
 	if *agent != "" {
-		changes["Agent"] = *agent
+		changes = append(changes, editChange{field: "Agent", value: *agent, label: "agent=" + *agent})
 	}
 	if *agentStatus != "" {
-		changes["AgentStatus"] = *agentStatus
+		changes = append(changes, editChange{field: "AgentStatus", value: *agentStatus, label: "agentstatus=" + *agentStatus})
 	}
 
-	if len(changes) == 0 {
+	if *goalPath == "-" && *acceptancePath == "-" {
+		fmt.Fprintln(os.Stderr, "error: --goal - and --acceptance - cannot both read from stdin; use a file for one input")
+		os.Exit(1)
+	}
+
+	var bodyEdits []bodyEdit
+	if *goalPath != "" {
+		body, err := readBodyEditInput(*goalPath, "goal")
+		if err != nil {
+			fatal("%v", err)
+		}
+		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Goal", body: body, label: "goal"})
+	}
+	if *acceptancePath != "" {
+		body, err := readBodyEditInput(*acceptancePath, "acceptance")
+		if err != nil {
+			fatal("%v", err)
+		}
+		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Acceptance Criteria", body: body, label: "acceptance"})
+	}
+
+	if len(changes) == 0 && len(bodyEdits) == 0 {
 		fmt.Fprintln(os.Stderr, "error: no changes specified")
 		fs.Usage()
 		os.Exit(1)
@@ -124,23 +160,28 @@ func cmdEdit(args []string) {
 
 	lines := strings.Split(string(data), "\n")
 
-	// Apply each change.
+	// Apply each metadata change.
 	// `Agent` and `AgentStatus` accept the sentinel "none" to mean "clear
 	// the field"; for those a value of "none" deletes the metadata line
 	// instead of writing it. Every other field is set verbatim.
 	var applied []string
-	for field, value := range changes {
-		if value == "none" && (field == "Agent" || field == "AgentStatus") {
-			lines = clearField(lines, field)
+	for _, change := range changes {
+		if change.value == "none" && (change.field == "Agent" || change.field == "AgentStatus") {
+			lines = clearField(lines, change.field)
 		} else {
-			lines = setField(lines, field, value)
+			lines = setField(lines, change.field, change.value)
 		}
-		applied = append(applied, fmt.Sprintf("%s=%s", strings.ToLower(field), value))
+		applied = append(applied, change.label)
 	}
 
-	// Append log entry.
-	today := time.Now().Format("2006-01-02")
 	content := strings.Join(lines, "\n")
+	for _, edit := range bodyEdits {
+		content = upsertTaskSection(content, edit.heading, edit.body)
+		applied = append(applied, edit.label)
+	}
+
+	// Append one combined log entry for metadata and body changes.
+	today := time.Now().Format("2006-01-02")
 	content = appendLogEntry(content, fmt.Sprintf("- %s: Edited %s\n", today, strings.Join(applied, ", ")))
 
 	if err := writeFileAtomic(taskPath, []byte(content), 0644); err != nil {
@@ -154,11 +195,242 @@ func cmdEdit(args []string) {
 	fmt.Printf("Updated %s: %s\n", taskID, strings.Join(applied, ", "))
 }
 
+func readBodyEditInput(source, label string) (string, error) {
+	var (
+		data []byte
+		err  error
+	)
+	if source == "-" {
+		data, err = io.ReadAll(os.Stdin)
+	} else {
+		data, err = os.ReadFile(source)
+	}
+	if err != nil {
+		return "", fmt.Errorf("cannot read %s content from %s: %w", label, source, err)
+	}
+
+	body := trimBlankLines(string(data))
+	body = stripLeadingBodyHeading(body, label)
+	if strings.TrimSpace(body) == "" {
+		return "", fmt.Errorf("%s content is empty after trimming leading/trailing blank lines", label)
+	}
+	return body, nil
+}
+
+func trimBlankLines(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	lines := strings.Split(content, "\n")
+
+	start := 0
+	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	end := len(lines)
+	for end > start && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	if start >= end {
+		return ""
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
+func stripLeadingBodyHeading(body, label string) string {
+	heading := ""
+	switch label {
+	case "goal":
+		heading = "## Goal"
+	case "acceptance":
+		heading = "## Acceptance Criteria"
+	}
+	if heading == "" {
+		return body
+	}
+
+	lines := strings.Split(body, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != heading {
+		return body
+	}
+	return trimBlankLines(strings.Join(lines[1:], "\n"))
+}
+
+func upsertTaskSection(content, heading, body string) string {
+	if r, ok := findMarkdownSection(content, heading); ok {
+		return content[:r.start] + markdownSectionBlock(heading, body) + content[r.end:]
+	}
+
+	switch heading {
+	case "## Goal":
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Context", "## Acceptance Criteria", "## Related Tasks", "## Log"}); ok {
+			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
+		}
+	case "## Acceptance Criteria":
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Related Tasks", "## Log"}); ok {
+			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
+		}
+	}
+
+	return appendMarkdownSection(content, markdownSectionBlock(heading, body))
+}
+
+type markdownSectionRange struct {
+	start int
+	end   int
+}
+
+var taskMarkdownHeadings = map[string]bool{
+	"## Goal":                true,
+	"## Context":             true,
+	"## Subtasks":            true,
+	"## Acceptance Criteria": true,
+	"## Related Tasks":       true,
+	"## Log":                 true,
+}
+
+func findMarkdownSection(content, heading string) (markdownSectionRange, bool) {
+	offset := 0
+	inFence := false
+	for offset <= len(content) {
+		lineEnd, nextOffset := markdownLineBounds(content, offset)
+		line := strings.TrimSpace(strings.TrimSuffix(content[offset:lineEnd], "\r"))
+		if isMarkdownFence(line) {
+			inFence = !inFence
+		} else if !inFence && line == heading {
+			nextHeading := findNextTaskMarkdownHeading(content, nextOffset)
+			if nextHeading == -1 {
+				nextHeading = len(content)
+			}
+			return markdownSectionRange{start: offset, end: nextHeading}, true
+		}
+		if nextOffset > len(content) {
+			break
+		}
+		offset = nextOffset
+	}
+	return markdownSectionRange{}, false
+}
+
+func findFirstMarkdownHeading(content string, headings []string) (int, bool) {
+	wanted := map[string]bool{}
+	for _, heading := range headings {
+		wanted[heading] = true
+	}
+
+	offset := 0
+	inFence := false
+	for offset <= len(content) {
+		lineEnd, nextOffset := markdownLineBounds(content, offset)
+		line := strings.TrimSpace(strings.TrimSuffix(content[offset:lineEnd], "\r"))
+		if isMarkdownFence(line) {
+			inFence = !inFence
+		} else if !inFence && wanted[line] {
+			return offset, true
+		}
+		if nextOffset > len(content) {
+			break
+		}
+		offset = nextOffset
+	}
+	return 0, false
+}
+
+func findNextTaskMarkdownHeading(content string, offset int) int {
+	inFence := false
+	for offset <= len(content) {
+		lineEnd, nextOffset := markdownLineBounds(content, offset)
+		line := strings.TrimSpace(strings.TrimSuffix(content[offset:lineEnd], "\r"))
+		if isMarkdownFence(line) {
+			inFence = !inFence
+		} else if !inFence && taskMarkdownHeadings[line] {
+			return offset
+		}
+		if nextOffset > len(content) {
+			break
+		}
+		offset = nextOffset
+	}
+	return -1
+}
+
+func isMarkdownFence(line string) bool {
+	return strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~")
+}
+
+func markdownLineBounds(content string, offset int) (lineEnd, nextOffset int) {
+	if offset >= len(content) {
+		return len(content), len(content) + 1
+	}
+	if idx := strings.IndexByte(content[offset:], '\n'); idx != -1 {
+		lineEnd = offset + idx
+		return lineEnd, lineEnd + 1
+	}
+	return len(content), len(content) + 1
+}
+
+func markdownSectionBlock(heading, body string) string {
+	return heading + "\n\n" + body + "\n\n"
+}
+
+func insertMarkdownSectionBefore(content string, idx int, block string) string {
+	before := strings.TrimRight(content[:idx], "\n")
+	after := content[idx:]
+	if before == "" {
+		return block + after
+	}
+	return before + "\n\n" + block + after
+}
+
+func appendMarkdownSection(content string, block string) string {
+	trimmed := strings.TrimRight(content, "\n")
+	if trimmed == "" {
+		return strings.TrimRight(block, "\n") + "\n"
+	}
+	return trimmed + "\n\n" + strings.TrimRight(block, "\n") + "\n"
+}
+
+func metadataRange(lines []string) (int, int) {
+	limit := len(lines)
+	if limit > maxMetadataLines {
+		limit = maxMetadataLines
+	}
+
+	start := 0
+	if start < limit && strings.HasPrefix(strings.TrimSpace(lines[start]), "# ") {
+		start++
+	}
+	for start < limit && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+
+	end := start
+	for end < limit {
+		line := strings.TrimSpace(lines[end])
+		// Metadata ends at any body heading; section replacement uses a
+		// whitelisted heading set because user content may contain ## examples.
+		if line == "" || strings.HasPrefix(line, "## ") {
+			break
+		}
+		end++
+	}
+	return start, end
+}
+
+func insertLine(lines []string, idx int, line string) []string {
+	result := make([]string, 0, len(lines)+1)
+	result = append(result, lines[:idx]...)
+	result = append(result, line)
+	result = append(result, lines[idx:]...)
+	return result
+}
+
 // clearField removes the metadata line for `field` from lines (if present).
 // Used by `tb edit -a none` and `tb edit --agent-status none` to drop a
 // field rather than overwrite it with a sentinel value.
 func clearField(lines []string, field string) []string {
-	for i, line := range lines {
+	start, end := metadataRange(lines)
+	for i := start; i < end; i++ {
+		line := lines[i]
 		trimmed := strings.TrimPrefix(line, "- ")
 		if _, ok := extractFieldAny(trimmed, field); ok {
 			return append(lines[:i], lines[i+1:]...)
@@ -169,7 +441,9 @@ func clearField(lines []string, field string) []string {
 
 // setField replaces **Field:** value in lines, or inserts it before **Branch:** if missing.
 func setField(lines []string, field, value string) []string {
-	for i, line := range lines {
+	start, end := metadataRange(lines)
+	for i := start; i < end; i++ {
+		line := lines[i]
 		trimmed := strings.TrimPrefix(line, "- ")
 		if _, ok := extractFieldAny(trimmed, field); ok {
 			lines[i] = "**" + field + ":** " + value
@@ -179,27 +453,14 @@ func setField(lines []string, field, value string) []string {
 
 	// Field not found — insert before Branch line.
 	newLine := "**" + field + ":** " + value
-	for i, line := range lines {
+	for i := start; i < end; i++ {
+		line := lines[i]
 		trimmed := strings.TrimPrefix(line, "- ")
 		if _, ok := extractFieldAny(trimmed, "Branch"); ok {
-			result := make([]string, 0, len(lines)+1)
-			result = append(result, lines[:i]...)
-			result = append(result, newLine)
-			result = append(result, lines[i:]...)
-			return result
+			return insertLine(lines, i, newLine)
 		}
 	}
 
 	// No Branch line — insert after last metadata line (first blank line after header).
-	for i, line := range lines {
-		if i > 0 && line == "" {
-			result := make([]string, 0, len(lines)+1)
-			result = append(result, lines[:i]...)
-			result = append(result, newLine)
-			result = append(result, lines[i:]...)
-			return result
-		}
-	}
-
-	return append(lines, newLine)
+	return insertLine(lines, end, newLine)
 }

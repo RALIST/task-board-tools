@@ -21,8 +21,8 @@ func (s *AgentService) finishCancelled(c *cli.Client, ar *activeRun, boardDir, r
 	return nil
 }
 
-// findQueuedRunID scans the task's JSONL run history and returns the
-// run_id of the latest `queued` event that has no subsequent `started`
+// findQueuedRun scans the task's JSONL run history and returns the run_id
+// and mode of the latest `queued` event that has no subsequent `started`
 // or `finished` event. This is the run that the daemon's worker should
 // pick up.
 //
@@ -30,20 +30,22 @@ func (s *AgentService) finishCancelled(c *cli.Client, ar *activeRun, boardDir, r
 // queued on the .md but the JSONL has no matching open queued event —
 // either a recovery synthesised a finished record or the JSONL is
 // missing). The caller can decide whether to synthesise a new run_id.
-func findQueuedRunID(boardDir, taskID string) (string, error) {
+func findQueuedRun(boardDir, taskID string) (string, agent.Mode, error) {
 	path := agent.StatePath(boardDir, taskID)
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", ErrNoQueuedRun
+			return "", agent.ModeImplement, ErrNoQueuedRun
 		}
-		return "", err
+		return "", agent.ModeImplement, err
 	}
 	defer f.Close()
 
 	type state struct {
+		hasQueued   bool
 		hasStarted  bool
 		hasFinished bool
+		mode        agent.Mode
 	}
 	runs := map[string]*state{}
 	order := []string{}
@@ -65,6 +67,9 @@ func findQueuedRunID(boardDir, taskID string) (string, error) {
 			order = append(order, ev.RunID)
 		}
 		switch ev.Event {
+		case agent.EvQueued:
+			st.hasQueued = true
+			st.mode = parseRunMode(ev.Mode)
 		case agent.EvStarted:
 			st.hasStarted = true
 		case agent.EvFinished:
@@ -76,14 +81,23 @@ func findQueuedRunID(boardDir, taskID string) (string, error) {
 	for i := len(order) - 1; i >= 0; i-- {
 		id := order[i]
 		st := runs[id]
-		if !st.hasFinished && !st.hasStarted {
-			return id, nil
+		if st.hasQueued && !st.hasFinished && !st.hasStarted {
+			return id, st.mode, nil
 		}
 	}
-	return "", ErrNoQueuedRun
+	return "", agent.ModeImplement, ErrNoQueuedRun
 }
 
-// ErrNoQueuedRun is returned by findQueuedRunID when no open queued
+func parseRunMode(mode string) agent.Mode {
+	switch agent.Mode(mode) {
+	case agent.ModeGroom:
+		return agent.ModeGroom
+	default:
+		return agent.ModeImplement
+	}
+}
+
+// ErrNoQueuedRun is returned by findQueuedRun when no open queued
 // event exists for the task — meaning the daemon should not pick it up
 // even if the .md says AgentStatus=queued.
 var ErrNoQueuedRun = errors.New("no open queued run in JSONL")

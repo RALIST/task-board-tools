@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { Events } from '@wailsio/runtime';
   import type { Task } from '$lib/api';
+  import { suggestGroom } from '$lib/stores/groomSuggestion';
+  import { registerTaskTriageEventHandler, triageForTask } from '$lib/stores/triage';
 
   interface Props {
     task: Task;
@@ -7,6 +10,7 @@
   }
 
   let { task, onSelect }: Props = $props();
+  let triageReasons = $state<string[]>([]);
 
   const MAX_VISIBLE_TAGS = 3;
 
@@ -31,13 +35,42 @@
 
   let priorityClass = $derived(`pri-${task.priority?.toLowerCase() ?? 'p2'}`);
   let typeKey = $derived(task.type ?? '');
+  let showGroomIndicator = $derived(task.status === 'backlog' && triageReasons.length > 0);
+  let triageTitle = $derived(triageReasons.join(', '));
+
+  $effect(() => {
+    const id = task.id;
+    const offStore = triageForTask(id).subscribe((reasons) => {
+      triageReasons = reasons;
+    });
+    const offEvent = registerTaskTriageEventHandler(id, (name, handler) => Events.On(name, handler as any));
+    return () => {
+      offStore();
+      offEvent();
+    };
+  });
+
+  function openForGroom(ev: MouseEvent | KeyboardEvent) {
+    ev.stopPropagation();
+    suggestGroom(task.id);
+    onSelect?.(task.id);
+  }
+
+  function onCardKeydown(ev: KeyboardEvent) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    ev.preventDefault();
+    onSelect?.(task.id);
+  }
+
 </script>
 
-<button
+<div
   class="card"
   class:epic={isEpic}
+  role="button"
+  tabindex="0"
   onclick={() => onSelect?.(task.id)}
-  type="button"
+  onkeydown={onCardKeydown}
   title={task.title}>
   <header class="head">
     <span class="id">
@@ -49,6 +82,16 @@
     {#if task.priority}
       <span class={`pri ${priorityClass}`}>{task.priority}</span>
     {/if}
+    <span class="groom-slot" aria-hidden={!showGroomIndicator}>
+      {#if showGroomIndicator}
+        <button
+          class="groom-indicator"
+          type="button"
+          title={triageTitle}
+          aria-label={`Needs grooming: ${triageTitle}`}
+          onclick={openForGroom}>!</button>
+      {/if}
+    </span>
   </header>
 
   <p class="ttl">{task.title}</p>
@@ -75,7 +118,7 @@
       {/if}
     </div>
   {/if}
-</button>
+</div>
 
 <style>
   .card {
@@ -140,6 +183,31 @@
     letter-spacing: 0.04em;
     flex-shrink: 0;
   }
+  .groom-slot {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 18px;
+  }
+  .groom-indicator {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    background: rgba(255, 184, 108, 0.18);
+    border: 1px solid rgba(255, 184, 108, 0.42);
+    color: var(--p1);
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .groom-indicator:hover { background: rgba(255, 184, 108, 0.28); }
+  .groom-indicator:focus-visible { outline: 2px solid var(--p1); outline-offset: 1px; }
   .pri-p0 { background: var(--p0); color: white; }
   .pri-p1 { background: var(--p1); color: black; }
   .pri-p2 { background: rgba(74, 141, 248, 0.18); color: var(--p2); }

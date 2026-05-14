@@ -33,6 +33,7 @@
   import { closeTask, openTask, selectedTaskId } from '$lib/stores/selection';
   import { pushToast } from '$lib/stores/toast';
   import { registerAgentEventHandlers } from '$lib/stores/runs';
+  import { registerTriageEventHandlers } from '$lib/stores/triage';
 
   let projectRoot = $state('');
   let recents = $state<RecentBoard[]>([]);
@@ -83,6 +84,9 @@
     // drawer / log panel re-renders without re-reading the JSONL.
     offEvents.push(
       registerAgentEventHandlers((name, handler) => Events.On(name, handler as any)),
+    );
+    offEvents.push(
+      registerTriageEventHandlers((name, handler) => Events.On(name, handler as any)),
     );
   });
 
