@@ -23,13 +23,15 @@ CLI tool `+"`tb`"+` manages board operations (create, move, list, regenerate).
 
 **Directories are the source of truth.** `+"`BOARD.md`"+` is a generated view — never edit it manually.
 
-Directory = status. Moving a file between directories = status change.
+Directory = status. Moving a task entry between directories = status change.
 
 **CRITICAL: A task file must exist in exactly ONE directory.** When moving a task, always use `+"`tb mv`"+`/`+"`tb start`"+`/`+"`tb done`"+` which handle the move atomically. Never copy task files.
 
 ## Task File Format
 
-Filename: `+"`%[1]s-NNN.md`"+` (e.g., `+"`%[1]s-001.md`"+`).
+Default path: `+"`<status>/%[1]s-NNN/TASK.md`"+` (e.g., `+"`backlog/%[1]s-001/TASK.md`"+`).
+
+Legacy path: `+"`<status>/%[1]s-NNN.md`"+`. Create legacy files only when you intentionally pass `+"`tb create --legacy-file`"+`; they are kept for compatibility and do not support in-place attachments.
 
 **ID allocation:** Handled automatically by `+"`tb create`"+`. The `+"`"+`.next-id`+"`"+` file is the counter, protected by file locking for concurrent access.
 
@@ -56,6 +58,8 @@ Why this task exists. Link to the task or session where it was discovered.
 
 - [ ] Criterion 1
 - [ ] Criterion 2
+
+## Attachments
 
 ## Related Tasks
 
@@ -145,7 +149,7 @@ Quick capture: `+"`tb create \"Title\" -m module -d \"description\"`"+`
 
 `+"```"+`
 tb init [path] [--board-path=board] [--prefix=%[1]s]
-tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic]
+tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
 tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status all]
 tb mv <%[1]s-NNN> <status>                              — Move task between statuses
 tb start <%[1]s-NNN>                                    — Move to in-progress
@@ -171,6 +175,7 @@ tb regenerate                                           — Regenerate BOARD.md
 tb create "Fix crash on empty input" -m core -p P1 -s S -t quick-win
 tb create "Search system" --epic -m editor          # Create an epic
 tb create "Search indexing" --parent 1 -m editor    # Create child of epic
+tb create "Legacy integration probe" --legacy-file   # Explicit old <status>/<ID>.md layout
 tb ls -T bug -p P1                       # P1 bugs
 tb ls -t testing                         # All test-related tasks
 tb ls --parent 1                         # Children of an epic
@@ -211,8 +216,10 @@ Based on the argument, perform one of:
    - `+"`-t tag1,tag2`"+` — tags (see taxonomy in `+"`%[2]s/CONVENTIONS.md`"+`)
    - `+"`--parent ID`"+` — parent epic task ID (links child to parent)
    - `+"`--epic`"+` — create as epic (sets type=feature, adds epic tag)
-2. After creation, edit the generated task file to add Acceptance Criteria and any extra detail
-3. **Link related tasks:** Search the board with `+"`tb grep`"+` for tasks in the same module or with overlapping scope. Add a `+"`## Related Tasks`"+` section with bidirectional links
+   - `+"`--legacy-file`"+` — intentionally create old `+"`<status>/<ID>.md`"+` layout instead of folder form
+2. By default, creation writes `+"`<status>/<ID>/TASK.md`"+` with an empty `+"`## Attachments`"+` section
+3. After creation, edit the generated task file to add Acceptance Criteria and any extra detail
+4. **Link related tasks:** Search the board with `+"`tb grep`"+` for tasks in the same module or with overlapping scope. Add a `+"`## Related Tasks`"+` section with bidirectional links
 
 **`+"`start <%[1]s-NNN>`"+`**:
 
@@ -290,7 +297,7 @@ Or run `+"`tb scan --apply`"+` to auto-create tasks from untagged TODO/FIXME/HAC
 
 `+"```"+`
 tb init [path] [--board-path=board] [--prefix=%[1]s]                     Initialize board
-tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic]
+tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
 tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID]  List/filter tasks
 tb mv <%[1]s-NNN> <status>                                               Move task
 tb start <%[1]s-NNN>                                                     Start working
@@ -311,7 +318,7 @@ tb regenerate                                                            Regener
 | Command | Aliases | Description |
 |---------|---------|-------------|
 | `+"`init`"+` | | Initialize board structure (creates `+"`"+`.tb.yaml`+"`"+` in project root) |
-| `+"`create`"+` | `+"`new`"+` | Create a new task |
+| `+"`create`"+` | `+"`new`"+` | Create a new folder-form task |
 | `+"`ls`"+` | `+"`list`"+` | List and filter tasks |
 | `+"`mv`"+` | `+"`move`"+` | Move task between statuses |
 | `+"`start`"+` | | Move task to in-progress |
@@ -341,6 +348,7 @@ tb create "Fix crash on empty input" -m core -p P1 -s S -t quick-win
 tb create "Quick bug note"                        # minimal — title only
 tb create "Search system" --epic -m editor        # Create an epic
 tb create "Search indexing" --parent 1 -m editor  # Create child of epic
+tb create "Legacy integration probe" --legacy-file # Explicit old <status>/<ID>.md layout
 tb ls -T bug -p P1                                # P1 bugs
 tb ls -t testing                                  # All test-related tasks
 tb ls -t quick-win -T tech-debt                   # Easy tech-debt wins

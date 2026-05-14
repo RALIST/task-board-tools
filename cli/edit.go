@@ -266,7 +266,11 @@ func upsertTaskSection(content, heading, body string) string {
 			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
 		}
 	case "## Acceptance Criteria":
-		if idx, ok := findFirstMarkdownHeading(content, []string{"## Related Tasks", "## Log"}); ok {
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Related Tasks", "## Attachments", "## Log"}); ok {
+			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
+		}
+	case "## Attachments":
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Log"}); ok {
 			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
 		}
 	}
@@ -285,6 +289,7 @@ var taskMarkdownHeadings = map[string]bool{
 	"## Subtasks":            true,
 	"## Acceptance Criteria": true,
 	"## Related Tasks":       true,
+	"## Attachments":         true,
 	"## Log":                 true,
 }
 

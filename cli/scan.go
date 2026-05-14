@@ -31,7 +31,7 @@ var markerPattern = regexp.MustCompile(`\b(TODO|FIXME|HACK|WORKAROUND)(\([^)]*\)
 // taskRefPattern matches an existing PREFIX-NNN reference. Lazily initialized in cmdScan().
 var taskRefPattern *regexp.Regexp
 
-type taskRef struct {
+type todoTaskRef struct {
 	hit todoHit
 	id  int
 }
@@ -105,7 +105,7 @@ func cmdScan(args []string) {
 	}
 	defer lock.unlock()
 
-	var refs []taskRef
+	var refs []todoTaskRef
 
 	for _, h := range hits {
 		id, err := allocateID(boardDir)
@@ -123,12 +123,12 @@ func cmdScan(args []string) {
 			fatal("cannot write %s: %v", destPath, err)
 		}
 
-		refs = append(refs, taskRef{hit: h, id: id})
+		refs = append(refs, todoTaskRef{hit: h, id: id})
 		fmt.Printf("  %s:%d  %s: %s → %s\n", h.RelFile, h.Line, h.Marker, truncate(h.Desc, 50), taskID)
 	}
 
 	// Update source files — group by file for efficiency.
-	fileHits := make(map[string][]taskRef)
+	fileHits := make(map[string][]todoTaskRef)
 	for _, r := range refs {
 		fileHits[r.hit.File] = append(fileHits[r.hit.File], r)
 	}
@@ -275,7 +275,7 @@ func buildScanTaskContent(id int, h todoHit, date string) string {
 }
 
 // updateSourceFile replaces TODO markers in a file with WS-NNN tagged versions.
-func updateSourceFile(path string, tasks []taskRef) error {
+func updateSourceFile(path string, tasks []todoTaskRef) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err

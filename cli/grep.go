@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -73,50 +72,41 @@ func cmdGrep(args []string) {
 
 	var results []match
 
-	for _, status := range dirs {
-		dirPath := filepath.Join(boardDir, status)
-		entries, err := os.ReadDir(dirPath)
+	refs, err := discoverTaskRefs(boardDir, dirs)
+	if err != nil {
+		fatal("%v", err)
+	}
+	for _, ref := range refs {
+		t, err := parseTaskRef(ref, cwd)
+		if err != nil {
+			warnSkippingTask(ref.Path, err)
+			continue
+		}
+
+		// Read full file content and search.
+		f, err := os.Open(ref.Path)
 		if err != nil {
 			continue
 		}
-		for _, entry := range entries {
-			if entry.IsDir() || !isTaskFile(entry.Name()) {
-				continue
-			}
-			fullPath := filepath.Join(dirPath, entry.Name())
-			t, err := parseTaskFile(fullPath)
-			if err != nil {
-				warnSkippingTask(fullPath, err)
-				continue
-			}
-			t.Status = status
-			t.FilePath = relPath(cwd, fullPath)
 
-			// Read full file content and search.
-			f, err := os.Open(fullPath)
-			if err != nil {
-				continue
-			}
-
-			var matchedLines []matchLine
-			matchCount := 0
-			scanner := bufio.NewScanner(f)
-			lineNum := 0
-			for scanner.Scan() {
-				lineNum++
-				line := scanner.Text()
-				if re.MatchString(line) {
-					matchCount++
-					if !*filesOnly {
-						matchedLines = append(matchedLines, matchLine{lineNum, line})
-					}
+		var matchedLines []matchLine
+		matchCount := 0
+		scanner := bufio.NewScanner(f)
+		lineNum := 0
+		for scanner.Scan() {
+			lineNum++
+			line := scanner.Text()
+			if re.MatchString(line) {
+				matchCount++
+				if !*filesOnly {
+					matchedLines = append(matchedLines, matchLine{lineNum, line})
 				}
 			}
-			f.Close()
+		}
+		f.Close()
 
-			if matchCount > 0 {
-				results = append(results, match{task: t, lines: matchedLines, matches: matchCount})
-			}
+		if matchCount > 0 {
+			results = append(results, match{task: t, lines: matchedLines, matches: matchCount})
 		}
 	}
 

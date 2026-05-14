@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,29 +47,19 @@ func cmdList(args []string) {
 
 	cwd, _ := os.Getwd()
 
+	refs, err := discoverTaskRefs(boardDir, dirs)
+	if err != nil {
+		fatal("%v", err)
+	}
 	var tasks []Task
-	for _, status := range dirs {
-		dirPath := filepath.Join(boardDir, status)
-		entries, err := os.ReadDir(dirPath)
+	for _, ref := range refs {
+		t, err := parseTaskRef(ref, cwd)
 		if err != nil {
-			continue // directory might not exist
+			warnSkippingTask(ref.Path, err)
+			continue
 		}
-		for _, entry := range entries {
-			if entry.IsDir() || !isTaskFile(entry.Name()) {
-				continue
-			}
-			fullPath := filepath.Join(dirPath, entry.Name())
-			t, err := parseTaskFile(fullPath)
-			if err != nil {
-				warnSkippingTask(fullPath, err)
-				continue
-			}
-			t.Status = status
-			t.FilePath = relPath(cwd, fullPath)
-
-			if matchesFilters(t, *tagsFilter, *sizeFilter, *moduleFilter, *typeFilter, *priorityFilter, normalizedParent) {
-				tasks = append(tasks, t)
-			}
+		if matchesFilters(t, *tagsFilter, *sizeFilter, *moduleFilter, *typeFilter, *priorityFilter, normalizedParent) {
+			tasks = append(tasks, t)
 		}
 	}
 

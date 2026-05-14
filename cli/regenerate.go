@@ -9,14 +9,17 @@ import (
 )
 
 // buildBoardContent generates the board markdown content from the current directory state.
-func buildBoardContent(boardDir string) string {
+func buildBoardContent(boardDir string) (string, error) {
 	var b strings.Builder
 
 	b.WriteString("# Board\n\n")
 
 	// Epics section uses the active board scope. Archived tasks are closed and
 	// hidden from BOARD.md unless a command explicitly requests archive/all.
-	allTasks := collectActiveTasks(boardDir)
+	allTasks, err := collectActiveTasks(boardDir)
+	if err != nil {
+		return "", err
+	}
 	var activeEpics, finishedEpics []Task
 	for _, t := range allTasks {
 		if !hasTag(t.Tags, "epic") {
@@ -79,7 +82,10 @@ func buildBoardContent(boardDir string) string {
 	b.WriteString("## In Progress\n\n")
 	b.WriteString("| ID | Title | Priority | Module | Branch |\n")
 	b.WriteString("|----|-------|----------|--------|--------|\n")
-	tasks := collectTasks(boardDir, "in-progress")
+	tasks, err := collectTasks(boardDir, "in-progress")
+	if err != nil {
+		return "", err
+	}
 	if len(tasks) == 0 {
 		b.WriteString("| — | — | — | — | — |\n")
 	} else {
@@ -93,7 +99,10 @@ func buildBoardContent(boardDir string) string {
 	b.WriteString("## Backlog\n\n")
 	b.WriteString("| ID | Title | Type | Priority | Size | Module |\n")
 	b.WriteString("|----|-------|------|----------|------|--------|\n")
-	tasks = collectTasks(boardDir, "backlog")
+	tasks, err = collectTasks(boardDir, "backlog")
+	if err != nil {
+		return "", err
+	}
 	if len(tasks) == 0 {
 		b.WriteString("| — | — | — | — | — | — |\n")
 	} else {
@@ -107,7 +116,10 @@ func buildBoardContent(boardDir string) string {
 	b.WriteString("## Recently Done\n\n")
 	b.WriteString("| ID | Title | Type | Module |\n")
 	b.WriteString("|----|-------|------|--------|\n")
-	tasks = collectTasks(boardDir, "done")
+	tasks, err = collectTasks(boardDir, "done")
+	if err != nil {
+		return "", err
+	}
 	if len(tasks) == 0 {
 		b.WriteString("| — | — | — | — |\n")
 	} else {
@@ -123,14 +135,17 @@ func buildBoardContent(boardDir string) string {
 		}
 	}
 
-	return b.String()
+	return b.String(), nil
 }
 
 // regenerateBoard generates BOARD.md from the current directory state.
 // It does not acquire .board.lock itself because structured mutations already
 // call it while holding that lock.
 func regenerateBoard(boardDir string) error {
-	content := buildBoardContent(boardDir)
+	content, err := buildBoardContent(boardDir)
+	if err != nil {
+		return err
+	}
 
 	// Atomic write via temp file.
 	output := filepath.Join(boardDir, "BOARD.md")
@@ -157,42 +172,40 @@ func regenerateBoardLocked(boardDir string) error {
 
 // collectTasks reads and parses all task files from a status directory,
 // sorted by numeric ID ascending.
-func collectTasks(boardDir, status string) []Task {
-	dirPath := filepath.Join(boardDir, status)
-	entries, err := os.ReadDir(dirPath)
+func collectTasks(boardDir, status string) ([]Task, error) {
+	refs, err := discoverTaskRefs(boardDir, []string{status})
 	if err != nil {
-		return nil
+		return nil, err
 	}
-
 	var tasks []Task
-	for _, entry := range entries {
-		if entry.IsDir() || !isTaskFile(entry.Name()) {
-			continue
-		}
-		taskPath := filepath.Join(dirPath, entry.Name())
-		t, err := parseTaskFile(taskPath)
+	cwd, _ := os.Getwd()
+	for _, ref := range refs {
+		t, err := parseTaskRef(ref, cwd)
 		if err != nil {
-			warnSkippingTask(taskPath, err)
+			warnSkippingTask(ref.Path, err)
 			continue
 		}
-		t.Status = status
 		tasks = append(tasks, t)
 	}
 
 	sort.Slice(tasks, func(i, j int) bool {
 		return numericID(tasks[i].ID) < numericID(tasks[j].ID)
 	})
-	return tasks
+	return tasks, nil
 }
 
 // collectActiveTasks reads and parses task files from active board
 // directories only: backlog, in-progress, and done.
-func collectActiveTasks(boardDir string) []Task {
+func collectActiveTasks(boardDir string) ([]Task, error) {
 	var all []Task
 	for _, status := range statusDirs {
-		all = append(all, collectTasks(boardDir, status)...)
+		tasks, err := collectTasks(boardDir, status)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, tasks...)
 	}
-	return all
+	return all, nil
 }
 
 func cmdRegenerate(_ []string) {
@@ -220,5 +233,9 @@ func cmdBoard(args []string) {
 		}
 		return
 	}
-	fmt.Print(buildBoardContent(cfg.BoardDir))
+	content, err := buildBoardContent(cfg.BoardDir)
+	if err != nil {
+		fatal("%v", err)
+	}
+	fmt.Print(content)
 }

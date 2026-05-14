@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -95,8 +94,7 @@ func emitShowJSON(path string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
-	// Status is the parent directory name. FilePath is relative to CWD.
-	t.Status = filepath.Base(filepath.Dir(path))
+	t.Status = taskStatusFromPath(cfg.BoardDir, path)
 	if cwd, err := os.Getwd(); err == nil {
 		t.FilePath = relPath(cwd, path)
 	} else {
@@ -129,8 +127,11 @@ type boardSnapshotJSON struct {
 // buildBoardSnapshot mirrors buildBoardContent but emits structured data.
 // Recently Done is capped at 50 items (highest ID first) to match the
 // markdown view.
-func buildBoardSnapshot(boardDir string) boardSnapshotJSON {
-	all := collectActiveTasks(boardDir)
+func buildBoardSnapshot(boardDir string) (boardSnapshotJSON, error) {
+	all, err := collectActiveTasks(boardDir)
+	if err != nil {
+		return boardSnapshotJSON{}, err
+	}
 
 	var activeEpics, finishedEpics, allEpics []Task
 	for _, t := range all {
@@ -159,10 +160,19 @@ func buildBoardSnapshot(boardDir string) boardSnapshotJSON {
 	epicSort(activeEpics)
 	epicSort(finishedEpics)
 
-	inProgress := collectTasks(boardDir, "in-progress")
-	backlog := collectTasks(boardDir, "backlog")
+	inProgress, err := collectTasks(boardDir, "in-progress")
+	if err != nil {
+		return boardSnapshotJSON{}, err
+	}
+	backlog, err := collectTasks(boardDir, "backlog")
+	if err != nil {
+		return boardSnapshotJSON{}, err
+	}
 
-	done := collectTasks(boardDir, "done")
+	done, err := collectTasks(boardDir, "done")
+	if err != nil {
+		return boardSnapshotJSON{}, err
+	}
 	sort.Slice(done, func(i, j int) bool {
 		return numericID(done[i].ID) > numericID(done[j].ID)
 	})
@@ -177,11 +187,15 @@ func buildBoardSnapshot(boardDir string) boardSnapshotJSON {
 		InProgress:    marshalTasks(inProgress),
 		Backlog:       marshalTasks(backlog),
 		RecentlyDone:  marshalTasks(done),
-	}
+	}, nil
 }
 
 func emitBoardJSON(boardDir string) error {
+	snapshot, err := buildBoardSnapshot(boardDir)
+	if err != nil {
+		return err
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(buildBoardSnapshot(boardDir))
+	return enc.Encode(snapshot)
 }

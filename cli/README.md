@@ -1,6 +1,6 @@
 # tb — Task Board CLI
 
-A lightweight, zero-dependency Go CLI for managing a file-based task board. Concurrency-safe, works from any directory inside a project.
+A lightweight, zero-dependency Go CLI for managing a markdown task board. Concurrency-safe, works from any directory inside a project.
 
 ## Install
 
@@ -49,13 +49,14 @@ tb init . --prefix=NEW    # changes prefix, keeps existing board path
 
 | Command | Example | Description |
 |---------|---------|-------------|
-| `create` | `tb create "Fix crash" -m editor -d "Modal crashes on open"` | Create a task (defaults: type=bug, priority=P2, size=M) |
+| `create` | `tb create "Fix crash" -m editor -d "Modal crashes on open"` | Create a folder-form task (defaults: type=bug, priority=P2, size=M) |
 | `epic` | `tb epic 32` | Show epic with active children and progress |
 | `ls` | `tb ls -T bug -p P1 -m editor` | List/filter tasks sorted by priority (shows all by default; use `-n N` to limit) |
 | `start` | `tb start 123` | Move task to in-progress (warns above `wip_limit`) |
 | `done` | `tb done 123` | Move task to done |
 | `mv` | `tb mv 123 done` | Move task to any status |
 | `edit` | `tb edit 123 -p P1 -s L -m ui` | Edit task metadata (priority, type, size, module, tags) |
+| `attach` | `tb attach 123 screenshot.png notes.pdf` | Copy files into a task's `attachments/` directory |
 | `close` | `tb close 123` | Archive task (moves to `archive/`) |
 | `show` | `tb show 123` | Print task content to stdout |
 | `open` | `tb open 123` | Open task in default editor/app |
@@ -78,12 +79,16 @@ The prefix is optional in commands — `tb start 123` and `tb start WS-123` are 
 -t tag1,tag2     Tags, comma-separated (optional)
 --parent ID      Parent epic task ID (links child to parent)
 --epic           Create as epic (type=feature, tag=epic)
+--legacy-file    Create legacy <status>/<ID>.md instead of <status>/<ID>/TASK.md
 ```
+
+By default, `tb create` writes `board/<status>/<ID>/TASK.md`, prints that path, and includes empty `## Attachments` plus `## Log` sections. The `--legacy-file` escape hatch is for boards or scripts that intentionally still need the older single-file layout; legacy file tasks do not support in-place attachments.
 
 Minimal create — just a title:
 
 ```bash
 tb create "Quick bug note"
+tb create "Old integration probe" --legacy-file
 ```
 
 ## List flags
@@ -133,6 +138,16 @@ Searches full file content (title, goal, context, acceptance criteria, log — e
 -l               Compact output — show only task IDs and match counts
 -s               Case-sensitive search (default: case-insensitive)
 ```
+
+## Attachments
+
+```bash
+tb attach 123 screenshot.png notes.pdf
+```
+
+`tb attach` copies regular files into `<status>/<ID>/attachments/` while holding `.board.lock`. If the task is still in legacy file form (`<status>/<ID>.md`), the command promotes it to folder form (`<status>/<ID>/TASK.md`) and preserves the existing markdown body and log history.
+
+Collision policy: attachment names are the source file basenames, and `tb attach` refuses to overwrite. If two incoming files share a basename, or a basename already exists in `attachments/`, the command fails before publishing new attachments.
 
 ## Scan — auto-create tasks from TODOs
 
@@ -194,7 +209,7 @@ BOARD.md includes an **Epics** section for active epics and a separate **Finishe
 
 ## Concurrency
 
-All board writers (`create`, `mv`, `start`, `done`, `close`, `scan --apply`, `regenerate`) acquire an exclusive file lock on `.board.lock`. Safe for multiple agents running in parallel.
+All board writers (`create`, `mv`, `start`, `done`, `close`, `attach`, `scan --apply`, `regenerate`) acquire an exclusive file lock on `.board.lock`. Safe for multiple agents running in parallel.
 
 ## Board structure
 
@@ -211,4 +226,4 @@ project/
     BOARD.md         Auto-generated kanban view
 ```
 
-Each task is a markdown file (`PREFIX-NNN.md`) in a status directory. Moving a file between directories = status change. `BOARD.md` is regenerated automatically by `tb mv`/`start`/`done`/`close`/`scan --apply` and the stop hook.
+New tasks are folder-form by default: `status/PREFIX-NNN/TASK.md`, with attachments in `status/PREFIX-NNN/attachments/`. Legacy tasks may still exist as `status/PREFIX-NNN.md`, and `tb create --legacy-file` can create one intentionally. `BOARD.md` is regenerated automatically by `tb create`/`mv`/`start`/`done`/`close`/`attach`/`scan --apply`.

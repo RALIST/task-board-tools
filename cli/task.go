@@ -46,8 +46,8 @@ var validAgentStatuses = map[string]bool{
 const maxMetadataLines = 20
 
 // parseTaskFile reads a task markdown file and extracts metadata from the first
-// maxMetadataLines lines. It sets Status based on the parent directory name and
-// FilePath as the relative path from the board root.
+// maxMetadataLines lines. Status and FilePath are set by the discovery wrapper,
+// because folder-form task markdown lives one directory below its status.
 func parseTaskFile(path string) (Task, error) {
 	f, err := os.Open(path)
 	if err != nil {

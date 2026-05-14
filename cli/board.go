@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 // statusDirs lists the active board directories. Archive is intentionally not
@@ -176,6 +175,229 @@ func isTaskFile(name string) bool {
 	return strings.HasPrefix(name, cfg.Prefix+"-") && strings.HasSuffix(name, ".md")
 }
 
+const folderTaskFileName = "TASK.md"
+
+type taskRef struct {
+	ID     string
+	Status string
+	Path   string
+}
+
+func taskIDFromFileName(name string) (string, bool) {
+	if !isTaskFile(name) {
+		return "", false
+	}
+	return strings.TrimSuffix(name, ".md"), true
+}
+
+func isTaskDirName(name string) bool {
+	return !strings.HasPrefix(name, ".") &&
+		strings.HasPrefix(name, cfg.Prefix+"-") &&
+		!strings.HasSuffix(name, ".md")
+}
+
+func isFolderTaskPath(path string) bool {
+	return filepath.Base(path) == folderTaskFileName
+}
+
+func statusFromTaskPath(path string) string {
+	if isFolderTaskPath(path) {
+		return filepath.Base(filepath.Dir(filepath.Dir(path)))
+	}
+	return filepath.Base(filepath.Dir(path))
+}
+
+func ownerPathFromTaskPath(path string) string {
+	if isFolderTaskPath(path) {
+		return filepath.Dir(path)
+	}
+	return path
+}
+
+func taskFilePath(boardDir, status, taskID string) string {
+	return filepath.Join(boardDir, status, taskID+".md")
+}
+
+func taskFolderPath(boardDir, status, taskID string) string {
+	return filepath.Join(boardDir, status, taskID)
+}
+
+func taskFolderMarkdownPath(boardDir, status, taskID string) string {
+	return filepath.Join(taskFolderPath(boardDir, status, taskID), folderTaskFileName)
+}
+
+func resolveTaskRefInStatus(boardDir, status, taskID string) (taskRef, bool, error) {
+	folderPath := taskFolderMarkdownPath(boardDir, status, taskID)
+	folderExists := false
+	if info, err := os.Stat(folderPath); err == nil {
+		if info.IsDir() {
+			return taskRef{}, false, fmt.Errorf("folder-form task %s is a directory, expected markdown file", folderPath)
+		}
+		folderExists = true
+	} else if !os.IsNotExist(err) {
+		return taskRef{}, false, fmt.Errorf("cannot stat folder-form task %s: %w", folderPath, err)
+	}
+
+	filePath := taskFilePath(boardDir, status, taskID)
+	fileExists := false
+	if info, err := os.Stat(filePath); err == nil {
+		if info.IsDir() {
+			return taskRef{}, false, fmt.Errorf("file-form task %s is a directory, expected markdown file", filePath)
+		}
+		fileExists = true
+	} else if !os.IsNotExist(err) {
+		return taskRef{}, false, fmt.Errorf("cannot stat file-form task %s: %w", filePath, err)
+	}
+
+	if folderExists {
+		return taskRef{ID: taskID, Status: status, Path: folderPath}, true, nil
+	}
+	if fileExists {
+		return taskRef{ID: taskID, Status: status, Path: filePath}, true, nil
+	}
+	return taskRef{}, false, nil
+}
+
+func resolveTaskRefsForID(boardDir, taskID string, statuses []string) ([]taskRef, error) {
+	var refs []taskRef
+	for _, status := range statuses {
+		ref, ok, err := resolveTaskRefInStatus(boardDir, status, taskID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			refs = append(refs, ref)
+		}
+	}
+	return refs, nil
+}
+
+func discoverTaskRefs(boardDir string, statuses []string) ([]taskRef, error) {
+	var refs []taskRef
+	seen := make(map[string]taskRef)
+	for _, status := range statuses {
+		statusRefs, err := discoverTaskRefsInStatus(boardDir, status)
+		if err != nil {
+			return nil, err
+		}
+		for _, ref := range statusRefs {
+			if prev, ok := seen[ref.ID]; ok {
+				return nil, fmt.Errorf("task %s resolves to multiple canonical markdown paths in requested status scope: %s and %s", ref.ID, prev.Path, ref.Path)
+			}
+			seen[ref.ID] = ref
+			refs = append(refs, ref)
+		}
+	}
+	return refs, nil
+}
+
+func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
+	dirPath := filepath.Join(boardDir, status)
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("cannot read status directory %s: %w", dirPath, err)
+	}
+
+	refsByID := make(map[string]taskRef)
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		if entry.IsDir() {
+			if !isTaskDirName(name) {
+				continue
+			}
+			taskPath := filepath.Join(dirPath, name, folderTaskFileName)
+			info, err := os.Stat(taskPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, fmt.Errorf("cannot stat folder-form task %s: %w", taskPath, err)
+			}
+			if info.IsDir() {
+				return nil, fmt.Errorf("folder-form task %s is a directory, expected markdown file", taskPath)
+			}
+			if err := addTaskRef(refsByID, taskRef{ID: name, Status: status, Path: taskPath}); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		id, ok := taskIDFromFileName(name)
+		if !ok {
+			continue
+		}
+		taskPath := filepath.Join(dirPath, name)
+		if err := addTaskRef(refsByID, taskRef{ID: id, Status: status, Path: taskPath}); err != nil {
+			return nil, err
+		}
+	}
+
+	refs := make([]taskRef, 0, len(refsByID))
+	for _, ref := range refsByID {
+		refs = append(refs, ref)
+	}
+	sort.Slice(refs, func(i, j int) bool {
+		return numericID(refs[i].ID) < numericID(refs[j].ID)
+	})
+	return refs, nil
+}
+
+func addTaskRef(refsByID map[string]taskRef, ref taskRef) error {
+	if prev, ok := refsByID[ref.ID]; ok {
+		if isFolderTaskPath(prev.Path) {
+			return nil
+		}
+		if isFolderTaskPath(ref.Path) {
+			refsByID[ref.ID] = ref
+			return nil
+		}
+		return duplicateTaskFormError(ref.ID, ref.Status, prev.Path, ref.Path)
+	}
+	refsByID[ref.ID] = ref
+	return nil
+}
+
+func duplicateTaskFormError(taskID, status, firstPath, secondPath string) error {
+	return fmt.Errorf("task %s has both file-form and folder-form markdown in %s: %s and %s; remove one before continuing", taskID, status, firstPath, secondPath)
+}
+
+func resolveTaskRef(boardDir, taskID string, statuses []string) (taskRef, error) {
+	refs, err := discoverTaskRefs(boardDir, statuses)
+	if err != nil {
+		return taskRef{}, err
+	}
+	for _, ref := range refs {
+		if strings.EqualFold(ref.ID, taskID) {
+			return ref, nil
+		}
+	}
+	return taskRef{}, fmt.Errorf("task %s not found in requested status scope (%s). Verify the ID with `tb ls --status all`", taskID, strings.Join(statuses, ", "))
+}
+
+func parseTaskRef(ref taskRef, cwd string) (Task, error) {
+	t, err := parseTaskFile(ref.Path)
+	if err != nil {
+		return Task{}, err
+	}
+	t.Status = ref.Status
+	t.FilePath = relPath(cwd, ref.Path)
+	return t, nil
+}
+
+func taskDirForRef(ref taskRef) string {
+	if isFolderTaskPath(ref.Path) {
+		return filepath.Dir(ref.Path)
+	}
+	return ""
+}
+
 // boardLock holds an exclusive file lock on .board.lock to serialize mutations.
 // Use lockBoard/unlockBoard around any read-modify-write sequence.
 type boardLock struct {
@@ -249,8 +471,12 @@ func allocateID(boardDir string) (int, error) {
 // of the provided status directories. Used by allocateID to skip collisions.
 func idExists(boardDir string, dirs []string, id int) bool {
 	filename := fmt.Sprintf("%s-%d.md", cfg.Prefix, id)
+	dirname := fmt.Sprintf("%s-%d", cfg.Prefix, id)
 	for _, d := range dirs {
 		if _, err := os.Stat(filepath.Join(boardDir, d, filename)); err == nil {
+			return true
+		}
+		if _, err := os.Stat(filepath.Join(boardDir, d, dirname)); err == nil {
 			return true
 		}
 	}
@@ -272,23 +498,43 @@ func findTask(boardDir, taskID string) (string, error) {
 }
 
 func findTaskInStatuses(boardDir, taskID string, statuses []string) (string, error) {
-	filename := taskID + ".md"
-	for _, status := range statuses {
-		path := filepath.Join(boardDir, status, filename)
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
+	ref, err := resolveTaskRef(boardDir, taskID, statuses)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("task %s not found in requested status scope (%s). Verify the ID with `tb ls --status all`", taskID, strings.Join(statuses, ", "))
+	return ref.Path, nil
 }
 
 // relPath returns the relative path from base to target, falling back to the absolute path.
 func relPath(base, target string) string {
 	rel, err := filepath.Rel(base, target)
-	if err != nil {
-		return target
+	if err == nil && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+		return rel
 	}
-	return rel
+
+	if realBase, baseErr := filepath.EvalSymlinks(base); baseErr == nil {
+		if realTarget, targetErr := filepath.EvalSymlinks(target); targetErr == nil {
+			if realRel, realErr := filepath.Rel(realBase, realTarget); realErr == nil {
+				return realRel
+			}
+		}
+	}
+
+	if err == nil {
+		return rel
+	}
+	return target
+}
+
+func taskStatusFromPath(boardDir, taskPath string) string {
+	rel, err := filepath.Rel(boardDir, taskPath)
+	if err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+		parts := strings.Split(rel, string(filepath.Separator))
+		if len(parts) > 1 {
+			return parts[0]
+		}
+	}
+	return filepath.Base(filepath.Dir(taskPath))
 }
 
 // resolveStatus maps a single status alias to the canonical concrete directory
@@ -352,43 +598,15 @@ func parseScanExtensions(s string) map[string]bool {
 	return exts
 }
 
-// archiveTask moves a task file to the archive directory with a log entry.
+// archiveTask moves a task to the archive directory with a log entry.
 func archiveTask(boardDir, taskID string) {
-	lock, err := lockBoard(boardDir)
+	result, err := archiveTaskOnBoard(boardDir, taskID)
 	if err != nil {
 		fatal("%v", err)
 	}
-	defer lock.unlock()
-
-	srcPath, err := findTask(boardDir, taskID)
-	if err != nil {
-		fatal("%v", err)
+	if result.Noop {
+		fmt.Fprintf(os.Stderr, "%s is already in archive — nothing to do\n", taskID)
+		os.Exit(0)
 	}
-
-	srcStatus := filepath.Base(filepath.Dir(srcPath))
-
-	data, err := os.ReadFile(srcPath)
-	if err != nil {
-		fatal("cannot read %s: %v", srcPath, err)
-	}
-
-	today := time.Now().Format("2006-01-02")
-	content := appendLogEntry(string(data), fmt.Sprintf("- %s: Closed (archived from %s)\n", today, srcStatus))
-
-	archiveDir := filepath.Join(boardDir, "archive")
-	if err := os.MkdirAll(archiveDir, 0755); err != nil {
-		fatal("cannot create archive directory: %v", err)
-	}
-
-	destPath := filepath.Join(archiveDir, taskID+".md")
-	if err := writeFileAtomic(destPath, []byte(content), 0644); err != nil {
-		fatal("cannot write %s: %v", destPath, err)
-	}
-
-	if err := os.Remove(srcPath); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "warning: source file already removed\n")
-	}
-
-	_ = regenerateBoard(boardDir)
-	fmt.Printf("Closed %s (archived from %s)\n", taskID, srcStatus)
+	fmt.Printf("Closed %s (archived from %s)\n", taskID, result.SrcStatus)
 }

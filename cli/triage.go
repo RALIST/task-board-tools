@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -43,33 +42,24 @@ func cmdTriage(args []string) {
 
 	boardDir := cfg.BoardDir
 
+	cwd, _ := os.Getwd()
+
 	// Scan backlog for tasks needing grooming.
 	var results []triageReason
-	for _, status := range []string{"backlog"} {
-		dirPath := filepath.Join(boardDir, status)
-		entries, err := os.ReadDir(dirPath)
+	refs, err := discoverTaskRefs(boardDir, []string{"backlog"})
+	if err != nil {
+		fatal("%v", err)
+	}
+	for _, ref := range refs {
+		t, err := parseTaskRef(ref, cwd)
 		if err != nil {
+			warnSkippingTask(ref.Path, err)
 			continue
 		}
 
-		cwd, _ := os.Getwd()
-		for _, entry := range entries {
-			if entry.IsDir() || !isTaskFile(entry.Name()) {
-				continue
-			}
-			fullPath := filepath.Join(dirPath, entry.Name())
-			t, err := parseTaskFile(fullPath)
-			if err != nil {
-				warnSkippingTask(fullPath, err)
-				continue
-			}
-			t.Status = status
-			t.FilePath = relPath(cwd, fullPath)
-
-			reasons := checkNeedsGrooming(fullPath, t)
-			if len(reasons) > 0 {
-				results = append(results, triageReason{task: t, reasons: reasons})
-			}
+		reasons := checkNeedsGrooming(ref.Path, t)
+		if len(reasons) > 0 {
+			results = append(results, triageReason{task: t, reasons: reasons})
 		}
 	}
 

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -33,22 +32,25 @@ func cmdEpic(args []string) {
 		fatal("%v", err)
 	}
 
-	epicPath, err := findTaskInStatuses(boardDir, epicID, statuses)
+	epicRef, err := resolveTaskRef(boardDir, epicID, statuses)
 	if err != nil {
 		fatal("%v", err)
 	}
 
-	epicTask, err := parseTaskFile(epicPath)
+	cwd, _ := os.Getwd()
+	epicTask, err := parseTaskRef(epicRef, cwd)
 	if err != nil {
 		fatal("cannot read %s: %v", epicID, err)
 	}
-	epicTask.Status = filepath.Base(filepath.Dir(epicPath))
 
 	if !hasTag(epicTask.Tags, "epic") {
 		fatal("%s is not tagged as an epic", epicID)
 	}
 
-	children := findChildrenInStatuses(boardDir, epicID, statuses)
+	children, err := findChildrenInStatuses(boardDir, epicID, statuses)
+	if err != nil {
+		fatal("%v", err)
+	}
 
 	// Count progress.
 	doneCount := 0
@@ -94,32 +96,32 @@ func cmdEpic(args []string) {
 }
 
 func findActiveChildren(boardDir, epicID string) []Task {
-	return findChildrenInStatuses(boardDir, epicID, statusDirs)
-}
-
-func findChildrenInStatuses(boardDir, epicID string, statuses []string) []Task {
-	var children []Task
-	for _, status := range statuses {
-		dirPath := filepath.Join(boardDir, status)
-		entries, err := os.ReadDir(dirPath)
-		if err != nil {
-			continue
-		}
-		for _, entry := range entries {
-			if entry.IsDir() || !isTaskFile(entry.Name()) {
-				continue
-			}
-			t, err := parseTaskFile(filepath.Join(dirPath, entry.Name()))
-			if err != nil {
-				continue
-			}
-			if strings.EqualFold(t.Parent, epicID) {
-				t.Status = status
-				children = append(children, t)
-			}
-		}
+	children, err := findChildrenInStatuses(boardDir, epicID, statusDirs)
+	if err != nil {
+		warnSkippingTask(epicID, err)
+		return nil
 	}
 	return children
+}
+
+func findChildrenInStatuses(boardDir, epicID string, statuses []string) ([]Task, error) {
+	var children []Task
+	refs, err := discoverTaskRefs(boardDir, statuses)
+	if err != nil {
+		return nil, err
+	}
+	cwd, _ := os.Getwd()
+	for _, ref := range refs {
+		t, err := parseTaskRef(ref, cwd)
+		if err != nil {
+			warnSkippingTask(ref.Path, err)
+			continue
+		}
+		if strings.EqualFold(t.Parent, epicID) {
+			children = append(children, t)
+		}
+	}
+	return children, nil
 }
 
 // statusRank returns a sort rank for status ordering.

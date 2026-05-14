@@ -35,9 +35,10 @@ func cmdCreate(args []string) {
 	status := fs.String("status", "backlog", "initial status directory")
 	parent := fs.String("parent", "", "parent epic task ID")
 	epic := fs.Bool("epic", false, "create as epic (type=feature, tag=epic)")
+	legacyFile := fs.Bool("legacy-file", false, "write legacy <status>/<ID>.md instead of folder-form <status>/<ID>/TASK.md")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb create \"Title\" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--status backlog]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb create \"Title\" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--status backlog] [--legacy-file]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -50,7 +51,7 @@ func cmdCreate(args []string) {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "error: title is required\n\nUsage: tb create \"My task title\" -m module [-d \"description\"]")
+		fmt.Fprintln(os.Stderr, "error: title is required\n\nUsage: tb create \"My task title\" -m module [-d \"description\"] [--legacy-file]")
 		os.Exit(1)
 	}
 	title := fs.Arg(0)
@@ -118,16 +119,25 @@ func cmdCreate(args []string) {
 	}
 
 	today := time.Now().Format("2006-01-02")
-	content := buildTaskContent(id, title, *taskType, *priority, *size, *module, *tags, *description, parentID, today)
+	content := buildTaskContent(id, title, *taskType, *priority, *size, *module, *tags, *description, parentID, today, !*legacyFile)
 
-	filename := fmt.Sprintf("%s-%d.md", cfg.Prefix, id)
+	taskID := fmt.Sprintf("%s-%d", cfg.Prefix, id)
 	destDir := filepath.Join(boardDir, targetStatus)
 
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		fatal("cannot create directory %s: %v", destDir, err)
 	}
 
-	destPath := filepath.Join(destDir, filename)
+	var destPath string
+	if *legacyFile {
+		destPath = filepath.Join(destDir, taskID+".md")
+	} else {
+		taskDir := filepath.Join(destDir, taskID)
+		if err := os.Mkdir(taskDir, 0755); err != nil {
+			fatal("cannot create task directory %s: %v", taskDir, err)
+		}
+		destPath = filepath.Join(taskDir, folderTaskFileName)
+	}
 	if err := writeFileAtomic(destPath, []byte(content), 0644); err != nil {
 		fatal("cannot write %s: %v", destPath, err)
 	}
@@ -135,8 +145,7 @@ func cmdCreate(args []string) {
 	// Update parent's Subtasks section.
 	if parentID != "" {
 		parentPath, _ := findTask(boardDir, parentID)
-		childID := fmt.Sprintf("%s-%d", cfg.Prefix, id)
-		if subErr := addChildToSubtasks(parentPath, childID, *size, title); subErr != nil {
+		if subErr := addChildToSubtasks(parentPath, taskID, *size, title); subErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not update parent subtasks: %v\n", subErr)
 		}
 	}
@@ -145,8 +154,7 @@ func cmdCreate(args []string) {
 		fmt.Fprintf(os.Stderr, "warning: could not regenerate BOARD.md: %v\n", err)
 	}
 
-	cwd, _ := os.Getwd()
-	fmt.Printf("Created %s\n", relPath(cwd, destPath))
+	fmt.Printf("Created %s\n", relPath(cfg.RootDir, destPath))
 }
 
 // reorderArgs separates flags and positional arguments so that all flags come
@@ -173,7 +181,7 @@ func reorderArgs(args []string) []string {
 	return append(flags, positional...)
 }
 
-func buildTaskContent(id int, title, taskType, priority, size, module, tags, description, parent, date string) string {
+func buildTaskContent(id int, title, taskType, priority, size, module, tags, description, parent, date string, includeAttachments bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s-%d: %s\n\n", cfg.Prefix, id, title)
 	fmt.Fprintf(&b, "**Type:** %s\n", taskType)
@@ -195,6 +203,9 @@ func buildTaskContent(id int, title, taskType, priority, size, module, tags, des
 		b.WriteString("\n## Goal\n\n(to be filled)\n")
 	}
 	b.WriteString("\n## Acceptance Criteria\n\n- [ ] (to be filled)\n")
+	if includeAttachments {
+		b.WriteString("\n## Attachments\n")
+	}
 	fmt.Fprintf(&b, "\n## Log\n\n- %s: Created\n", date)
 	return b.String()
 }

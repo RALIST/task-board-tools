@@ -23,7 +23,9 @@ Directory = status. Moving a file between directories = status change.
 
 ## Task File Format
 
-Filename: `PR-NNN.md` (e.g., `PR-001.md`).
+Default path: `<status>/PR-NNN/TASK.md` (e.g., `backlog/PR-001/TASK.md`).
+
+Legacy path: `<status>/PR-NNN.md`. Create legacy files only when you intentionally pass `tb create --legacy-file`; they are kept for compatibility and do not support in-place attachments.
 
 **ID allocation:** Handled automatically by `tb create`. The `.next-id` file is the counter, protected by file locking for concurrent access.
 
@@ -50,6 +52,8 @@ Why this task exists. Link to the task or session where it was discovered.
 
 - [ ] Criterion 1
 - [ ] Criterion 2
+
+## Attachments
 
 ## Related Tasks
 
@@ -139,7 +143,7 @@ Quick capture: `tb create "Title" -m module -d "description"`
 
 ```
 tb init [path] [--board-path=board] [--prefix=PR]
-tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic]
+tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
 tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status all]
 tb mv <PR-NNN> <status>               — Move task between statuses
 tb start <PR-NNN>                     — Move to in-progress
@@ -164,6 +168,7 @@ tb regenerate                            — Regenerate BOARD.md
 tb create "Fix crash on empty input" -m core -p P1 -s S -t quick-win
 tb create "Search system" --epic -m editor          # Create an epic
 tb create "Search indexing" --parent 1 -m editor    # Create child of epic
+tb create "Legacy integration probe" --legacy-file   # Explicit old <status>/<ID>.md layout
 tb ls -T bug -p P1                       # P1 bugs
 tb ls -t testing                         # All test-related tasks
 tb ls --parent 1                         # Children of an epic

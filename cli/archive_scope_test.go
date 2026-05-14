@@ -54,7 +54,10 @@ func TestBoardViewsUseActiveScope(t *testing.T) {
 		title:  "Archived Closed",
 	})
 
-	content := buildBoardContent(boardDir)
+	content, err := buildBoardContent(boardDir)
+	if err != nil {
+		t.Fatalf("buildBoardContent: %v", err)
+	}
 	if !strings.Contains(content, "| TB-1 | Active Epic | 1/1 | backlog | cli |") {
 		t.Fatalf("active epic progress should ignore archived child:\n%s", content)
 	}
@@ -65,7 +68,10 @@ func TestBoardViewsUseActiveScope(t *testing.T) {
 	}
 	assertNotContains(t, content, "Archived Closed")
 
-	snapshot := buildBoardSnapshot(boardDir)
+	snapshot, err := buildBoardSnapshot(boardDir)
+	if err != nil {
+		t.Fatalf("buildBoardSnapshot: %v", err)
+	}
 	assertTaskIDs(t, snapshot.Epics, []string{"TB-1"})
 	assertTaskIDs(t, snapshot.ActiveEpics, []string{"TB-1"})
 	assertTaskIDs(t, snapshot.FinishedEpics, nil)
