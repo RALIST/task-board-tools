@@ -184,28 +184,31 @@ Marker legend:
 
 ---
 
-## M8 — Folder-form tasks + attachments (TB-93) · ⬚
+## M8 — Folder-form tasks + attachments (TB-93) · ☑
 
-**Deliverable**: folder-backed tasks and attachments ship without breaking legacy file-backed boards. The detailed storage contract lives in [TB-94](../board/done/TB-94.md) and [`docs/ARCHITECTURE.md` → "Folder-form tasks"](ARCHITECTURE.md#folder-form-tasks); this milestone tracks execution status against that contract.
+**Deliverable**: folder-backed tasks and attachments shipped without breaking legacy file-backed boards. The detailed storage contract lives in [TB-94](../board/done/TB-94.md) and [`docs/ARCHITECTURE.md` → "Folder-form tasks"](ARCHITECTURE.md#folder-form-tasks).
 
 **Acceptance**: file/folder read parity; default folder creation; whole-folder moves/archive; attachment add/remove with validation; GUI picker + drag-and-drop workflow; watcher refresh after attachment operations and folder moves; mixed-board smoke covering CLI, GUI, agent artifacts, archive/restore, regeneration, and orphan checks.
 
 ### Tasks
 1. ☑ [TB-94](../board/done/TB-94.md) — Define the folder-task on-disk contract before implementation work begins.
 2. ☑ [TB-95](../board/done/TB-95.md) — Publish the TB-93 milestone tracker in `docs/FEATURES.md` and `docs/IMPLEMENTATION.md`.
-3. ☐ [TB-96](../board/backlog/TB-96.md) — Make CLI read and JSON paths treat folder-form and file-form tasks as the same logical task.
-4. ☐ [TB-97](../board/backlog/TB-97.md) — Make `tb create` default to folder-form tasks with an empty `## Attachments` section.
-5. ☐ [TB-98](../board/backlog/TB-98.md) — Move, close/archive, and restore folder-form tasks as whole directories without orphaning artifacts.
-6. ☐ [TB-99](../board/backlog/TB-99.md) — Add `tb attach <ID> <path>...` and atomically promote legacy file tasks on first attachment.
-7. ☐ [TB-100](../board/backlog/TB-100.md) — Remove attachments through `tb attach --rm` with path validation and markdown updates.
-8. ☐ [TB-101](../board/backlog/TB-101.md) — Keep `BOARD.md` byte-identical for equivalent file-form, folder-form, and mixed boards.
-9. ☐ [TB-102](../board/backlog/TB-102.md) — Resolve agent state/log paths by storage form, including folder-task stale recovery.
-10. ☐ [TB-103](../board/backlog/TB-103.md) — List, open, add, and remove drawer attachments through `tb` commands.
-11. ☐ [TB-104](../board/backlog/TB-104.md) — Add drag-and-drop attachment workflows for cards and the task drawer through `tb`.
-12. ☐ [TB-105](../board/backlog/TB-105.md) — Emit one logical GUI refresh for attachment operations and folder-task moves.
-13. ☐ [TB-106](../board/backlog/TB-106.md) — Run the final mixed-board smoke and record evidence on TB-93.
+3. ☑ [TB-96](../board/done/TB-96.md) — CLI read and JSON paths treat folder-form and file-form tasks as the same logical task.
+4. ☑ [TB-97](../board/done/TB-97.md) — `tb create` defaults to folder-form tasks with an empty `## Attachments` section.
+5. ☑ [TB-98](../board/done/TB-98.md) — Move, close/archive, and restore folder-form tasks as whole directories without orphaning artifacts.
+6. ☑ [TB-99](../board/done/TB-99.md) — `tb attach <ID> <path>...` atomically promotes legacy file tasks on first attachment.
+7. ☑ [TB-100](../board/done/TB-100.md) — `tb attach --rm` removes attachments with path validation and markdown updates.
+8. ☑ [TB-101](../board/done/TB-101.md) — `BOARD.md` byte-identical for equivalent file-form, folder-form, and mixed boards.
+9. ☑ [TB-102](../board/done/TB-102.md) — Resolve agent state/log paths by storage form, including folder-task stale recovery.
+10. ☑ [TB-103](../board/done/TB-103.md) — List, open, add, and remove drawer attachments through `tb` commands.
+11. ☑ [TB-104](../board/done/TB-104.md) — Drag-and-drop attachment workflows for cards and the task drawer through `tb`.
+12. ☑ [TB-105](../board/done/TB-105.md) — One logical GUI refresh for attachment operations and folder-task moves.
+13. ☑ [TB-106](../board/done/TB-106.md) — Mixed-board smoke run with evidence recorded on TB-93.
 
-**Estimate**: tracked across child tasks TB-94 through TB-106.
+### Review follow-ups (TB-146..TB-171)
+A grand review produced 26 follow-up findings (TB-146..TB-171) covering legacy agent-state migration on promotion, doc/code reconciliation, Windows shell-injection hardening, watcher concurrency, drawer attachment UX (two-click remove, a11y, IEC unit labels, in-flight DnD events), API error-path coverage, and test-infra cleanup. All shipped; a code-review pass during burndown surfaced an additional cross-task remove-confirm data-loss path that was fixed before close.
+
+**Estimate**: tracked across child tasks TB-94 through TB-106 plus TB-146..TB-171 — all done.
 
 ---
 
@@ -230,6 +233,7 @@ Marker legend:
 
 ## Completed work log
 
+- 2026-05-15: M8 shipped — folder-form tasks + attachments (TB-93). All 13 child milestones (TB-94..TB-106 / TB-108) shipped: docs contract, CLI read/create/move/attach parity, BOARD.md byte-identical, task-local agent state with stale recovery, GUI drawer attachments list + picker + DnD, watcher single-event-per-mutation, mixed-board smoke. A grand review produced 26 follow-up findings (TB-146..TB-171) covering legacy agent-state migration on promotion (TB-146), doc/code reconciliation (TB-147/148/167), Windows shell-injection hardening (TB-149) and CLI argv `--` terminator (TB-158), watcher concurrency + promotion-rename synthesis (TB-150/151), drawer attachment UX (two-click remove, a11y aria-labels, IEC unit labels, in-flight DnD events) (TB-152..155/162..165/169), API error-path test coverage (TB-163), test-infra cleanup (TB-160/166/168), and one descoped performance task (TB-170, recorded in its Decision section). A code-review pass during burndown surfaced a cross-task remove-confirm data-loss path that was fixed before close. Verification: `cd cli && go test ./`, `cd gui && go test ./...`, `cd gui/frontend && npm test && npm run check`.
 - 2026-05-14: M6 shipped — groom mode is a first-class agent run mode. `gui/internal/agent/prompts/groom.md` is embedded as `PromptGroom`; `GroomingDecorator` is the only mode-aware runner layer and swaps the normal implementation prompt for the groom prompt while preserving the underlying Claude/Codex process behavior. `AgentService.GroomTask` reuses the RunAgent lifecycle with `mode=groom`, so JSONL events carry `mode` and the drawer can label groom runs separately. `BoardService.Triage()` shells out to `tb triage --json`, caches a task-ID to reasons map, and invalidates on watcher events; the frontend `triageStore`, `Card.svelte`, and `TaskDrawer.svelte` surface "needs grooming" indicators and offer the Groom action. Verification: `cd gui && go test ./...`, `cd gui/frontend && npm test`, `cd gui/frontend && npm run check`.
 - 2026-05-13: docs PROJECT/ARCHITECTURE/FEATURES drafted; plan synced with feedback (direct body writes allowed under flock; archive as first-class filter; daemon stale-recovery in M5; root `go.work`)
 - 2026-05-13: Codex adversarial review applied — README path corrected to current `tb/`; atomic-write invariant documented and added to M1 (F1.6); `cancelled` added as a first-class `AgentStatus` value with carve-out from stale-recovery
