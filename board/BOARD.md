@@ -4,7 +4,6 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-93 | Move from file-based to folder-based approach | 41/42 | backlog | cli |
 | TB-177 | Auto task implementation | 0/3 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-130 | Agent session resume + interrupted-run recovery | 0/12 | backlog | gui |
@@ -18,6 +17,7 @@
 
 | ID | Title | Progress | Module |
 |----|-------|----------|--------|
+| TB-93 | Move from file-based to folder-based approach | 42/42 | cli |
 | TB-1 | M1: CLI extensions for GUI integration | 8/8 | cli |
 | TB-2 | M2: Wails3 skeleton with read-only kanban GUI | 9/9 | gui |
 | TB-3 | M3: GUI mutations, DnD, and inline editor | 10/10 | gui |
@@ -36,7 +36,6 @@
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-93 | Move from file-based to folder-based approach | feature | P0 | XL | cli |
 | TB-109 | Worktree-isolated task execution | feature | P1 | L | cli |
 | TB-111 | Worktree config + preflight + gitignore | feature | P1 | S | cli |
 | TB-112 | Board path resolution from inside a worktree | feature | P1 | M | cli |
@@ -66,7 +65,6 @@
 | TB-142 | Docs sweep: ARCHITECTURE.md + CLAUDE.md + FEATURES.md for resume | improvement | P1 | S | docs |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-144 | Append logs realtime when task is opened | bug | P1 | S | gui |
-| TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | P2 | S | gui |
 | TB-172 | Auto-groom | feature | P1 | L | gui |
 | TB-173 | GUI: persist auto-groom setting and toggle | feature | P1 | M | gui |
 | TB-174 | GUI: auto-groom triage tasks via groom-mode daemon runs | feature | P1 | M | gui |
@@ -109,6 +107,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
 | TB-168 | TB-93/GUI: test infra cleanup - hardcoded sleeps, /tmp/tb fallback, idDirRe negative case | tech-debt | gui |
@@ -156,6 +155,5 @@
 | TB-96 | CLI: read folder-form tasks identically to file-form | feature | cli |
 | TB-95 | Publish TB-93 folder-task milestone in docs | improvement | docs |
 | TB-94 | Spec folder-task contract in docs/ARCHITECTURE.md | feature | docs |
+| TB-93 | Move from file-based to folder-based approach | feature | cli |
 | TB-92 | Limit showed tags in header to 10 | bug |  |
-| TB-91 | Task card is bigger then column | improvement |  |
-| TB-90 | Board switching is not working | bug |  |
