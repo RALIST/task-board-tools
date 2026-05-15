@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -368,13 +369,26 @@ func discoverTaskRefsInStatus(boardDir, status string) ([]taskRef, error) {
 	return refs, nil
 }
 
+// dualFormWarned dedupes warnDualForm output per process. The same dual-form
+// (taskID, status) tuple is discovered by both resolveTaskRefInStatus and
+// discoverTaskRefsInStatus, and each `tb` invocation typically triggers both
+// (a mutation calls resolveTaskRef, then regenerateBoard walks every status
+// directory). Without dedupe a single dual-form ID can emit 6+ identical
+// warnings during one command. Keyed on the absolute file path so different
+// boards or temp dirs (in tests) do not suppress each other.
+var dualFormWarned sync.Map
+
 // warnDualForm logs a one-line stderr warning when a task is present in both
 // file form (<status>/<ID>.md) and folder form (<status>/<ID>/TASK.md). This is
 // a crash-recovery transient that can only arise from a process dying mid
 // promotion (see docs/ARCHITECTURE.md "File → folder promotion"). The resolver
 // prefers folder form; the next structured mutation removes the orphan file via
-// cleanupOrphanFileFormSibling.
+// cleanupOrphanFileFormSibling. Duplicate emissions within a single process are
+// suppressed via dualFormWarned.
 func warnDualForm(taskID, status, filePath, folderPath string) {
+	if _, loaded := dualFormWarned.LoadOrStore(filePath, struct{}{}); loaded {
+		return
+	}
 	fmt.Fprintf(os.Stderr, "warning: task %s in %s has both file-form (%s) and folder-form (%s); preferring folder form. The orphan file will be removed by the next structured mutation.\n", taskID, status, filePath, folderPath)
 }
 

@@ -149,6 +149,30 @@ func TestFolderTaskDuplicateFormSelfHeals(t *testing.T) {
 	}
 }
 
+func TestDualFormWarningDedupedAcrossDiscoveryCalls(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	task := baseFolderFixtures()[0]
+	writeFolderFixtureTask(t, boardDir, task, "file")
+	writeFolderFixtureTask(t, boardDir, task, "folder")
+
+	emit := func() string {
+		return captureStderr(t, func() {
+			if _, err := discoverTaskRefs(boardDir, []string{"backlog"}); err != nil {
+				t.Fatalf("discoverTaskRefs: %v", err)
+			}
+		})
+	}
+
+	first := emit()
+	if !strings.Contains(first, "preferring folder form") {
+		t.Fatalf("expected dual-form warning on first call, got %q", first)
+	}
+	second := emit()
+	if second != "" {
+		t.Fatalf("expected no dual-form warning on second call, got %q", second)
+	}
+}
+
 func TestMalformedFolderTaskWarnsAndIsSkipped(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	writeFolderFixtureTask(t, boardDir, baseFolderFixtures()[0], "folder")

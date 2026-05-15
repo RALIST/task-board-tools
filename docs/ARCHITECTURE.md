@@ -157,7 +157,7 @@ For a given `<ID>` in a status directory, both the CLI and the GUI parser resolv
 
 The status-directory scanner ignores entries whose name begins with `.` (e.g. the promotion staging dir below, any future dotfile). The two namespaces — `<ID>` (directory) and `<ID>.md` (file) — are disjoint, so a status dir cannot contain a collision.
 
-If both `<ID>/TASK.md` and `<ID>.md` are present at the same time, that is a **crash-recovery transient**, not steady state — it can only occur if a process died mid-promotion (see below). The resolver picks folder form and logs a warning; the orphan `<ID>.md` is removed by the next structured mutation or by an explicit recovery sweep on startup. Dual-form is never created by design.
+If both `<ID>/TASK.md` and `<ID>.md` are present at the same time, that is a **crash-recovery transient**, not steady state — it can only occur if a process died mid-promotion (see below). The resolver picks folder form and logs a warning to stderr (deduped per `(taskID, status)` per process); the orphan `<ID>.md` is removed by the next structured mutation via `cleanupOrphanFileFormSibling`. There is no automatic startup sweep today — recovery is opportunistic on the next mutation. Dual-form is never created by design.
 
 ### Attachments section in `TASK.md`
 
@@ -206,8 +206,8 @@ Promotion runs when a file-form task acquires its first attachment, or by explic
 The ordering is load-bearing:
 
 - The folder appears (step 6) before the file disappears (step 7), so any lock-free reader that interleaves between the two steps still resolves the task — to the folder form by the resolution order above. The task is never "missing" from a reader's point of view.
-- If the process dies between step 6 and step 7, the next CLI invocation finds both forms; the resolver prefers folder form, and the next structured mutation or an explicit `tb`-side recovery sweep removes the orphan `<ID>.md`. This is the only path to a dual-form state and it is self-healing.
-- The staging name's `.<ID>.promote.` prefix means partially-built staging dirs left by a crash mid-build (before step 6) are ignored by readers and can be GC'd by startup recovery.
+- If the process dies between step 6 and step 7, the next CLI invocation finds both forms; the resolver prefers folder form, and the next structured mutation removes the orphan `<ID>.md` via `cleanupOrphanFileFormSibling`. This is the only path to a dual-form state and it is self-healing on the next mutation.
+- The staging name's `.<ID>.promote.` prefix means partially-built staging dirs left by a crash mid-build (before step 6) are ignored by all readers and by `BOARD.md` regeneration. They accumulate in the status directory until manually cleaned up; a future opportunistic sweep on `tb` invocation may garbage-collect them, but there is no startup recovery sweep today. Same applies to `.attach.<pid>.<rand>/` staging dirs left by a crash mid-attach. These leftovers are functionally invisible — they cost disk space but never affect correctness.
 
 Demotion (folder → file) is **not supported**. Once promoted, a task stays in folder form even if its attachments are later removed. This keeps the resolution order total and avoids a second class of transient states.
 
