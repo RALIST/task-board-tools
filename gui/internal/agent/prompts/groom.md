@@ -14,7 +14,7 @@ Begin by reading the current task with `tb show {{TASK_ID}}`.
 
 ## Board
 
-Read `board/CONVENTIONS.md` and `board/SKILL.md` before grooming. 
+Read `@board/CONVENTIONS.md` and `@board/SKILL.md` before grooming. 
 Follow the board format and keep board hygiene intact.
 
 ## Mutation contract

@@ -128,6 +128,7 @@
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-207 | Allow tasl title edit from GUI | improvement | P2 | M | gui |
+| TB-208 | Switch projects bug | bug | P1 | M | gui |
 
 ## Recently Done
 

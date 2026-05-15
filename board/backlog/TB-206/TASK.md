@@ -4,7 +4,7 @@
 **Priority:** P2
 **Size:** M
 **Agent:** codex
-**AgentStatus:** running
+**AgentStatus:** failed
 **Module:** tooling
 **Tags:** lint,go,quality
 **Branch:** —
@@ -74,4 +74,5 @@ Do not turn the first lint pass into a broad cleanup project. Fix only small set
 - 2026-05-15: Edited body via GUI
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-15: Edited agentstatus=failed
 

@@ -4,7 +4,7 @@
 **Priority:** P2
 **Size:** M
 **Agent:** codex
-**AgentStatus:** running
+**AgentStatus:** failed
 **Module:** tooling
 **Tags:** lint,frontend,quality,dead-code
 **Branch:** —
@@ -57,4 +57,5 @@ Do not change Go lint setup here; that is TB-206.
 - 2026-05-15: Edited agentstatus=running
 - 2026-05-15: Edited priority=P2, type=tech-debt, size=M, module=tooling, tags=lint,frontend,quality,dead-code, goal
 - 2026-05-15: Edited acceptance
+- 2026-05-15: Edited agentstatus=failed
 
