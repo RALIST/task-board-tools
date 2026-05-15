@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-93 | Move from file-based to folder-based approach | 16/42 | backlog | cli |
+| TB-93 | Move from file-based to folder-based approach | 17/42 | backlog | cli |
 | TB-177 | Auto task implementation | 0/3 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-130 | Agent session resume + interrupted-run recovery | 0/12 | backlog | gui |
@@ -66,7 +66,6 @@
 | TB-142 | Docs sweep: ARCHITECTURE.md + CLAUDE.md + FEATURES.md for resume | improvement | P1 | S | docs |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-144 | Append logs realtime when task is opened | bug | P1 | S | gui |
-| TB-146 | TB-93/CLI: attach promotion orphans file-form agent state + logs | bug | P0 | M | cli |
 | TB-147 | TB-93/CLI: implement startup recovery sweep for stale .promote/.attach staging dirs OR amend doc | tech-debt | P1 | S | cli |
 | TB-148 | TB-93/CLI: confirm TB-96 hard-error reverted to warn+self-heal is intentional | tech-debt | P1 | S | cli |
 | TB-149 | TB-93/GUI: Windows cmd.exe metacharacter injection in OpenAttachment | bug | P1 | S | gui |
@@ -134,6 +133,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-146 | TB-93/CLI: attach promotion orphans file-form agent state + logs | bug | cli |
 | TB-145 | Board switch error | bug | gui |
 | TB-129 | Remove ”non-editable” section when edit task’s body | bug | gui |
 | TB-127 | Open ticket full screen | improvement | gui |
@@ -183,4 +183,3 @@
 | TB-68 | Daemon: honor Mode=groom from queued JSONL event so pickup uses GroomingDecorator | feature | gui |
 | TB-67 | AgentService.GroomTask: queue a groom run distinct from a normal run | feature | gui |
 | TB-66 | GroomingDecorator: wrap a Runner, swap prompt template | feature | gui |
-| TB-65 | prompts/groom.md template + agent.PromptGroom embed | feature | gui |

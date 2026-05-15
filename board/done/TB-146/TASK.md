@@ -32,12 +32,12 @@ Preserve a legacy file-form task's existing agent run state and logs when `tb at
 
 ## Acceptance Criteria
 
-- [ ] `tb attach <ID> <path>` on a legacy file-form task migrates existing `<board>/.agent-state/<ID>.jsonl` to `<status>/<ID>/.agent-state.jsonl` in the promoted task folder.
-- [ ] The same promotion migrates existing `<board>/.agent-logs/<ID>/` to `<status>/<ID>/.agent-logs/` with every run-log filename and file content preserved.
-- [ ] Root cleanup is success-gated: after successful promotion, the old board-root state file and log directory for that task are gone; if promotion fails before publish, the legacy markdown file and root agent artifacts remain available.
-- [ ] Promotion still succeeds when either or both legacy root artifact paths are absent, without creating fake state/log history.
-- [ ] `TestAttachPromotesLegacyFileTask` or a focused companion test seeds board-root state JSONL plus at least one run log for a file-form task, runs `attachTask`, and asserts promoted task metadata, attachment bytes, board rendering, task-local artifacts, and absence of root artifacts.
-- [ ] `cd cli && go test ./...` passes.
+- [x] `tb attach <ID> <path>` on a legacy file-form task migrates existing `<board>/.agent-state/<ID>.jsonl` to `<status>/<ID>/.agent-state.jsonl` in the promoted task folder.
+- [x] The same promotion migrates existing `<board>/.agent-logs/<ID>/` to `<status>/<ID>/.agent-logs/` with every run-log filename and file content preserved.
+- [x] Root cleanup is success-gated: after successful promotion, the old board-root state file and log directory for that task are gone; if promotion fails before publish, the legacy markdown file and root agent artifacts remain available.
+- [x] Promotion still succeeds when either or both legacy root artifact paths are absent, without creating fake state/log history.
+- [x] `TestAttachPromotesLegacyFileTask` or a focused companion test seeds board-root state JSONL plus at least one run log for a file-form task, runs `attachTask`, and asserts promoted task metadata, attachment bytes, board rendering, task-local artifacts, and absence of root artifacts.
+- [x] `cd cli && go test ./...` passes.
 
 ## Related Tasks
 
@@ -58,4 +58,6 @@ Preserve a legacy file-form task's existing agent run state and logs when `tb at
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=success
 - 2026-05-15: Edited agentstatus=success
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
 

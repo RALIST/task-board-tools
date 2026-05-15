@@ -112,7 +112,7 @@ func attachTask(boardDir, taskID string, sourcePaths []string) (attachResult, er
 	if isFolderTaskPath(ref.Path) {
 		result, err = attachToFolderTask(ref, sources)
 	} else {
-		result, err = promoteFileTaskWithAttachments(ref, sources)
+		result, err = promoteFileTaskWithAttachments(boardDir, ref, sources)
 	}
 	if err != nil {
 		return attachResult{}, err
@@ -319,7 +319,7 @@ func prepareAttachmentSources(paths []string) ([]attachmentSource, error) {
 	return sources, nil
 }
 
-func promoteFileTaskWithAttachments(ref taskRef, sources []attachmentSource) (attachResult, error) {
+func promoteFileTaskWithAttachments(boardDir string, ref taskRef, sources []attachmentSource) (attachResult, error) {
 	statusDir := filepath.Dir(ref.Path)
 	taskDir := filepath.Join(statusDir, ref.ID)
 	if _, err := os.Lstat(taskDir); err == nil {
@@ -352,6 +352,10 @@ func promoteFileTaskWithAttachments(ref taskRef, sources []attachmentSource) (at
 		return attachResult{}, err
 	}
 
+	if err := stageLegacyAgentArtifacts(boardDir, ref.ID, stagingDir); err != nil {
+		return attachResult{}, err
+	}
+
 	names := attachmentSourceNames(sources)
 	today := time.Now().Format("2006-01-02")
 	content := upsertAttachmentsSection(string(data), names)
@@ -371,7 +375,110 @@ func promoteFileTaskWithAttachments(ref taskRef, sources []attachmentSource) (at
 		return attachResult{}, fmt.Errorf("promoted %s but could not remove legacy file %s: %w", ref.ID, ref.Path, err)
 	}
 
+	if err := removeLegacyAgentArtifacts(boardDir, ref.ID); err != nil {
+		return attachResult{}, fmt.Errorf("promoted %s but could not remove legacy agent artifacts: %w", ref.ID, err)
+	}
+
 	return attachResult{taskID: ref.ID, taskDir: taskDir, files: names, promoted: true}, nil
+}
+
+// Legacy file-form tasks keep their JSONL run history at
+// <boardDir>/.agent-state/<ID>.jsonl and their per-run log files at
+// <boardDir>/.agent-logs/<ID>/. Folder-form tasks own .agent-state.jsonl and
+// .agent-logs/ inside the task directory (see docs/ARCHITECTURE.md
+// "Folder-form tasks"). Promotion must move these artifacts so a task keeps
+// its run history across the layout change.
+const (
+	legacyAgentStateDirName  = ".agent-state"
+	legacyAgentLogsDirName   = ".agent-logs"
+	folderAgentStateFileName = ".agent-state.jsonl"
+	folderAgentLogsDirName   = ".agent-logs"
+)
+
+// stageLegacyAgentArtifacts copies any pre-existing legacy agent state file
+// and log directory for taskID into stagingDir using folder-form filenames.
+// Absent artifacts are not errors — promotion may run on tasks that never had
+// an agent assigned. Source bytes are preserved verbatim via copyFileAtomic.
+func stageLegacyAgentArtifacts(boardDir, taskID, stagingDir string) error {
+	if err := stageLegacyAgentState(boardDir, taskID, stagingDir); err != nil {
+		return err
+	}
+	return stageLegacyAgentLogs(boardDir, taskID, stagingDir)
+}
+
+func stageLegacyAgentState(boardDir, taskID, stagingDir string) error {
+	src := filepath.Join(boardDir, legacyAgentStateDirName, taskID+".jsonl")
+	info, err := os.Lstat(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat legacy agent state %s: %w", src, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("legacy agent state %s is not a regular file", src)
+	}
+	dst := filepath.Join(stagingDir, folderAgentStateFileName)
+	if err := copyFileAtomic(src, dst, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("stage legacy agent state for %s: %w", taskID, err)
+	}
+	return nil
+}
+
+func stageLegacyAgentLogs(boardDir, taskID, stagingDir string) error {
+	src := filepath.Join(boardDir, legacyAgentLogsDirName, taskID)
+	info, err := os.Lstat(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat legacy agent logs %s: %w", src, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("legacy agent logs path %s is not a directory", src)
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("read legacy agent logs %s: %w", src, err)
+	}
+	dstDir := filepath.Join(stagingDir, folderAgentLogsDirName)
+	if err := os.Mkdir(dstDir, 0755); err != nil {
+		return fmt.Errorf("create staging logs dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			// Agent logs are flat run-id files; skip any unexpected subdir.
+			continue
+		}
+		entryInfo, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("stat legacy log %s: %w", entry.Name(), err)
+		}
+		if !entryInfo.Mode().IsRegular() {
+			continue
+		}
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dstDir, entry.Name())
+		if err := copyFileAtomic(srcPath, dstPath, entryInfo.Mode().Perm()); err != nil {
+			return fmt.Errorf("stage legacy log %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+// removeLegacyAgentArtifacts is called only after the promoted folder task
+// has been published. It deletes the root-level state file and log directory
+// for taskID. Absent paths are not errors — they may never have existed.
+func removeLegacyAgentArtifacts(boardDir, taskID string) error {
+	state := filepath.Join(boardDir, legacyAgentStateDirName, taskID+".jsonl")
+	if err := os.Remove(state); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove legacy agent state %s: %w", state, err)
+	}
+	logs := filepath.Join(boardDir, legacyAgentLogsDirName, taskID)
+	if err := os.RemoveAll(logs); err != nil {
+		return fmt.Errorf("remove legacy agent logs %s: %w", logs, err)
+	}
+	return nil
 }
 
 func attachToFolderTask(ref taskRef, sources []attachmentSource) (attachResult, error) {

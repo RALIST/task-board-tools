@@ -52,6 +52,91 @@ func TestAttachPromotesLegacyFileTask(t *testing.T) {
 	assertContains(t, boardContent, "| TB-1 | Legacy Task | bug | P2 | M | cli |")
 }
 
+func TestAttachPromotionMigratesLegacyAgentArtifacts(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	legacyPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+	if err := os.WriteFile(legacyPath, []byte(legacyTaskContent("TB-1", "Legacy Agent")), 0644); err != nil {
+		t.Fatalf("write legacy task: %v", err)
+	}
+
+	rootStateDir := filepath.Join(boardDir, ".agent-state")
+	if err := os.MkdirAll(rootStateDir, 0755); err != nil {
+		t.Fatalf("mkdir root state: %v", err)
+	}
+	stateBytes := []byte(`{"event":"queued","run_id":"r_abc12345","task_id":"TB-1"}` + "\n" +
+		`{"event":"finished","run_id":"r_abc12345","task_id":"TB-1","status":"success","exit_code":0}` + "\n")
+	rootStatePath := filepath.Join(rootStateDir, "TB-1.jsonl")
+	if err := os.WriteFile(rootStatePath, stateBytes, 0644); err != nil {
+		t.Fatalf("write root state: %v", err)
+	}
+
+	rootLogsDir := filepath.Join(boardDir, ".agent-logs", "TB-1")
+	if err := os.MkdirAll(rootLogsDir, 0755); err != nil {
+		t.Fatalf("mkdir root logs: %v", err)
+	}
+	logBytes := []byte("stdout line one\nstdout line two\n")
+	rootLogPath := filepath.Join(rootLogsDir, "r_abc12345.log")
+	if err := os.WriteFile(rootLogPath, logBytes, 0644); err != nil {
+		t.Fatalf("write root log: %v", err)
+	}
+
+	sourcePath := writeAttachmentSource(t, "design.txt", "design bytes")
+	result, err := attachTask(boardDir, "TB-1", []string{sourcePath})
+	if err != nil {
+		t.Fatalf("attachTask: %v", err)
+	}
+	if !result.promoted {
+		t.Fatal("attachTask did not report promotion")
+	}
+
+	taskDir := filepath.Join(boardDir, "backlog", "TB-1")
+	taskPath := filepath.Join(taskDir, folderTaskFileName)
+	content := readFileString(t, taskPath)
+	assertContains(t, content, "# TB-1: Legacy Agent")
+	assertContains(t, content, "## Attachments\n\n- attachments/design.txt\n\n## Log")
+
+	migratedState := filepath.Join(taskDir, ".agent-state.jsonl")
+	if got := readFileString(t, migratedState); got != string(stateBytes) {
+		t.Fatalf("migrated state bytes = %q, want %q", got, string(stateBytes))
+	}
+	migratedLog := filepath.Join(taskDir, ".agent-logs", "r_abc12345.log")
+	if got := readFileString(t, migratedLog); got != string(logBytes) {
+		t.Fatalf("migrated log bytes = %q, want %q", got, string(logBytes))
+	}
+
+	if _, err := os.Stat(rootStatePath); !os.IsNotExist(err) {
+		t.Fatalf("legacy root state should be gone after promotion, stat err=%v", err)
+	}
+	if _, err := os.Stat(rootLogsDir); !os.IsNotExist(err) {
+		t.Fatalf("legacy root logs dir should be gone after promotion, stat err=%v", err)
+	}
+
+	attachmentPath := filepath.Join(taskDir, "attachments", "design.txt")
+	if got := readFileString(t, attachmentPath); got != "design bytes" {
+		t.Fatalf("attachment content = %q", got)
+	}
+}
+
+func TestAttachPromotionTolerantsMissingLegacyArtifacts(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	legacyPath := filepath.Join(boardDir, "backlog", "TB-2.md")
+	if err := os.WriteFile(legacyPath, []byte(legacyTaskContent("TB-2", "No Agent")), 0644); err != nil {
+		t.Fatalf("write legacy task: %v", err)
+	}
+	sourcePath := writeAttachmentSource(t, "spec.txt", "spec bytes")
+
+	if _, err := attachTask(boardDir, "TB-2", []string{sourcePath}); err != nil {
+		t.Fatalf("attachTask: %v", err)
+	}
+	taskDir := filepath.Join(boardDir, "backlog", "TB-2")
+	if _, err := os.Stat(filepath.Join(taskDir, ".agent-state.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected migrated state file, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(taskDir, ".agent-logs")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected migrated logs dir, stat err=%v", err)
+	}
+}
+
 func TestAttachAddsFileToFolderTask(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	taskDir := seedFolderTask(t, boardDir, "in-progress", "TB-2", "Folder Task")
