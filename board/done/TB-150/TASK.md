@@ -14,10 +14,15 @@ gui/internal/watcher/watcher.go:283 - when a file-form task is promoted to folde
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `watchCreatedDir` synthesises a `task:updated:<ID>` event after a successful `addWatchDir` on a task dir whose `TASK.md` is already present. This covers the file→folder promotion publish-rename, where the Create event for the new dir fires only after `TASK.md` is already in place — any same-window atomic write would otherwise land before fsnotify is subscribed.
+- [x] `addWatchDir` now returns a bool indicating whether a new subscription was added; the synthesised emission only fires on first-add to avoid double-emit on retries.
+- [x] New `TestFolderTaskPromotion_EmitsTaskUpdatedAfterRename` watcher test reproduces the promotion sequence and asserts at least one `task:updated:<ID>` after the rename. Existing folder-task tests unchanged.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-93 | Move from file-based to folder-based approach | 21/42 | backlog | cli |
+| TB-93 | Move from file-based to folder-based approach | 24/42 | backlog | cli |
 | TB-177 | Auto task implementation | 0/3 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-130 | Agent session resume + interrupted-run recovery | 0/12 | backlog | gui |
@@ -66,12 +66,9 @@
 | TB-142 | Docs sweep: ARCHITECTURE.md + CLAUDE.md + FEATURES.md for resume | improvement | P1 | S | docs |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-144 | Append logs realtime when task is opened | bug | P1 | S | gui |
-| TB-150 | TB-93/GUI: watcher race during file->folder promotion misses first TASK.md edit | bug | P1 | M | gui |
-| TB-151 | TB-93/GUI: watcher attach() lacks mutex for concurrent Switch invocations | bug | P1 | S | gui |
 | TB-152 | TB-93/GUI: TaskDrawer attachments UI has no component-level tests | tech-debt | P1 | M | gui |
 | TB-153 | TB-93/GUI: attachment remove is destructive single-click without confirmation | improvement | P1 | S | gui |
 | TB-154 | TB-93/GUI: attachment list accessibility improvements (aria-label, keyboard nav) | improvement | P1 | S | gui |
-| TB-155 | TB-93/GUI: attachmentsLoading flicker on rapid task switch and concurrent refresh race | bug | P1 | S | gui |
 | TB-156 | TB-93/CLI: tb attach add path should validate destination filename (parity with --rm) | improvement | P2 | S | cli |
 | TB-157 | TB-93/CLI: log warnings to stderr from best-effort rollback removal failures | improvement | P2 | S | cli |
 | TB-159 | TB-93/GUI: resolveArtifactPaths should normalize taskID to uppercase | bug | P2 | S | gui |
@@ -130,6 +127,9 @@
 | ID | Title | Type | Module |
 |----|-------|------|--------|
 | TB-158 | TB-93/GUI: insert '--' before user paths in tb attach mutations to prevent flag confusion | bug | gui |
+| TB-155 | TB-93/GUI: attachmentsLoading flicker on rapid task switch and concurrent refresh race | bug | gui |
+| TB-151 | TB-93/GUI: watcher attach() lacks mutex for concurrent Switch invocations | bug | gui |
+| TB-150 | TB-93/GUI: watcher race during file->folder promotion misses first TASK.md edit | bug | gui |
 | TB-149 | TB-93/GUI: Windows cmd.exe metacharacter injection in OpenAttachment | bug | gui |
 | TB-148 | TB-93/CLI: confirm TB-96 hard-error reverted to warn+self-heal is intentional | tech-debt | cli |
 | TB-147 | TB-93/CLI: implement startup recovery sweep for stale .promote/.attach staging dirs OR amend doc | tech-debt | cli |
@@ -176,6 +176,3 @@
 | TB-75 | CLI: tb edit --goal / --acceptance — body-section writes via writeFileAtomic | feature | cli |
 | TB-74 | Docs: flip M6 markers — IMPLEMENTATION.md / FEATURES.md F6.1+F6.2 / ARCHITECTURE.md GroomingDecorator | improvement | docs |
 | TB-73 | Card: 'needs grooming' indicator + click-to-suggest-Groom in drawer | feature | gui |
-| TB-72 | TaskDrawer: Groom button next to Run, shared Cancel, mode-labelled past runs | feature | gui |
-| TB-71 | Frontend api.ts + triageStore.ts: groomTask, getTriage, watcher-driven refresh | feature | gui |
-| TB-70 | BoardService.Triage(): wrap tb triage --json, cache + invalidate on watcher events | feature | gui |

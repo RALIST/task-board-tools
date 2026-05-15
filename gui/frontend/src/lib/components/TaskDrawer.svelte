@@ -94,6 +94,10 @@
   // BoardService.
   let attachments = $state<Attachment[]>([]);
   let attachmentsLoading = $state(false);
+  // Monotonic request token for refreshAttachments: defends against a
+  // newer load (e.g. board:reloaded after a task switch) being overtaken
+  // by a stale older promise resolving second.
+  let attachmentsReqSeq = 0;
   let attachmentsBusy = $state(false);
 
   $effect(() => {
@@ -109,6 +113,11 @@
     }
     loading = true;
     err = null;
+    // Clear stale attachment rows from the previous task before requesting
+    // fresh data — otherwise the "no rows yet" spinner gate stays hidden
+    // because old rows are still in `attachments`, and the user sees the
+    // previous task's attachments while the new task loads.
+    attachments = [];
     let cancelled = false;
 
     const fetchOnce = () => {
@@ -526,15 +535,16 @@
   }
 
   function refreshAttachments(id: string, cancelled: boolean) {
+    const my = ++attachmentsReqSeq;
     attachmentsLoading = true;
     listAttachments(id)
       .then((list) => {
-        if (cancelled || taskId !== id) return;
+        if (cancelled || taskId !== id || my !== attachmentsReqSeq) return;
         attachments = list;
         attachmentsLoading = false;
       })
       .catch((e) => {
-        if (cancelled || taskId !== id) return;
+        if (cancelled || taskId !== id || my !== attachmentsReqSeq) return;
         attachments = [];
         attachmentsLoading = false;
         pushToast(`Could not list attachments: ${errorString(e)}`);

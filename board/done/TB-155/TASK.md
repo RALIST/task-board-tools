@@ -14,10 +14,15 @@ TaskDrawer.svelte:113-114, 131-135 - (1) On rapid task switch the previous task'
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] On task switch, `attachments` is cleared in the `$effect` before `refreshAttachments` runs, so the spinner gate (`attachmentsLoading && attachments.length === 0`) shows the spinner instead of leaving the previous task's rows visible.
+- [x] `refreshAttachments` tracks a monotonic `attachmentsReqSeq` request token; a stale older promise that resolves after a newer call (e.g., a `board:reloaded` fired between two refreshes) is dropped instead of overwriting newer data.
+- [x] Frontend `npm run check` passes.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

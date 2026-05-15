@@ -14,10 +14,14 @@ gui/internal/watcher/watcher.go:202-224 - addExistingFolderTaskWatches is called
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `Watcher` carries a dedicated `attachMu sync.Mutex`, taken at the top of `attach`, that serialises full attach setup. Two concurrent `Switch`/`Start` invocations now run their fsw.Add loops sequentially; the live event pump on `w.mu` remains untouched.
+- [x] `attachMu` is distinct from `w.mu` so an in-flight event handler taking `w.mu` to call `addWatchDir` does not block on a slow attach.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

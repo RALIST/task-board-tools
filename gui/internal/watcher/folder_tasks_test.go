@@ -37,6 +37,37 @@ func TestFolderTaskCreate_FiresOneBoardReloaded(t *testing.T) {
 	}
 }
 
+// TestFolderTaskPromotion_EmitsTaskUpdatedAfterRename simulates the file→
+// folder promotion publish: a staging dir with TASK.md already inside is
+// renamed into the status dir. The Create event for the new task dir fires
+// AFTER TASK.md is already in place, so an immediately-following write to
+// TASK.md could be lost in the gap between the Create and the watcher's
+// fsw.Add. The watcher defends against that by synthesising a
+// task:updated:<id> emission when the just-watched task dir already has a
+// TASK.md.
+func TestFolderTaskPromotion_EmitsTaskUpdatedAfterRename(t *testing.T) {
+	board := makeBoard(t)
+	em := &captureEmitter{}
+	startWatcher(t, board, em)
+
+	staging := filepath.Join(board, "backlog", ".TB-7.promote.staging")
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "TASK.md"), []byte("# TB-7: promoted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(staging, filepath.Join(board, "backlog", "TB-7")); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(400 * time.Millisecond)
+
+	if count := countEvents(em, "task:updated:TB-7"); count < 1 {
+		t.Fatalf("promotion produced %d task:updated:TB-7 events, want >=1: %+v", count, em.snapshot())
+	}
+}
+
 // TestAttachmentAdd_FiresOneBoardReloaded simulates `tb attach`: writes a
 // staging temp file under the attachments dir, renames it into place, then
 // rewrites TASK.md (atomic temp+rename). The whole burst should produce a

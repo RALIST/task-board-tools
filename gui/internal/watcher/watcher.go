@@ -87,6 +87,12 @@ type Watcher struct {
 	// own context is cancelled.
 	out chan fsEvent
 
+	// attachMu serialises full attach() invocations so two concurrent
+	// Switch/Start calls cannot interleave their fsw.Add loops on overlapping
+	// watchDir maps. Distinct from mu, which protects per-event field reads
+	// and addWatchDir/removeWatchDir mutations.
+	attachMu sync.Mutex
+
 	mu        sync.Mutex
 	fsw       *fsnotify.Watcher
 	cancelPmp context.CancelFunc
@@ -153,6 +159,14 @@ func (w *Watcher) attach(boardDir string) error {
 	if boardDir == "" {
 		return errors.New("watcher: empty boardDir")
 	}
+	// Serialise full attach setup. Two concurrent Switch invocations would
+	// otherwise each build their own watchDirs maps in parallel; an event
+	// delivered on the old fsw between the swap and oldCancel() could call
+	// addWatchDir on the new watchDirs while the second attach is still
+	// populating it.
+	w.attachMu.Lock()
+	defer w.attachMu.Unlock()
+
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -270,7 +284,22 @@ func (w *Watcher) watchCreatedDir(path string) {
 		return
 	}
 	if isTaskDirPath(path) {
-		w.addWatchDir(path)
+		added := w.addWatchDir(path)
+		if added {
+			// File→folder promotion publishes via os.Rename(staging, taskDir)
+			// — TASK.md is already inside the renamed dir before fsnotify
+			// fires the Create event, so the subsequent atomic write of the
+			// `Promoted to folder form` log entry (or any same-rename-window
+			// edit) can be missed by the just-registered watch. Sample the
+			// state now and synthesise a task:updated emission so the drawer
+			// auto-refresh path is correct even if no further Write fires.
+			if base := filepath.Base(path); isTaskIDName(base) {
+				taskMD := filepath.Join(path, folderTaskFileName)
+				if info, err := os.Lstat(taskMD); err == nil && info.Mode().IsRegular() {
+					w.emitter.Emit("task:updated:"+base, base)
+				}
+			}
+		}
 		attachmentsDir := filepath.Join(path, attachmentsDirName)
 		if isRealDir(attachmentsDir) {
 			w.addWatchDir(attachmentsDir)
@@ -282,22 +311,25 @@ func (w *Watcher) watchCreatedDir(path string) {
 	}
 }
 
-func (w *Watcher) addWatchDir(path string) {
+// addWatchDir subscribes to path and returns true iff a new subscription was
+// added (false if the watch already existed or the watcher state was missing).
+func (w *Watcher) addWatchDir(path string) bool {
 	clean := filepath.Clean(path)
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.fsw == nil || w.watchDirs == nil || !pathWithinDir(w.boardDir, clean) {
-		return
+		return false
 	}
 	if _, ok := w.watchDirs[clean]; ok {
-		return
+		return false
 	}
 	if err := w.fsw.Add(clean); err != nil {
 		w.logger.Debug("watcher: add dir failed", "dir", clean, "err", err)
-		return
+		return false
 	}
 	w.watchDirs[clean] = struct{}{}
+	return true
 }
 
 func (w *Watcher) removeWatchDirAndChildren(path string) {
