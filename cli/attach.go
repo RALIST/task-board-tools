@@ -62,7 +62,17 @@ func runAttach(args []string, stdout io.Writer) error {
 	}
 
 	taskID := normalizeTaskID(args[0])
-	result, err := attachTask(cfg.BoardDir, taskID, args[1:])
+	paths := args[1:]
+	// Strip an optional `--` terminator between the task ID and user paths.
+	// The GUI inserts this so a path starting with `-` cannot be reinterpreted
+	// as a flag.
+	if len(paths) > 0 && paths[0] == "--" {
+		paths = paths[1:]
+	}
+	if len(paths) == 0 {
+		return fmt.Errorf("usage: tb attach <ID> <path>...")
+	}
+	result, err := attachTask(cfg.BoardDir, taskID, paths)
 	if err != nil {
 		return err
 	}
@@ -79,6 +89,13 @@ func runAttach(args []string, stdout io.Writer) error {
 
 func containsAttachRemoveFlag(args []string) bool {
 	for _, arg := range args {
+		// `--` terminates flag scanning so a user-controlled path/name that
+		// happens to be literally "--rm" cannot retarget the command. The GUI
+		// inserts `--` between the task ID and user paths/names to defend
+		// against argv smuggling; the CLI must respect it.
+		if arg == "--" {
+			return false
+		}
 		if arg == "-rm" || arg == "--rm" || strings.HasPrefix(arg, "--rm=") {
 			return true
 		}

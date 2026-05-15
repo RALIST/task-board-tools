@@ -14,10 +14,14 @@ gui/app/attachments.go:42 uses cmd /c start '' <path> on Windows. cmd.exe honors
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] Windows path in `defaultOpener.Open` no longer routes through `cmd /c start`. It now invokes `rundll32 url.dll,FileProtocolHandler <path>`; Go's exec.Command properly quotes the path via `syscall.EscapeArg` for non-cmd programs, so a tampered attachment filename with cmd metacharacters cannot inject commands.
+- [x] No behavioral change for macOS (`open`) or Linux (`xdg-open`).
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

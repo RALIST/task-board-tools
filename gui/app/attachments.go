@@ -27,7 +27,7 @@ type attachmentOpener interface {
 }
 
 // defaultOpener is the production implementation. macOS uses `open`, Linux
-// uses `xdg-open`, Windows uses `cmd /c start`.
+// uses `xdg-open`, Windows uses `rundll32 url.dll,FileProtocolHandler`.
 type defaultOpener struct{}
 
 func (defaultOpener) Open(ctx context.Context, path string) error {
@@ -36,10 +36,15 @@ func (defaultOpener) Open(ctx context.Context, path string) error {
 	case "darwin":
 		cmd = exec.CommandContext(ctx, "open", path)
 	case "windows":
-		// `start` is a cmd builtin; the empty first argument is the window
-		// title placeholder that prevents cmd from interpreting a quoted path
-		// as the title.
-		cmd = exec.CommandContext(ctx, "cmd", "/c", "start", "", path)
+		// rundll32 invokes the default file handler via ShellExecute, bypassing
+		// cmd.exe entirely. The previous `cmd /c start "" <path>` form was
+		// vulnerable to cmd metacharacter injection (&, |, ^, >, <, parens,
+		// trailing space/dot) carried by a tampered attachment filename — Go's
+		// exec.Command treats cmd.exe specially and passes its argv raw rather
+		// than escaping it. rundll32 is a normal program, so Go's
+		// syscall.EscapeArg quotes the path safely and ShellExecute opens it
+		// with the default handler.
+		cmd = exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", path)
 	default:
 		cmd = exec.CommandContext(ctx, "xdg-open", path)
 	}

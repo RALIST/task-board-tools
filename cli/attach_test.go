@@ -137,6 +137,45 @@ func TestAttachPromotionTolerantsMissingLegacyArtifacts(t *testing.T) {
 	}
 }
 
+func TestAttachAddRespectsDoubleDashTerminator(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	seedFolderTask(t, boardDir, "backlog", "TB-7", "Dash Paths")
+	srcDir := t.TempDir()
+	srcPath := filepath.Join(srcDir, "-leading-dash.txt")
+	if err := os.WriteFile(srcPath, []byte("payload"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := runAttach([]string{"TB-7", "--", srcPath}, &out); err != nil {
+		t.Fatalf("runAttach: %v", err)
+	}
+
+	attached := filepath.Join(boardDir, "backlog", "TB-7", "attachments", "-leading-dash.txt")
+	if got := readFileString(t, attached); got != "payload" {
+		t.Fatalf("attachment content = %q", got)
+	}
+	assertContains(t, out.String(), "Attached 1 file(s) to TB-7")
+}
+
+func TestAttachAddTreatsRemoveLikePathAfterTerminator(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	seedFolderTask(t, boardDir, "backlog", "TB-8", "Smuggled Flag")
+	srcDir := t.TempDir()
+	srcPath := filepath.Join(srcDir, "--rm")
+	if err := os.WriteFile(srcPath, []byte("payload"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	if err := runAttach([]string{"TB-8", "--", srcPath}, nil); err != nil {
+		t.Fatalf("runAttach: %v", err)
+	}
+	attached := filepath.Join(boardDir, "backlog", "TB-8", "attachments", "--rm")
+	if got := readFileString(t, attached); got != "payload" {
+		t.Fatalf("attachment content = %q", got)
+	}
+}
+
 func TestAttachAddsFileToFolderTask(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	taskDir := seedFolderTask(t, boardDir, "in-progress", "TB-2", "Folder Task")

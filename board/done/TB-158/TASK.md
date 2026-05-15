@@ -14,10 +14,16 @@ gui/internal/cli/mutations.go:347-359 - Attach / RemoveAttachments append user-s
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `Attach` and `RemoveAttachments` in `gui/internal/cli/mutations.go` insert a `--` terminator between the task ID and user-controlled paths/names before exec.
+- [x] CLI side: `containsAttachRemoveFlag` stops scanning at `--`, so a path literally named `--rm` cannot retarget the command into the remove path; `runAttach`'s add branch strips the optional leading `--` from positional paths before passing to `attachTask`.
+- [x] New CLI tests cover `tb attach TB-X -- -leading-dash.txt` and `tb attach TB-X -- --rm` add-path scenarios; existing GUI tests updated to assert the `--` token in argv.
+- [x] `cd cli && go test ./` and `cd gui && go test ./...` pass.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

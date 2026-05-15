@@ -336,7 +336,10 @@ func (c *Client) Attach(ctx context.Context, id string, paths []string) error {
 	if len(paths) == 0 {
 		return &MutationError{Kind: ErrKindValidation, Op: "attach", Stderr: "at least one attachment path is required"}
 	}
-	args := []string{"attach", id}
+	// The `--` terminator stops the CLI flag parser before any user-controlled
+	// path is scanned, so a filename starting with `-` (or even `--rm`) cannot
+	// be re-interpreted as a flag and retarget the command.
+	args := []string{"attach", id, "--"}
 	args = append(args, paths...)
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("attach", args, err)
@@ -350,7 +353,7 @@ func (c *Client) RemoveAttachments(ctx context.Context, id string, names []strin
 	if len(names) == 0 {
 		return &MutationError{Kind: ErrKindValidation, Op: "attach", Stderr: "at least one attachment name is required"}
 	}
-	args := []string{"attach", "--rm", id}
+	args := []string{"attach", "--rm", id, "--"}
 	args = append(args, names...)
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("attach", args, err)

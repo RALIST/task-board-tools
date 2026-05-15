@@ -251,7 +251,7 @@ echo "Attached 1 file(s) to TB-7: src.txt"`)
 	if err != nil {
 		t.Fatalf("read call log: %v", err)
 	}
-	if !strings.Contains(string(got), "attach TB-7 "+src) {
+	if !strings.Contains(string(got), "attach TB-7 -- "+src) {
 		t.Fatalf("attach not invoked with expected args, got: %q", string(got))
 	}
 }
@@ -275,7 +275,7 @@ echo "Removed attachment from TB-8: x.txt"`)
 	if err != nil {
 		t.Fatalf("read call log: %v", err)
 	}
-	if !strings.Contains(string(got), "attach --rm TB-8 x.txt") {
+	if !strings.Contains(string(got), "attach --rm TB-8 -- x.txt") {
 		t.Fatalf("remove not invoked with expected args, got: %q", string(got))
 	}
 }
