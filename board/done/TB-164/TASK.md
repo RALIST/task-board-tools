@@ -14,10 +14,15 @@ TaskDrawer.svelte:255-263 - attachmentsBusy is shared between add and remove flo
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `gui/main.go` emits `attach:dropping` immediately before invoking `BoardService.AddAttachments` from the file-drop handler, and the existing `attach:dropped` continues to fire after the call. Both events carry `{taskId, count}` (and `attach:dropped` adds `ok`/`error`).
+- [x] `TaskDrawer.svelte` subscribes to both events. The drawer disables Add Files and Remove buttons (`attachmentsBusy = true`) while a drop is in flight for the currently open task, and re-enables on dropped. Events for other task IDs are ignored.
+- [x] Optimistic-local-mutation-on-remove out of scope: watcher already refreshes via board:reloaded after the CLI commits.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

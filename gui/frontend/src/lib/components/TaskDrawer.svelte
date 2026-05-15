@@ -191,11 +191,35 @@
       fetchOnce();
       refreshAttachments(id, cancelled);
     });
+    // Drag-and-drop bracket events from gui/main.go. attach:dropping disables
+    // the Add Files and Remove buttons while `tb attach` runs (concurrent tb
+    // mutations are serialised by .board.lock, but the GUI deserves a
+    // feedback signal). attach:dropped re-enables them; the watcher's
+    // board:reloaded refresh fires shortly after.
+    const onDropEvent = (raw: unknown): { taskId?: string } | undefined => {
+      if (raw && typeof raw === 'object') {
+        if ('data' in raw && raw.data != null) return raw.data as { taskId?: string };
+        return raw as { taskId?: string };
+      }
+      return undefined;
+    };
+    const offDropping = Events.On('attach:dropping', (ev: unknown) => {
+      const payload = onDropEvent(ev);
+      if (payload?.taskId && payload.taskId !== id) return;
+      attachmentsBusy = true;
+    });
+    const offDropped = Events.On('attach:dropped', (ev: unknown) => {
+      const payload = onDropEvent(ev);
+      if (payload?.taskId && payload.taskId !== id) return;
+      attachmentsBusy = false;
+    });
 
     return () => {
       cancelled = true;
       try { offTask(); } catch { /* ignore */ }
       try { offBoard(); } catch { /* ignore */ }
+      try { offDropping(); } catch { /* ignore */ }
+      try { offDropped(); } catch { /* ignore */ }
       runsUnsub?.();
       runsUnsub = null;
     };
@@ -633,11 +657,14 @@
     }
   }
 
+  // Use IEC binary labels (KiB/MiB/GiB) since the divisors are 1024-based.
+  // Mixing 1024-based math with KB/MB/GB labels is a common bug that mismatches
+  // what users see in tools like Finder/Explorer.
   function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
   }
 
   function onKeydown(ev: KeyboardEvent) {
@@ -768,7 +795,7 @@
               {#if attachmentsLoading && attachments.length === 0}
                 <p class="hint">Loading attachments…</p>
               {:else if attachments.length === 0}
-                <p class="hint">No attachments. Add files via the button above or drag-and-drop onto the task.</p>
+                <p class="hint">No attachments. Add files via the button above or drag-and-drop files onto this drawer.</p>
               {:else}
                 <ul class="attachment-list" aria-label="Attachments">
                   {#each attachments as a (a.name)}
@@ -781,7 +808,7 @@
                         onclick={() => onOpenAttachment(a.name)}>
                         {a.name}
                       </button>
-                      <span class="att-size">{formatSize(a.size)}</span>
+                      <span class="att-size" title={`${a.size.toLocaleString()} bytes`}>{formatSize(a.size)}</span>
                       <button
                         class="att-remove"
                         class:armed={attachmentRemovePending === a.name}

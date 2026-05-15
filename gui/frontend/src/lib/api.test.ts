@@ -150,6 +150,20 @@ describe('attachment wrappers', () => {
     await expect(addAttachments('TB-1', [])).rejects.toThrow(/at least one attachment path/);
   });
 
+  it('removeAttachments propagates binding errors', async () => {
+    const err = new Error('attachment "missing.txt" not found on TB-1');
+    mocks.bindRemoveAttachments.mockRejectedValueOnce(err);
+
+    await expect(removeAttachments('TB-1', ['missing.txt'])).rejects.toThrow(/not found on TB-1/);
+  });
+
+  it('openAttachment propagates binding errors (missing dir, missing file, OS failure)', async () => {
+    const err = new Error('attachment "spec.txt" not found on TB-1: no attachments directory');
+    mocks.bindOpenAttachment.mockRejectedValueOnce(err);
+
+    await expect(openAttachment('TB-1', 'spec.txt')).rejects.toThrow(/no attachments directory/);
+  });
+
   it('pickAttachmentFiles requests a multi-select file picker and filters empty entries', async () => {
     mocks.runtimeOpenFile.mockResolvedValueOnce([
       '/Users/me/a.txt',
@@ -159,15 +173,15 @@ describe('attachment wrappers', () => {
 
     const paths = await pickAttachmentFiles();
     expect(paths).toEqual(['/Users/me/a.txt', '/Users/me/b.png']);
-    expect(mocks.runtimeOpenFile).toHaveBeenCalledWith({
-      CanChooseDirectories: false,
-      CanChooseFiles: true,
-      CanCreateDirectories: false,
-      AllowsMultipleSelection: true,
-      Title: 'Add attachments',
-      Message: 'Pick one or more files to attach',
-      ButtonText: 'Attach',
-    });
+    // Match only the behavior-bearing options; assert structurally so UX copy
+    // tweaks (Title/Message/ButtonText) don't break the test.
+    expect(mocks.runtimeOpenFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        CanChooseFiles: true,
+        CanChooseDirectories: false,
+        AllowsMultipleSelection: true,
+      }),
+    );
   });
 
   it('pickAttachmentFiles returns an empty array when the picker is cancelled', async () => {

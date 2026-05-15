@@ -109,8 +109,10 @@ export async function regenerate(): Promise<void> {
 // --- Attachment wrappers ---
 
 export async function listAttachments(id: string): Promise<Attachment[]> {
-  const list = (await ListAttachments(id)) ?? [];
-  return list.map((a) => ({ name: a.name, size: a.size }));
+  // Pass the binding rows through unchanged so any new field Wails adds
+  // (modTime, owner, …) survives. The earlier re-map silently stripped
+  // anything beyond {name, size}.
+  return (await ListAttachments(id)) ?? [];
 }
 
 export async function addAttachments(id: string, paths: string[]): Promise<void> {

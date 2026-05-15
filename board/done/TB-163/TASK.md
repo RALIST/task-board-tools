@@ -14,10 +14,13 @@ gui/frontend/src/lib/api.test.ts - only addAttachments (line 148-152) covers the
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `api.test.ts` adds `removeAttachments propagates binding errors` and `openAttachment propagates binding errors (missing dir, missing file, OS failure)` cases, mirroring the existing `addAttachments` rejection coverage.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

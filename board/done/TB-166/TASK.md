@@ -14,10 +14,13 @@ gui/internal/watcher/folder_tasks_test.go:69 - taskTmp := taskFile + '.tmp.X' pr
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] New `TestRealCLITempAndStagingPatterns_AreIgnored` exercises (a) `.TASK.md.tmp.<pid>.<hex>` atomic-write temp files, (b) `.TB-1.promote.<pid>.<hex>/` promotion staging dirs, and (c) `.attach.<pid>.<hex>/` attach staging dirs. None of the three produce a `board:reloaded` or `task:updated:*` event. A future loosening of `isIgnored` (dropping the dot-prefix branch) would break the test loudly.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

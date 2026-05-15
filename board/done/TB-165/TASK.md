@@ -14,10 +14,14 @@ TaskDrawer.svelte:727 - empty-state hint says 'drag-and-drop onto the task' but 
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] Empty-state hint reworded to "No attachments. Add files via the button above or drag-and-drop files onto this drawer." The drawer is the obvious target when it is open.
+- [x] `TaskDrawer.test.ts` empty-state assertion updated to match the new phrase precisely so future copy drift breaks the test loudly.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

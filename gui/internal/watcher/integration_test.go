@@ -31,18 +31,47 @@ func findFirstTaskID(t *testing.T, statusDir string) string {
 	return ""
 }
 
+// locateTBBinary builds the CLI from source into t.TempDir() so the test
+// always runs against the current source tree, not whatever stale `tb`
+// happens to be on PATH or at /tmp/tb. Falls back to PATH lookup only if the
+// repo's cli/ module is unreachable.
 func locateTBBinary(t *testing.T) string {
 	t.Helper()
-	tbBin, err := exec.LookPath("tb")
-	if err == nil {
-		return tbBin
+
+	// Walk up from this test file's dir to find the repo root (the dir that
+	// contains both `go.work` and `cli/`).
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Skipf("getwd: %v", err)
 	}
-	// Fallback to the project's go build output.
-	fallback := "/tmp/tb"
-	if _, err := os.Stat(fallback); err != nil {
-		t.Skipf("tb binary not available: %v", err)
+	root := cwd
+	for i := 0; i < 8; i++ {
+		if _, err := os.Stat(filepath.Join(root, "go.work")); err == nil {
+			if _, err := os.Stat(filepath.Join(root, "cli")); err == nil {
+				break
+			}
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			root = ""
+			break
+		}
+		root = parent
 	}
-	return fallback
+	if root == "" {
+		if tbBin, err := exec.LookPath("tb"); err == nil {
+			return tbBin
+		}
+		t.Skip("tb binary not available and could not locate source tree")
+	}
+
+	out := filepath.Join(t.TempDir(), "tb")
+	cmd := exec.Command("go", "build", "-o", out, "./cli")
+	cmd.Dir = root
+	if buildOut, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("go build ./cli failed: %v\n%s", err, buildOut)
+	}
+	return out
 }
 
 // TestIntegration_TBMvFiresOneBoardReloaded drives the real `tb` binary

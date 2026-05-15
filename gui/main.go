@@ -165,6 +165,15 @@ func main() {
 			})
 			return
 		}
+		// Signal in-flight so the drawer can disable Add / Remove and show a
+		// hint while `tb attach` runs. Paired with attach:dropped (success or
+		// failure) that re-enables the controls. Concurrent tb mutations are
+		// serialised by .board.lock but the GUI gives no other feedback during
+		// the drop.
+		app.Event.Emit("attach:dropping", map[string]any{
+			"taskId": taskID,
+			"count":  len(files),
+		})
 		err := boardService.AddAttachments(context.Background(), taskID, files)
 		payload := map[string]any{
 			"taskId": taskID,

@@ -14,10 +14,13 @@ gui/frontend/src/lib/api.ts:111-114 - listAttachments re-maps the rows to { name
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `listAttachments` returns the binding rows verbatim instead of re-mapping to `{ name, size }`. Any field Wails adds in the future survives the boundary.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

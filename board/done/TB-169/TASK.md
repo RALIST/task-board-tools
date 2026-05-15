@@ -22,10 +22,16 @@ Source: GUI frontend review findings #15, #16, #17.
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `formatSize` labels are now IEC-correct (B / KiB / MiB / GiB) while keeping the 1024-based math.
+- [x] `.att-size` carries a `title="<bytes> bytes"` tooltip (formatted with `Number.prototype.toLocaleString`) so users can see the exact byte count on hover.
+- [x] `TaskDrawer.test.ts` size-assertion updated to expect IEC labels.
+- [x] `api.test.ts` multi-select picker test relaxed to `expect.objectContaining({ CanChooseFiles: true, CanChooseDirectories: false, AllowsMultipleSelection: true })` so UX copy edits to Title/Message/ButtonText don't break it.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

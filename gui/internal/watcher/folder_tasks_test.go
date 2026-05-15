@@ -211,6 +211,65 @@ func TestTmpFiles_NoEventStorm(t *testing.T) {
 	}
 }
 
+// TestRealCLITempAndStagingPatterns_AreIgnored exercises the actual on-disk
+// names the CLI uses for atomic writes (`.<base>.tmp.<pid>.<token>`, see
+// cli/atomicfs.go) and for promotion/attach staging (`.<ID>.promote.<pid>.<token>/`
+// and `.attach.<pid>.<token>/`, see cli/attach.go makeHiddenWorkDir). The
+// shorter `.tmp.X` names used by other tests rely on the same dot-prefix
+// branch in isIgnored; without these tests, a future watcher change that
+// loosens dot-prefix handling could let the real CLI patterns through.
+func TestRealCLITempAndStagingPatterns_AreIgnored(t *testing.T) {
+	board := makeBoard(t)
+	taskDir := filepath.Join(board, "backlog", "TB-1")
+	if err := os.MkdirAll(filepath.Join(taskDir, "attachments"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	taskFile := filepath.Join(taskDir, "TASK.md")
+	if err := os.WriteFile(taskFile, []byte("# TB-1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	em := &captureEmitter{}
+	startWatcher(t, board, em)
+	time.Sleep(50 * time.Millisecond)
+
+	// CLI atomic-write temp pattern: .<base>.tmp.<pid>.<hex>
+	cliAtomicTmp := filepath.Join(taskDir, ".TASK.md.tmp.12345.deadbeefcafe")
+	if err := os.WriteFile(cliAtomicTmp, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(cliAtomicTmp); err != nil {
+		t.Fatal(err)
+	}
+
+	// CLI promotion staging: .<ID>.promote.<pid>.<hex>/
+	promoteStaging := filepath.Join(board, "backlog", ".TB-1.promote.12345.deadbeefcafe")
+	if err := os.MkdirAll(promoteStaging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(promoteStaging); err != nil {
+		t.Fatal(err)
+	}
+
+	// CLI attach staging: .attach.<pid>.<hex>/
+	attachStaging := filepath.Join(taskDir, ".attach.12345.deadbeefcafe")
+	if err := os.MkdirAll(attachStaging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(attachStaging); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(400 * time.Millisecond)
+
+	if count := countEvents(em, "board:reloaded"); count != 0 {
+		t.Fatalf("real CLI temp/staging patterns leaked through ignore filter: %d board:reloaded events: %+v", count, em.snapshot())
+	}
+	if count := countEvents(em, "task:updated:TB-1"); count != 0 {
+		t.Fatalf("real CLI temp/staging patterns triggered task:updated: %d events: %+v", count, em.snapshot())
+	}
+}
+
 func countEvents(em *captureEmitter, name string) int {
 	n := 0
 	for _, e := range em.snapshot() {

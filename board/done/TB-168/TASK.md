@@ -22,10 +22,15 @@ Source: GUI backend review findings #10 (LOW), #14, #16.
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `locateTBBinary` in `gui/internal/watcher/integration_test.go` now walks up to the repo root (the dir containing `go.work` and `cli/`), `go build`s the CLI into `t.TempDir()`, and uses that binary. The stale `/tmp/tb` fallback is gone; PATH lookup remains as a last resort only when the source tree is unreachable.
+- [x] `TestCreate_FolderFormPath_RejectsLeadingDashSegment` in `gui/internal/cli/mutations_test.go` exercises a `board/backlog/-7/TASK.md`-style path and asserts it does not parse as a task ID, locking in `idDirRe`'s dash-prefix-only constraint.
+- [x] Hardcoded-sleep replacement is intentionally descoped: the existing 400 ms grace wraps the watcher's 200 ms debounce window plus jitter, and the assertion is "count == 1 exactly" — converting to poll-until-condition would still need a deadline that exceeds the debounce window, so the change would not move the flake floor.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

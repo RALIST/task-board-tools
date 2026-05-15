@@ -45,6 +45,24 @@ func TestCreate_FolderFormPath(t *testing.T) {
 	}
 }
 
+// TestCreate_FolderFormPath_RejectsLeadingDashSegment proves the dash-prefix-
+// only constraint on idDirRe — a path like "board/backlog/-7/TASK.md" must
+// not be parsed as an ID. Without this negative case, a future relaxation of
+// the regex (e.g. dropping the `[A-Za-z]` anchor) would silently start
+// extracting "-7" as an ID.
+func TestCreate_FolderFormPath_RejectsLeadingDashSegment(t *testing.T) {
+	stub := writeStub(t, t.TempDir(), "tb", `echo "Created board/backlog/-7/TASK.md"`)
+	c, err := NewClient(Options{BinaryPath: stub})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	_, err = c.Create(context.Background(), CreateInput{Title: "Hello", Module: "core"})
+	var me *MutationError
+	if !errors.As(err, &me) || me.Kind != ErrKindUnknown {
+		t.Fatalf("want unknown error from unparseable folder path, got %v", err)
+	}
+}
+
 func TestCreate_MissingTitle(t *testing.T) {
 	c, _ := NewClient(Options{BinaryPath: writeStub(t, t.TempDir(), "tb", `echo "Created x"`)})
 	_, err := c.Create(context.Background(), CreateInput{Title: ""})

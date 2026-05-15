@@ -127,8 +127,8 @@ describe('TaskDrawer attachments UI (TB-152)', () => {
     expect(names).toEqual(['design.pdf', 'photo.png']);
 
     const sizes = Array.from(document.querySelectorAll<HTMLElement>('.att-size')).map((s) => s.textContent?.trim());
-    expect(sizes[0]).toBe('2.0 KB');
-    expect(sizes[1]).toBe('5.0 MB');
+    expect(sizes[0]).toBe('2.0 KiB');
+    expect(sizes[1]).toBe('5.0 MiB');
   });
 
   it('exposes data-file-drop-target and data-task-id on the surface', async () => {
@@ -320,6 +320,6 @@ describe('TaskDrawer attachment accessibility (TB-154)', () => {
     );
     expect(hint).toBeDefined();
     expect(hint!.textContent).toMatch(/Add files/);
-    expect(hint!.textContent).toMatch(/drag-and-drop/);
+    expect(hint!.textContent).toMatch(/drag-and-drop files onto this drawer/);
   });
 });
