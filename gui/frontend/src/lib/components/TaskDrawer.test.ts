@@ -237,6 +237,42 @@ describe('TaskDrawer attachment remove confirmation (TB-153)', () => {
   });
 });
 
+describe('TaskDrawer attachment remove confirm survives task switch (TB-153 regression)', () => {
+  it('disarms remove on task switch so a same-named attachment on the new task is not single-click deletable', async () => {
+    // Arm removal on TB-99/foo.txt
+    apiMocks.getTask.mockResolvedValueOnce(makeDetail({ id: 'TB-99' }));
+    apiMocks.listAttachments.mockResolvedValueOnce([{ name: 'foo.txt', size: 10 }]);
+    component = mount(TaskDrawer, { target: document.body, props: { taskId: 'TB-99' } });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    let remove = document.querySelector<HTMLButtonElement>('.att-remove');
+    remove!.click();
+    await tick();
+    expect(remove!.classList.contains('armed')).toBe(true);
+
+    // Switch to TB-100; the next task also has an attachment named foo.txt.
+    apiMocks.getTask.mockResolvedValueOnce(makeDetail({ id: 'TB-100' }));
+    apiMocks.listAttachments.mockResolvedValueOnce([{ name: 'foo.txt', size: 20 }]);
+    apiMocks.removeAttachments.mockResolvedValue(undefined);
+    await unmount(component!);
+    component = mount(TaskDrawer, { target: document.body, props: { taskId: 'TB-100' } });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    remove = document.querySelector<HTMLButtonElement>('.att-remove');
+    expect(remove).not.toBeNull();
+    expect(remove!.classList.contains('armed')).toBe(false);
+
+    // A single click on TB-100's foo.txt must arm, not commit.
+    remove!.click();
+    await tick();
+    expect(apiMocks.removeAttachments).not.toHaveBeenCalled();
+  });
+});
+
 describe('TaskDrawer attachment accessibility (TB-154)', () => {
   it('attachment name button carries an open-in-default-app aria-label', async () => {
     apiMocks.listAttachments.mockResolvedValue([{ name: 'design.pdf', size: 1 }]);

@@ -195,18 +195,18 @@ Promotion runs when a file-form task acquires its first attachment, or by explic
 1. Acquire `.board.lock` (`LOCK_EX`).
 2. Re-read `<status>/<ID>.md` and confirm the task still exists in file form (defends against a race lost to a concurrent move).
 3. Create a staging directory `<status>/.<ID>.promote.<pid>.<rand>/`. The leading `.` keeps the staging dir invisible to the status-directory scanner.
-4. Copy the existing `.md` body into `<staging>/TASK.md` via `writeFileAtomic`.
-5. If the operation that triggered promotion brings inbound attachments, stage them under `<staging>/attachments/` via `writeFileAtomic`. Update the staged `TASK.md`'s `## Attachments` section accordingly.
+4. Copy the existing `.md` body into a `TASK.md` buffer and append the `Promoted to folder form on <date>` `## Log` entry to it. If the triggering operation brings inbound attachments, stage them under `<staging>/attachments/` via `writeFileAtomic` and add their entries to the buffer's `## Attachments` section.
+5. Write the buffer to `<staging>/TASK.md` via `writeFileAtomic`. After this step the staging dir holds the final task content as it will appear post-publish.
 6. `os.Rename(<staging>, <status>/<ID>)`. This single rename publishes the folder. Because `<ID>` (directory) and `<ID>.md` (file) are disjoint names, the rename cannot collide; from this point on the resolver returns folder form.
 7. `os.Remove(<status>/<ID>.md)`. The legacy file disappears.
-8. Append a `## Log` entry to `<status>/<ID>/TASK.md` (`Promoted to folder form on <date>`) via `writeFileAtomic`.
-9. `regenerateBoard` (still under lock).
-10. Release the lock.
+8. `regenerateBoard` (still under lock).
+9. Release the lock.
 
 The ordering is load-bearing:
 
 - The folder appears (step 6) before the file disappears (step 7), so any lock-free reader that interleaves between the two steps still resolves the task — to the folder form by the resolution order above. The task is never "missing" from a reader's point of view.
 - If the process dies between step 6 and step 7, the next CLI invocation finds both forms; the resolver prefers folder form, and the next structured mutation removes the orphan `<ID>.md` via `cleanupOrphanFileFormSibling`. This is the only path to a dual-form state and it is self-healing on the next mutation.
+- The promotion-log line is written into the staged `TASK.md` BEFORE the publish-rename (step 5, not after step 6), so a reader that opens the just-published folder sees the complete final body. There is no second post-rename `TASK.md` write — anything that would have been "step 8" historically is included in step 5's buffer.
 - The staging name's `.<ID>.promote.` prefix means partially-built staging dirs left by a crash mid-build (before step 6) are ignored by all readers and by `BOARD.md` regeneration. They accumulate in the status directory until manually cleaned up; a future opportunistic sweep on `tb` invocation may garbage-collect them, but there is no startup recovery sweep today. Same applies to `.attach.<pid>.<rand>/` staging dirs left by a crash mid-attach. These leftovers are functionally invisible — they cost disk space but never affect correctness.
 
 Demotion (folder → file) is **not supported**. Once promoted, a task stays in folder form even if its attachments are later removed. This keeps the resolution order total and avoids a second class of transient states.

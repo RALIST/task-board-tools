@@ -355,7 +355,14 @@ func TestRecoverStale_FolderCancelledCarveOut(t *testing.T) {
 	}
 }
 
-func TestRecoverStale_DurableCancelledTaskIgnored(t *testing.T) {
+// TestRecoverStale_CancelledAgentStatusSkipsCandidate verifies that a task
+// whose .md AgentStatus is already `cancelled` is filtered out at the
+// candidate-selection step (recovery only looks at AgentStatus=running). It
+// does NOT exercise the cancel-carve-out at the reconciliation step — that
+// is covered by TestRecoverStale_FolderCancelledCarveOut, which uses
+// AgentStatus=running plus an in-JSONL finished{cancelled} event so the
+// task reaches the carve-out branch.
+func TestRecoverStale_CancelledAgentStatusSkipsCandidate(t *testing.T) {
 	events := []agent.Event{
 		{TS: "2026-05-14T10:00:00Z", RunID: "r_durablecancel", TaskID: "TB-2", Event: agent.EvQueued, Agent: "claude"},
 		{TS: "2026-05-14T10:00:01Z", RunID: "r_durablecancel", TaskID: "TB-2", Event: agent.EvStarted, Agent: "claude", PID: 12345},

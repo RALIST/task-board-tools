@@ -14,10 +14,13 @@ gui/internal/agent/state.go:275 in resolveArtifactPaths does strings.TrimSpace(t
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `resolveArtifactPaths` uppercases the trimmed taskID before scanning status directories, matching `resolveTaskDir` and `findTaskFile`. A lowercase ID slipping in can no longer fall through to legacy paths whose basename diverges from the canonical uppercase task file.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

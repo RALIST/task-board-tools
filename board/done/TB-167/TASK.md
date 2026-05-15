@@ -22,10 +22,15 @@ Source: CLI grand review findings #10, #11, #13.
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `cli/main.go` usage block now lists `tb attach` and `tb attach --rm` adjacent; `tb assign` moved below them.
+- [x] `containsAttachRemoveFlag` no longer matches the `--rm=` prefix; only `-rm`/`--rm` enable the remove path, leaving any future value-bearing form to the FlagSet.
+- [x] `docs/ARCHITECTURE.md` "File → folder promotion" step ordering rewritten to reflect actual code: the promotion-log line is added to the staged `TASK.md` buffer BEFORE the publish-rename, so there is no post-publish second TASK.md write.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

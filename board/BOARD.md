@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-93 | Move from file-based to folder-based approach | 27/42 | backlog | cli |
+| TB-93 | Move from file-based to folder-based approach | 33/42 | backlog | cli |
 | TB-177 | Auto task implementation | 0/3 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-130 | Agent session resume + interrupted-run recovery | 0/12 | backlog | gui |
@@ -66,17 +66,11 @@
 | TB-142 | Docs sweep: ARCHITECTURE.md + CLAUDE.md + FEATURES.md for resume | improvement | P1 | S | docs |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-144 | Append logs realtime when task is opened | bug | P1 | S | gui |
-| TB-156 | TB-93/CLI: tb attach add path should validate destination filename (parity with --rm) | improvement | P2 | S | cli |
-| TB-157 | TB-93/CLI: log warnings to stderr from best-effort rollback removal failures | improvement | P2 | S | cli |
-| TB-159 | TB-93/GUI: resolveArtifactPaths should normalize taskID to uppercase | bug | P2 | S | gui |
-| TB-160 | TB-93/GUI: TestRecoverStale_DurableCancelledTaskIgnored tests the wrong code path | bug | P2 | S | gui |
-| TB-161 | TB-93/GUI: OpenAttachment surfaces opaque error when attachments/ dir is missing | improvement | P2 | S | gui |
 | TB-162 | TB-93/GUI: api.ts listAttachments re-mapping strips the Attachment binding type | improvement | P2 | S | gui |
 | TB-163 | TB-93/GUI: add error-path tests for removeAttachments and openAttachment in api.test.ts | tech-debt | P2 | S | gui |
 | TB-164 | TB-93/GUI: surface drag-and-drop in-flight state via attach:dropping/attach:dropped events | improvement | P2 | S | gui |
 | TB-165 | TB-93/GUI: empty-state hint should say 'drag onto this drawer' not 'onto the task' | improvement | P2 | S | gui |
 | TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | P2 | S | gui |
-| TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | P2 | S | cli |
 | TB-168 | TB-93/GUI: test infra cleanup - hardcoded sleeps, /tmp/tb fallback, idDirRe negative case | tech-debt | P2 | S | gui |
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | P2 | S | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | P2 | S | gui |
@@ -123,7 +117,13 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |
+| TB-161 | TB-93/GUI: OpenAttachment surfaces opaque error when attachments/ dir is missing | improvement | gui |
+| TB-160 | TB-93/GUI: TestRecoverStale_DurableCancelledTaskIgnored tests the wrong code path | bug | gui |
+| TB-159 | TB-93/GUI: resolveArtifactPaths should normalize taskID to uppercase | bug | gui |
 | TB-158 | TB-93/GUI: insert '--' before user paths in tb attach mutations to prevent flag confusion | bug | gui |
+| TB-157 | TB-93/CLI: log warnings to stderr from best-effort rollback removal failures | improvement | cli |
+| TB-156 | TB-93/CLI: tb attach add path should validate destination filename (parity with --rm) | improvement | cli |
 | TB-155 | TB-93/GUI: attachmentsLoading flicker on rapid task switch and concurrent refresh race | bug | gui |
 | TB-154 | TB-93/GUI: attachment list accessibility improvements (aria-label, keyboard nav) | improvement | gui |
 | TB-153 | TB-93/GUI: attachment remove is destructive single-click without confirmation | improvement | gui |
@@ -167,9 +167,3 @@
 | TB-84 | Keyboard shortcuts: N (new), / (search), Esc (close drawer), Enter (open card) | feature | gui |
 | TB-83 | System tray: idle/running glyph + click to show/hide window | feature | gui |
 | TB-82 | Wails3 application menu: File (Open board…, Open Recent ›, Quit), View, Help | feature | gui |
-| TB-81 | SettingsPanel.svelte: form for timeout/max_workers/default_agent/cli_path with Save + toast | feature | gui |
-| TB-80 | Frontend api.ts settings wrappers + preferencesStore.ts | feature | gui |
-| TB-79 | Wire default_agent into AssignAgent dropdown default for unassigned tasks | feature | gui |
-| TB-78 | Wire cli_path preference into cli.NewClient at board open + reload on change | feature | gui |
-| TB-77 | Wire agent_timeout_minutes into agent_run.go (replace agentTimeoutDefault const) | feature | gui |
-| TB-76 | Preferences struct: add agent_timeout_minutes, default_agent, cli_path with clamps + tests | feature | gui |

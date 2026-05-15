@@ -172,6 +172,17 @@ func (b *BoardService) OpenAttachment(ctx context.Context, id, name string) erro
 		return err
 	}
 	attachmentsDir := filepath.Join(taskDir, "attachments")
+	// Probe attachmentsDir explicitly so a missing dir surfaces as a
+	// user-actionable not-found error rather than the opaque "resolve
+	// attachments dir: ..." that EvalSymlinks emits when the path is absent.
+	// resolveTaskDir already proved the parent task dir exists, so the only
+	// way to get here without attachments/ is out-of-band tampering.
+	if _, err := os.Stat(attachmentsDir); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("attachment %q not found on %s: no attachments directory", name, id)
+		}
+		return fmt.Errorf("stat attachments dir: %w", err)
+	}
 	realAttachmentsDir, err := filepath.EvalSymlinks(attachmentsDir)
 	if err != nil {
 		return fmt.Errorf("resolve attachments dir: %w", err)

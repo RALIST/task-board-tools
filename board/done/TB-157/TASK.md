@@ -14,10 +14,14 @@ cli/attach.go:436-439 in attachToFolderTask - if writeFileAtomic of TASK.md fail
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `removeFiles` renamed to `bestEffortRemoveFiles`; rollback now logs a stderr warning per failed removal instead of silently swallowing errors.
+- [x] Legacy-agent-artifact cleanup at the end of promotion (TB-146 follow-up) is also degraded from a hard error to a warning so a publish that succeeded is not retroactively aborted by a janitorial step.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

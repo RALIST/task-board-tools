@@ -14,10 +14,14 @@ gui/app/agent_recovery_test.go:319-387 - the test claims to verify the 'never ov
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] Renamed `TestRecoverStale_DurableCancelledTaskIgnored` to `TestRecoverStale_CancelledAgentStatusSkipsCandidate` and added a docstring clarifying it exercises the candidate-selection filter, not the cancel-carve-out reconciliation branch.
+- [x] Pointed readers to `TestRecoverStale_FolderCancelledCarveOut` which is the real coverage for the carve-out.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

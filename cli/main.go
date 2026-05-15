@@ -87,8 +87,8 @@ Usage:
   tb done <ID>                                                           Mark done
   tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled] [--goal file|-] [--acceptance file|-]
   tb attach <ID> <path>...                                               Copy files into task attachments
+  tb attach --rm <ID> <attachment-name>...                               Remove task attachments
   tb assign <ID> <agent>                                                 Assign claude|codex and queue for daemon pickup
-  tb attach --rm <ID> <attachment-name>...                                Remove task attachments
   tb close <ID>                                                          Archive task
   tb show <ID> [--json]                                                  Print task content (or {metadata, body} JSON)
   tb open <ID>                                                           Open in default editor

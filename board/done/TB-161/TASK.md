@@ -14,10 +14,13 @@ gui/app/attachments.go:170-172 - filepath.EvalSymlinks(attachmentsDir) returns a
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `OpenAttachment` now probes `attachmentsDir` with `os.Stat` before `filepath.EvalSymlinks`. A missing directory surfaces a user-actionable `attachment %q not found on %s: no attachments directory` error instead of the opaque `resolve attachments dir: ...` from EvalSymlinks.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

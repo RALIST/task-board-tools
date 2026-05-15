@@ -274,7 +274,14 @@ func StatePath(boardDir, taskID string) string {
 }
 
 func resolveArtifactPaths(boardDir, taskID string) (ArtifactPaths, error) {
-	taskID = strings.TrimSpace(taskID)
+	// Uppercase the ID to match the peer resolvers (resolveTaskDir,
+	// findTaskFile). All production callers happen to source IDs from
+	// already-normalized output (tb show --json), so this is latent — but a
+	// lowercase ID slipping in here used to silently fall through every status
+	// dir and synthesise legacy paths whose basename diverged from the
+	// canonical uppercase task file. Normalising eliminates the parallel
+	// universe.
+	taskID = strings.ToUpper(strings.TrimSpace(taskID))
 	for _, status := range taskStatusDirs {
 		taskDir := filepath.Join(boardDir, status, taskID)
 		taskPath := filepath.Join(taskDir, folderTaskFileName)

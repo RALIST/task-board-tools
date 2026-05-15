@@ -99,10 +99,22 @@
   // by a stale older promise resolving second.
   let attachmentsReqSeq = 0;
   let attachmentsBusy = $state(false);
+  // Two-click confirm state for attachment removal. Declared up here so the
+  // task-switch $effect can reset it cleanly — otherwise an armed row on
+  // task A whose name matches an attachment on task B would let a single
+  // click on B's × bypass the confirm.
+  let attachmentRemovePending = $state<string | null>(null);
+  let attachmentRemoveTimer: ReturnType<typeof setTimeout> | null = null;
 
   $effect(() => {
     const id = taskId;
     userClearedAgent = false;
+    // Disarm any in-flight remove confirmation from the previous task —
+    // otherwise switching to a new task whose attachment shares a name with
+    // the armed row would let a single click bypass the two-click confirm
+    // and silently remove the wrong task's attachment.
+    if (attachmentRemoveTimer) { clearTimeout(attachmentRemoveTimer); attachmentRemoveTimer = null; }
+    attachmentRemovePending = null;
     if (!id) {
       detail = null; err = null; loading = false;
       editMode = false; bodyDirty = false; archivePrompt = false;
@@ -579,8 +591,8 @@
   // Two-click confirm for attachment removal — mirrors archivePrompt/
   // cancelPrompt. A misclick on the X used to be irrecoverable from the UI;
   // now the first click arms the button for ~4s and the second click commits.
-  let attachmentRemovePending = $state<string | null>(null);
-  let attachmentRemoveTimer: ReturnType<typeof setTimeout> | null = null;
+  // (state declared at the top of the script — see attachmentRemovePending /
+  // attachmentRemoveTimer.)
 
   function onRemoveAttachment(name: string) {
     if (!detail || attachmentsBusy) return;

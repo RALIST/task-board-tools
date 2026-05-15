@@ -96,7 +96,11 @@ func containsAttachRemoveFlag(args []string) bool {
 		if arg == "--" {
 			return false
 		}
-		if arg == "-rm" || arg == "--rm" || strings.HasPrefix(arg, "--rm=") {
+		// Only the bare flag forms toggle the remove path. `--rm=false`
+		// previously matched here and still entered the remove branch even
+		// though the FlagSet would have parsed it as off — drop the prefix
+		// match and rely on the FlagSet for any future value-bearing forms.
+		if arg == "-rm" || arg == "--rm" {
 			return true
 		}
 	}
@@ -323,6 +327,12 @@ func prepareAttachmentSources(paths []string) ([]attachmentSource, error) {
 		if name == "." || name == string(filepath.Separator) || name == "" {
 			return nil, fmt.Errorf("attachment source %s does not have a usable file name", raw)
 		}
+		// Reject names the --rm path also rejects (NUL, separators, abs paths,
+		// `.`/`..`) so the add and remove sides cannot diverge on what a valid
+		// attachment name is.
+		if err := validateAttachmentRemovalName(name); err != nil {
+			return nil, fmt.Errorf("attachment source %s: %w", raw, err)
+		}
 		if prev, ok := seen[name]; ok {
 			return nil, fmt.Errorf("attachment name collision: %s and %s both import as %q", prev, raw, name)
 		}
@@ -392,8 +402,13 @@ func promoteFileTaskWithAttachments(boardDir string, ref taskRef, sources []atta
 		return attachResult{}, fmt.Errorf("promoted %s but could not remove legacy file %s: %w", ref.ID, ref.Path, err)
 	}
 
+	// Legacy artifact cleanup is best-effort once the folder is published:
+	// the task is already migrated and a stray root-level state/log file is
+	// cosmetic (the daemon now reads task-local paths and the next promotion
+	// can't re-trigger). A hard error here would abort what is otherwise a
+	// successful publish and leave the migrated artifacts duplicated.
 	if err := removeLegacyAgentArtifacts(boardDir, ref.ID); err != nil {
-		return attachResult{}, fmt.Errorf("promoted %s but could not remove legacy agent artifacts: %w", ref.ID, err)
+		fmt.Fprintf(os.Stderr, "warning: promoted %s but could not remove legacy agent artifacts: %v\n", ref.ID, err)
 	}
 
 	return attachResult{taskID: ref.ID, taskDir: taskDir, files: names, promoted: true}, nil
@@ -546,7 +561,7 @@ func attachToFolderTask(ref taskRef, sources []attachmentSource) (attachResult, 
 		src := filepath.Join(stagingDir, source.name)
 		dst := filepath.Join(attachmentsDir, source.name)
 		if err := os.Rename(src, dst); err != nil {
-			removeFiles(published)
+			bestEffortRemoveFiles(published)
 			return attachResult{}, fmt.Errorf("cannot publish attachment %s: %w", source.name, err)
 		}
 		published = append(published, dst)
@@ -558,7 +573,7 @@ func attachToFolderTask(ref taskRef, sources []attachmentSource) (attachResult, 
 	content = appendLogEntry(content, fmt.Sprintf("- %s: Attached %s\n", today, strings.Join(attachmentSourceNames(sources), ", ")))
 
 	if err := writeFileAtomic(ref.Path, []byte(content), 0644); err != nil {
-		removeFiles(published)
+		bestEffortRemoveFiles(published)
 		return attachResult{}, fmt.Errorf("cannot update %s: %w", ref.Path, err)
 	}
 
@@ -763,8 +778,15 @@ func removeTaskSection(content string, section taskSectionRange) string {
 	}
 }
 
-func removeFiles(paths []string) {
+// bestEffortRemoveFiles deletes each path and warns to stderr on any failure.
+// Used to roll back partial attachment publishes when a subsequent step fails;
+// a remaining file is cosmetic (the next `tb attach` rebuilds the `##
+// Attachments` section from attachmentsDir) but the user still deserves to
+// know cleanup was incomplete.
+func bestEffortRemoveFiles(paths []string) {
 	for _, path := range paths {
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "warning: failed to remove %s during rollback: %v\n", path, err)
+		}
 	}
 }

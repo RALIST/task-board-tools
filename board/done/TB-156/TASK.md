@@ -14,10 +14,13 @@ cli/attach.go:299-304 in prepareAttachmentSources - info.Mode().IsRegular() is t
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] `prepareAttachmentSources` calls `validateAttachmentRemovalName(name)` after `filepath.Base(clean)`, so the add path rejects the same set of malformed destination names (NUL, separators, abs paths, `.`/`..`) that `--rm` rejects.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+
