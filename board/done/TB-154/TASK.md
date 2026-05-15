@@ -14,10 +14,17 @@ TaskDrawer.svelte:732 - clicking an attachment name has no keyboard activation f
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] Attachment name button carries `aria-label="Open <name> in default application"` so screen readers describe the row's action without relying on the (mouse-only) `title` attribute.
+- [x] Attachment list (`<ul>`) carries `aria-label="Attachments"`.
+- [x] Empty-state hint already mentions both the file picker and drag-and-drop (verified — "Add files via the button above or drag-and-drop onto the task"), so keyboard-only users have a non-drop path in.
+- [x] Two-tab-stops-per-row layout is preserved (name button + remove button) — collapsing to one stop would conflict with the new two-click remove confirm in TB-153.
+- [x] `TaskDrawer.test.ts` asserts the aria-label and list label.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

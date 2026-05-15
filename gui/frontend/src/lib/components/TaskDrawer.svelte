@@ -576,8 +576,30 @@
     }
   }
 
-  async function onRemoveAttachment(name: string) {
+  // Two-click confirm for attachment removal — mirrors archivePrompt/
+  // cancelPrompt. A misclick on the X used to be irrecoverable from the UI;
+  // now the first click arms the button for ~4s and the second click commits.
+  let attachmentRemovePending = $state<string | null>(null);
+  let attachmentRemoveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function onRemoveAttachment(name: string) {
     if (!detail || attachmentsBusy) return;
+    if (attachmentRemovePending !== name) {
+      attachmentRemovePending = name;
+      if (attachmentRemoveTimer) clearTimeout(attachmentRemoveTimer);
+      attachmentRemoveTimer = setTimeout(() => {
+        attachmentRemovePending = null;
+        attachmentRemoveTimer = null;
+      }, 4000);
+      return;
+    }
+    if (attachmentRemoveTimer) { clearTimeout(attachmentRemoveTimer); attachmentRemoveTimer = null; }
+    attachmentRemovePending = null;
+    void doRemoveAttachment(name);
+  }
+
+  async function doRemoveAttachment(name: string) {
+    if (!detail) return;
     const id = detail.metadata.id;
     attachmentsBusy = true;
     try {
@@ -736,20 +758,30 @@
               {:else if attachments.length === 0}
                 <p class="hint">No attachments. Add files via the button above or drag-and-drop onto the task.</p>
               {:else}
-                <ul class="attachment-list">
+                <ul class="attachment-list" aria-label="Attachments">
                   {#each attachments as a (a.name)}
                     <li>
-                      <button class="att-name" type="button" title="Open in OS" onclick={() => onOpenAttachment(a.name)}>
+                      <button
+                        class="att-name"
+                        type="button"
+                        title="Open in default application"
+                        aria-label={`Open ${a.name} in default application`}
+                        onclick={() => onOpenAttachment(a.name)}>
                         {a.name}
                       </button>
                       <span class="att-size">{formatSize(a.size)}</span>
                       <button
                         class="att-remove"
+                        class:armed={attachmentRemovePending === a.name}
                         type="button"
                         disabled={attachmentsBusy}
-                        aria-label={`Remove ${a.name}`}
-                        title="Remove attachment"
-                        onclick={() => onRemoveAttachment(a.name)}>×</button>
+                        aria-label={attachmentRemovePending === a.name
+                          ? `Click again to remove ${a.name}`
+                          : `Remove ${a.name}`}
+                        title={attachmentRemovePending === a.name
+                          ? 'Click again to remove'
+                          : 'Remove attachment'}
+                        onclick={() => onRemoveAttachment(a.name)}>{attachmentRemovePending === a.name ? '!' : '×'}</button>
                     </li>
                   {/each}
                 </ul>
@@ -1318,6 +1350,12 @@
     color: var(--p0);
     background: rgba(255, 90, 82, 0.1);
   }
+  .att-remove.armed {
+    color: #fff;
+    background: var(--p0);
+    font-weight: 700;
+  }
+  .att-remove.armed:hover { background: var(--p0); }
   .att-remove:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* Narrow viewport: stack the rail below the main content so all controls

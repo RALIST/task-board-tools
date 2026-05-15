@@ -14,10 +14,15 @@ There is no gui/frontend/src/lib/components/TaskDrawer.test.ts. The new attachme
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] New `gui/frontend/src/lib/components/TaskDrawer.test.ts` mocks `$lib/api` and the relevant stores, mounts the drawer, and covers: attachment list rendering with `formatSize` output, Add Files → `pickAttachmentFiles` + `addAttachments`, row click → `openAttachment`, remove button → two-click confirm → `removeAttachments`, and `data-file-drop-target` + `data-task-id` on `.surface`.
+- [x] `npm test -- --run src/lib/components/TaskDrawer.test.ts` passes (9 tests).
+- [x] `npm run check` clean.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+

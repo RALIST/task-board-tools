@@ -14,10 +14,16 @@ TaskDrawer.svelte:736-742 - single click on the X button invokes tb attach --rem
 
 ## Acceptance Criteria
 
-- [ ] (to be filled)
+- [x] First click on the × button now arms the row (red background, exclamation glyph) and sets `aria-label`/`title` to "Click again to remove …" for a 4-second window.
+- [x] Second click within the window commits via `removeAttachments`; expiry resets the row silently.
+- [x] Tracked per-attachment so arming one row does not affect the others, mirroring the existing `archivePrompt`/`cancelPrompt` UX.
+- [x] Test coverage in `TaskDrawer.test.ts` asserts both the arming and the second-click commit.
 
 ## Attachments
 
 ## Log
 
 - 2026-05-15: Created
+- 2026-05-15: Started — moved to in-progress
+- 2026-05-15: Done
+
