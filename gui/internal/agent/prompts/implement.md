@@ -5,7 +5,7 @@ kanban board. Your job is to implement the task described below.
 
 ## Task
 
-ID: {{TASK_ID}}
+ID: {{TASK_ID}
 Title: {{TASK_TITLE}}
 
 {{TASK_BODY}}
@@ -35,8 +35,10 @@ Read `@board/SKILL.md` for important rules about working with the board and task
 
 - All acceptance criteria in the task are met.
 - All tests pass and new tests are added if needed.
+- Code review is passed.
 - Linting and formatting checks pass.
 - A summary of the work is added to the `## Log` section of the task.
 - Documentation is updated if needed.
+- Work commited with clear and descriptive commit messages.
 
 Move task in progress `tb start {{TASK_ID}}` and begin.

@@ -30,7 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-210 | Manual QA: MVP live-board pass | P1 | gui | main |
 
 ## Backlog
 
@@ -100,11 +100,20 @@
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-208 | Switch projects bug | bug | P1 | M | gui |
+| TB-217 | Manual QA: attachment removal mis-parses dash-leading filename | bug | P1 | S | cli |
+| TB-219 | Manual QA: running agent remains queued and cannot be cancelled | bug | P1 | M | gui |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-218 | QA probe GUI create dialog | bug | gui/frontend |
+| TB-216 | QA probe legacy file parity | bug | cli |
+| TB-215 | QA probe groom placeholder | bug | gui |
+| TB-214 | QA probe daemon pickup | bug | gui |
+| TB-213 | QA probe agent run | bug | gui |
+| TB-212 | QA probe folder attachments | bug | cli |
+| TB-211 | QA probe CLI happy edited | improvement | cli |
 | TB-207 | Allow tasl title edit from GUI | improvement | gui |
 | TB-201 | MacOS: window buttons hides header | bug | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
@@ -148,10 +157,3 @@
 | TB-103 | GUI: TaskDrawer attachments list, add via picker, remove via tb | feature | gui |
 | TB-102 | Agent: task-local logs/state for folder tasks + stale recovery | feature | gui |
 | TB-101 | CLI: BOARD.md byte-identical regardless of storage form | feature | cli |
-| TB-100 | CLI: remove attachments via `tb attach --rm` safely | feature | cli |
-| TB-99 | CLI: tb attach <ID> <path>... with auto-promotion from file to folder | feature | cli |
-| TB-98 | CLI: move folder tasks as whole directories across statuses and archive | feature | cli |
-| TB-97 | CLI: tb create defaults to folder form | feature | cli |
-| TB-96 | CLI: read folder-form tasks identically to file-form | feature | cli |
-| TB-95 | Publish TB-93 folder-task milestone in docs | improvement | docs |
-| TB-94 | Spec folder-task contract in docs/ARCHITECTURE.md | feature | docs |

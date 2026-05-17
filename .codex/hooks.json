@@ -1,15 +1,23 @@
 {
-  "PostToolUse": [
-    {
-      "matcher": "Edit|Write",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "bash \"$(git rev-parse --show-toplevel)\"/.codex/post-edit.sh",
-          "timeout": 30,
-          "statusMessage": "Formatter is running..."
-        }
-      ]
-    }
-  ]
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.codex/post-edit.sh",
+            "timeout": 30,
+            "statusMessage": "Formatter is running..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.codex/post-edit.sh --svelte-check",
+            "timeout": 60,
+            "statusMessage": "Svelte check is running..."
+          }
+        ]
+      }
+    ]
+  }
 }

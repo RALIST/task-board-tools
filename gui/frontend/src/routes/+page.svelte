@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Events } from '@wailsio/runtime';
+  import { Events, System } from '@wailsio/runtime';
   import Board from '$lib/components/Board.svelte';
   import CreateTaskDialog from '$lib/components/CreateTaskDialog.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
@@ -56,6 +56,7 @@
   let epics = $derived(observedEpics($board));
 
   onMount(async () => {
+    document.documentElement.classList.toggle('platform-mac', System.IsMac());
     void preferencesStore.load().catch(() => {});
     try { projectRoot = await getProjectRoot(); } catch { projectRoot = ''; }
     try { recents = await listRecentBoards(); } catch { recents = []; }
@@ -303,6 +304,8 @@
     --p2: #4a8df8;
     --p3: #6e7686;
     --radius: 8px;
+    --mac-titlebar-height: 50px;
+    --mac-traffic-light-safe-left: 152px;
   }
   :global(body) {
     margin: 0;
@@ -322,18 +325,36 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     padding: 12px 18px 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     background: var(--bg-elev);
+    --wails-draggable: drag;
     -webkit-app-region: drag;
   }
-  .actions { -webkit-app-region: no-drag; display: flex; gap: 8px; }
+  :global(html.platform-mac) .topbar {
+    min-height: var(--mac-titlebar-height);
+    padding-left: var(--mac-traffic-light-safe-left);
+  }
+  .actions {
+    --wails-draggable: no-drag;
+    -webkit-app-region: no-drag;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
   .topbar h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
-  .title { display: flex; align-items: baseline; gap: 10px; }
+  .title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
   .root {
     color: var(--fg-dim);
     font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :global(html.platform-mac) .actions {
+    flex-wrap: wrap;
   }
   .pick {
     background: rgba(255, 255, 255, 0.08);

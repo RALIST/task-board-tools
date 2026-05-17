@@ -179,6 +179,10 @@
     align-items: center;
     justify-content: center;
     z-index: 60;
+    box-sizing: border-box;
+  }
+  :global(html.platform-mac) .backdrop {
+    padding-top: var(--mac-titlebar-height);
   }
   .dialog {
     background: var(--bg-elev);

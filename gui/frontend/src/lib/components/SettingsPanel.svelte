@@ -336,6 +336,9 @@
     flex-direction: column;
     gap: 18px;
   }
+  :global(html.platform-mac) .panel {
+    padding-top: calc(20px + var(--mac-titlebar-height));
+  }
   header {
     display: flex;
     align-items: flex-start;

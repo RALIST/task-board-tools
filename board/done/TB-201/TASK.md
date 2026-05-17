@@ -32,12 +32,12 @@ Related tasks:
 
 ## Acceptance Criteria
 
-- [ ] On macOS, launching `cd gui && task dev` or `wails3 dev` shows the app topbar/header content fully clear of the red/yellow/green traffic-light controls.
-- [ ] Opening a task drawer, including TB-201, shows the task ID/title and close button fully visible and not covered by the native window controls at the default 1280x800 window size.
-- [ ] Resizing the macOS window down to the supported minimum keeps topbar actions, drawer/dialog headers, and close controls reachable with no overlap by native window controls.
-- [ ] The chosen Wails/macOS titlebar configuration uses the Wails v3 option names available in this repo's `github.com/wailsapp/wails/v3 v3.0.0-alpha.91` API and preserves draggable titlebar/topbar behavior.
-- [ ] Non-macOS behavior is unchanged, or macOS-only layout/window changes are guarded so Linux/Windows builds do not inherit the titlebar padding/configuration.
-- [ ] Verification includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and the manual macOS smoke test below.
+- [x] On macOS, launching `cd gui && task dev` or `wails3 dev` shows the app topbar/header content fully clear of the red/yellow/green traffic-light controls.
+- [x] Opening a task drawer, including TB-201, shows the task ID/title and close button fully visible and not covered by the native window controls at the default 1280x800 window size.
+- [x] Resizing the macOS window down to the supported minimum keeps topbar actions, drawer/dialog headers, and close controls reachable with no overlap by native window controls.
+- [x] The chosen Wails/macOS titlebar configuration uses the Wails v3 option names available in this repo's `github.com/wailsapp/wails/v3 v3.0.0-alpha.91` API and preserves draggable titlebar/topbar behavior.
+- [x] Non-macOS behavior is unchanged, or macOS-only layout/window changes are guarded so Linux/Windows builds do not inherit the titlebar padding/configuration.
+- [x] Verification includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and the manual macOS smoke test below.
 
 Manual test note: on macOS, run the GUI in dev mode, open the main board, open TB-201 or another task drawer, open `+ New`, and open Settings; confirm each top header is visually clear of the traffic-light controls before and after resizing the window.
 
@@ -56,4 +56,11 @@ Manual test note: on macOS, run the GUI in dev mode, open the main board, open T
 - 2026-05-15: Edited module=gui, tags=macos,ui, goal
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=success
+- 2026-05-17: Edited agentstatus=queued
+- 2026-05-17: Edited agentstatus=running
+- 2026-05-17: Started — moved to in-progress
+- 2026-05-17: Added macOS-only titlebar safe-area spacing for the app topbar, task drawer, create dialog, and settings panel; verified Go tests, frontend checks, Vitest, and native macOS smoke at default/minimum window sizes.
+- 2026-05-17: Done
+- 2026-05-17: Edited agentstatus=success
+- 2026-05-17: Edited agentstatus=success
 

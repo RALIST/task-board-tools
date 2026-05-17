@@ -1,0 +1,28 @@
+Migration inventory:
+  active: instruction files - 2 found
+    - CLAUDE.md
+    - AGENTS.md
+  active: skills - 3 found
+    - tb
+    - ui-test
+    - wails3
+  inactive: command sources - none found
+  active: subagents - 1 found
+    - fullstack-code-reviewer
+Migration surfaces:
+  active: AGENTS.md - 1 instruction file(s) found.
+  active: skills - 3 skill(s) converted.
+  active: MCP config - 0 MCP server(s) converted into config.toml.
+  active: subagents - 1 subagent(s) converted.
+Migration report:
+  symlinked: AGENTS.md - Linked to CLAUDE.md.
+  rewritten: .codex/hooks.json - Unsupported Claude hook fields need review: `hooks.PostToolUse.hooks[].async`. Rewritten for Codex hooks; review behavior before relying on it. Codex hooks require `[features].codex_hooks = true`, only execute `command` handlers, skip `async` / `prompt` / `agent` handlers, ignore `matcher` for `UserPromptSubmit` and `Stop`, and `PreToolUse` / `PostToolUse` currently run for shell commands only.
+  manual_fix_required: .agents/skills/tb/SKILL.md - Manual review required for Claude skill fields: `argument-hint`.
+  manual_fix_required: .agents/skills/ui-test/SKILL.md - Manual review required for Claude skill fields: `argument-hint`, `model`.
+  rewritten: .agents/skills/wails3/SKILL.md - Converted Claude skill.
+  rewritten: .codex/config.toml - Converted 0 MCP server entries.
+  manual_fix_required: .codex/agents/fullstack-code-reviewer.toml - Manual review required for Claude subagent fields: `color`, `memory`.
+  overwritten: .agents/skills/ui-test - Existing Codex skill will be replaced.
+  overwritten: .agents/skills/wails3 - Existing Codex skill will be replaced.
+  overwritten: .agents/skills/tb - Existing Codex skill will be replaced.
+  overwritten: .codex/agents/fullstack-code-reviewer.toml - Existing Codex subagent will be replaced.
