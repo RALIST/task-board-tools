@@ -38,27 +38,84 @@ export const selectedRunID = writable<string | null>(null);
 /** Subscribe to the raw runs map. Most consumers should use runsByTask. */
 export const runsStore = { subscribe: runs.subscribe };
 
-/** Replace every Run entry for a task with the freshly-fetched list.
- * Other tasks' entries are kept intact. */
+/** Merge a freshly-fetched run list for a task into the store.
+ *
+ * The list comes from `AgentService.ListRuns` (i.e. the JSONL snapshot on
+ * disk). Because the backend writes JSONL FIRST and then emits Wails
+ * `agent:run-*` events, the event-driven handlers in
+ * `registerAgentEventHandlers` can advance a run's `status` (queued →
+ * running → terminal) BEFORE a slightly older `listRuns` promise resolves
+ * with a snapshot that still shows the earlier status. A naive bulk-replace
+ * would regress the visible status (TB-219: drawer kept showing QUEUED for
+ * a run whose `agent:run-started` event had already fired).
+ *
+ * Strategy: pure merge — for each incoming run, prefer whichever side
+ * carries the more-advanced status (terminal > running > queued > '') and
+ * let incoming fill in any blank timing fields the store didn't yet know
+ * about. NEVER delete entries the snapshot omits: a live event could have
+ * just inserted a run whose queued JSONL line the snapshot reader missed
+ * because of disk-flush ordering. The next snapshot (or another live
+ * event) will reconcile, and a leaked entry is far less harmful than a
+ * dropped live run.
+ */
 export function setRunsForTask(taskId: string, list: Run[]): void {
   runs.update((m) => {
-    // Drop any prior entries for this task.
-    for (const [rid, r] of m) {
-      if (r.taskId === taskId) m.delete(rid);
-    }
     for (const r of list) {
-      m.set(r.runId, normalize(r));
+      const prev = m.get(r.runId);
+      m.set(r.runId, mergePreferAdvanced(prev, normalize(r)));
     }
     return new Map(m);
   });
 }
 
-/** Patch (or insert) a single Run by runId. */
+/** Status precedence used to decide which side of a merge wins:
+ *  terminal (success/failed/cancelled) > running > queued > unset. */
+function statusRank(status: Run['status']): number {
+  switch (status) {
+    case '':
+      return -1;
+    case 'queued':
+      return 0;
+    case 'running':
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+function mergePreferAdvanced(prev: Run | undefined, incoming: Run): Run {
+  if (!prev) return incoming;
+  if (statusRank(prev.status) > statusRank(incoming.status)) {
+    // The in-store entry has seen a later event than the snapshot. Keep
+    // its status/exitCode/timestamps but accept any fields the snapshot
+    // can fill in (agent name, mode, runId — all stable across events).
+    return {
+      ...incoming,
+      status: prev.status,
+      exitCode: prev.exitCode,
+      queuedAt: prev.queuedAt || incoming.queuedAt,
+      startedAt: prev.startedAt || incoming.startedAt,
+      finishedAt: prev.finishedAt || incoming.finishedAt,
+    };
+  }
+  return incoming;
+}
+
+/** Patch (or insert) a single Run by runId.
+ *
+ * Routes through `mergePreferAdvanced` so a late `queued` or `started`
+ * event can't regress a run that has already advanced to a terminal
+ * status — e.g. a `agent:run-started` event delayed in the Wails channel
+ * arriving after the synchronous `agent:run-finished` is processed.
+ * The optimistic `queued` insert at `TaskDrawer.svelte` (when the user
+ * clicks Run) is also protected: if Wails delivers `agent:run-started`
+ * before our optimistic insert lands, the insert won't wipe `running`.
+ */
 export function upsertRun(patch: Partial<Run> & { runId: string }): void {
   runs.update((m) => {
     const prev = m.get(patch.runId);
-    const next: Run = normalize({ ...emptyRun(patch.runId), ...prev, ...patch });
-    m.set(patch.runId, next);
+    const candidate: Run = normalize({ ...emptyRun(patch.runId), ...prev, ...patch });
+    m.set(patch.runId, mergePreferAdvanced(prev, candidate));
     return new Map(m);
   });
 }

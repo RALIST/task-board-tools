@@ -12,6 +12,7 @@ import (
 
 	"tools/tb-gui/internal/agent"
 	"tools/tb-gui/internal/cli"
+	"tools/tb-gui/internal/redact"
 )
 
 // agentBinary is the strategy point where AgentService picks a Runner for
@@ -581,10 +582,16 @@ func (l *lineSink) Write(p []byte) (int, error) {
 	// streamLines passes a trailing '\n' on every line; strip for events
 	// but keep for the log file.
 	clean := strings.TrimRight(line, "\n")
+	// Mask credential-like substrings before any sink so the secret never
+	// reaches disk (log file), the JSONL state, the Wails event, or the
+	// GetRunLog readback. The trailing newline pattern from streamLines is
+	// preserved so the log file's line framing is unchanged.
+	cleanRedacted := redact.Line(clean)
+	suffix := line[len(clean):]
 
 	if l.logFile != nil {
 		l.mu.Lock()
-		_, _ = l.logFile.Write(p)
+		_, _ = l.logFile.Write([]byte(cleanRedacted + suffix))
 		l.mu.Unlock()
 	}
 
@@ -598,7 +605,7 @@ func (l *lineSink) Write(p []byte) (int, error) {
 		TaskID: l.ar.TaskID,
 		Event:  ev,
 		Mode:   l.ar.Mode,
-		Line:   clean,
+		Line:   cleanRedacted,
 	}); err != nil {
 		// Failed JSONL appends are not fatal — drop the event but keep
 		// the log file going. The frontend gets the line via Wails.
@@ -609,7 +616,7 @@ func (l *lineSink) Write(p []byte) (int, error) {
 		"run_id":  l.ar.RunID,
 		"task_id": l.ar.TaskID,
 		"stream":  l.stream,
-		"line":    clean,
+		"line":    cleanRedacted,
 	})
 
 	return len(p), nil

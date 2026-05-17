@@ -99,7 +99,21 @@ func cmdEdit(args []string) {
 			fmt.Fprintln(os.Stderr, "error: --title must not be empty or whitespace")
 			os.Exit(1)
 		}
+		// Mask credential-like substrings in the title before it lands in
+		// the H1 line / log entry (TB-203 review finding: prior fix only
+		// covered -d / --goal / --acceptance bodies).
+		newTitle = redactLine(newTitle)
 		titleProvided = true
+	}
+
+	// Free-text metadata that flows into both **Field:** lines and log
+	// entry labels gets redacted up front. Priority/Type/Size/Agent/
+	// AgentStatus are enum-validated above, so they can't carry secrets.
+	if *module != "" {
+		*module = redactLine(*module)
+	}
+	if *tags != "" {
+		*tags = redactLine(*tags)
 	}
 
 	// Collect metadata changes in flag order so stdout and log entries are stable.
@@ -137,6 +151,10 @@ func cmdEdit(args []string) {
 		if err != nil {
 			fatal("%v", err)
 		}
+		// Mask credential-like substrings in user-supplied body so a pasted
+		// agent transcript can't write a real token into the task file or
+		// the generated BOARD.md.
+		body = redactText(body)
 		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Goal", body: body, label: "goal"})
 	}
 	if *acceptancePath != "" {
@@ -144,6 +162,7 @@ func cmdEdit(args []string) {
 		if err != nil {
 			fatal("%v", err)
 		}
+		body = redactText(body)
 		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Acceptance Criteria", body: body, label: "acceptance"})
 	}
 

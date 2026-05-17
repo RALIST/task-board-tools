@@ -64,7 +64,7 @@ GUI shows epics in a dedicated section with a progress bar.
 | Term | Meaning |
 |------|---------|
 | **Board** | A directory containing `backlog/`, `in-progress/`, `done/`, `archive/` subdirs + `.tb.yaml` config in the parent. |
-| **Task** | A markdown task in one of the status directories. Current tasks default to folder form (`PREFIX-NNN/TASK.md` with optional `attachments/` and task-local agent artifacts); legacy file form (`PREFIX-NNN.md`) is still supported. The containing status directory determines status. |
+| **Task** | A markdown task in one of the status directories. Current tasks default to folder form (`PREFIX-NNN/TASK.md` with optional task-root attachments, legacy `attachments/` compatibility files, and task-local agent artifacts); legacy file form (`PREFIX-NNN.md`) is still supported. The containing status directory determines status. |
 | **Status** | One of `backlog`, `in-progress`, `done`, `archive`. Plus filter aliases: `active` (all but archive) and `all` (everything). |
 | **Project root** | The directory containing `.tb.yaml`. Everything else is resolved from there. |
 | **Prefix** | Project-specific task ID prefix (e.g., `WS`, `PR`). Tasks are `WS-1`, `WS-2`, … |

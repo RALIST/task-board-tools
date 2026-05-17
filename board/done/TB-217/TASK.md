@@ -13,9 +13,9 @@ Fix `tb attach --rm` so a dash-leading attachment filename can be removed using 
 
 ## Acceptance Criteria
 
-- [ ] User-visible: `tb attach --rm TB-212 -- -dash.txt` removes the `-dash.txt` attachment instead of reporting a bogus task ID.
-- [ ] Command/state: after removal, `board/<status>/TB-212/attachments/-dash.txt` is gone and `TB-212`'s `## Attachments` section no longer lists it.
-- [ ] Regression: removing ordinary attachment names still works, and invalid/missing attachment names still return nonzero validation errors.
+- [x] User-visible: `tb attach --rm TB-212 -- -dash.txt` removes the `-dash.txt` attachment instead of reporting a bogus task ID.
+- [x] Command/state: after removal, `board/<status>/TB-212/attachments/-dash.txt` is gone and `TB-212`'s `## Attachments` section no longer lists it.
+- [x] Regression: removing ordinary attachment names still works, and invalid/missing attachment names still return nonzero validation errors.
 
 ## Context
 
@@ -39,4 +39,5 @@ Evidence task: TB-212 still has `board/backlog/TB-212/attachments/-dash.txt`.
 
 - 2026-05-17: Created
 - 2026-05-17: Started — moved to in-progress
+- 2026-05-17: Done — fixed `reorderArgs` in `cli/create.go` to respect the `--` terminator (emits it directly after collected flags so the FlagSet consumes it and post-terminator args remain positional, even when leading with `-`). Added regression `TestAttachRemoveDashLeadingFilenameAfterTerminator`. End-to-end repro on standalone QA board confirms `tb attach QA-1 -- /tmp/-dash.txt` followed by `tb attach --rm QA-1 -- -dash.txt` now removes the file.
 

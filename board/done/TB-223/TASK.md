@@ -21,4 +21,5 @@ Check docs/, CLI/GUI READMEs, and agent-facing docs for stale pre-M1/M2 paths, s
 
 - 2026-05-17: Created
 - 2026-05-17: Started — moved to in-progress
+- 2026-05-17: Moved to done
 

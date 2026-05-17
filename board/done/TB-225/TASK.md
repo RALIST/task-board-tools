@@ -3,7 +3,7 @@
 **Type:** feature
 **Priority:** P2
 **Size:** M
-**AgentStatus:** running
+**AgentStatus:** failed
 **Module:** gui
 **Tags:** gui,board-open,init,ux
 **Branch:** —
@@ -70,4 +70,5 @@ Relevant seams:
 - 2026-05-17: Edited agentstatus=queued
 - 2026-05-17: Edited agentstatus=running
 - 2026-05-17: Done — InitBoard backend (SettingsService.InitBoard) validates project root, board path, prefix, then invokes `tb init` and routes through OpenBoard so watcher/BoardService/daemon/recents stay consistent. Frontend InitBoardDialog replaces the missing-`.tb.yaml` toast with a confirm modal (defaults `board`/`PR`, pre-validated). Failure paths preserve previously active board. Backend+frontend regression coverage added (settings_init_test.go, settings_open_validate_test.go, InitBoardDialog.test.ts).
+- 2026-05-17: Edited agentstatus=failed
 

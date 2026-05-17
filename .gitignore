@@ -8,13 +8,14 @@
 # Runtime flock target — recreated on every CLI invocation.
 board/.board.lock
 
-# Local agent/runtime artifacts.
-/board/.agent-log
-/board/.agent-state
-/board/**/.agent-log
-/board/**/.agent-state
-/board/**/.agent-logs/
+# Local agent/runtime artifacts. Two layouts coexist:
+# - file-form (legacy): board/.agent-state/<ID>.jsonl + board/.agent-logs/<ID>/<run>.log
+# - folder-form: board/<status>/<ID>/.agent-state.jsonl + board/<status>/<ID>/.agent-logs/
+# Both may contain agent stdout/stderr — treat as sensitive.
+/board/.agent-state/
+/board/.agent-logs/
 /board/**/.agent-state.jsonl
+/board/**/.agent-logs/
 !/.claude/.gitkeep
 
 # tb-gui build artefacts (the gui/.gitignore covers the rest under gui/).

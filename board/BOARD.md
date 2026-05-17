@@ -152,4 +152,3 @@
 | TB-144 | Append logs realtime when task is opened | bug | gui |
 | TB-129 | Remove ”non-editable” section when edit task’s body | bug | gui |
 | TB-127 | Open ticket full screen | improvement | gui |
-| TB-126 | GUI: dropping a file on a task card attaches it | improvement | gui |

@@ -262,7 +262,13 @@ func taskDestinationPaths(boardDir, status, taskID string) []string {
 }
 
 // appendLogEntry inserts a log entry at the end of the ## Log section.
+// User-supplied fragments (titles, tag lists, edited labels) can flow into
+// entries via callers like cmdEdit, so the entry is run through redactLine
+// here to keep credential-like substrings out of the on-disk markdown and
+// the regenerated BOARD.md. Purely system-generated entries match no
+// patterns and pass through unchanged.
 func appendLogEntry(content, entry string) string {
+	entry = redactLine(entry)
 	logSection, ok := findTaskSection(content, "## Log")
 	if !ok {
 		// No log section — append one.

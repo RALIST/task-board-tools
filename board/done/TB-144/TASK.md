@@ -28,12 +28,12 @@ Implementation constraints and non-goals:
 
 ## Acceptance Criteria
 
-- [ ] Opening `TaskDrawer` for a task whose selected run has status `queued` or `running` hydrates `AgentRunLog` from `getRunLog(taskId, runId)` so previously written output is visible immediately instead of starting from an empty pane.
-- [ ] After the initial log snapshot is shown, matching `agent:run-log` events for the same `run_id` append within about 1 second; events for other run IDs are ignored.
-- [ ] The snapshot-to-live handoff does not duplicate or drop visible lines when a log event arrives while the initial `getRunLog` request is in flight; switching task or selected run clears the old buffer before rendering the next run.
-- [ ] Terminal/past-run behavior stays unchanged: finished runs still render through `GetRunLog` and do not start a polling loop or subscribe to unrelated live events.
-- [ ] Frontend coverage exercises live-run hydration, live append/filtering, fetch-error/not-found handling for a live run, and task/run switch reset; run `cd gui/frontend && npm test -- AgentRunLog` or the closest focused Vitest target plus `npm run check`.
-- [ ] Manual GUI smoke: start a long-running Run or Groom action, close the task detail, wait until several log lines are written, reopen the same task, and confirm old lines are visible immediately and new lines continue appending until the run finishes.
+- [x] Opening `TaskDrawer` for a task whose selected run has status `queued` or `running` hydrates `AgentRunLog` from `getRunLog(taskId, runId)` so previously written output is visible immediately instead of starting from an empty pane.
+- [x] After the initial log snapshot is shown, matching `agent:run-log` events for the same `run_id` append within about 1 second; events for other run IDs are ignored.
+- [x] The snapshot-to-live handoff does not duplicate or drop visible lines when a log event arrives while the initial `getRunLog` request is in flight; switching task or selected run clears the old buffer before rendering the next run.
+- [x] Terminal/past-run behavior stays unchanged: finished runs still render through `GetRunLog` and do not start a polling loop or subscribe to unrelated live events.
+- [x] Frontend coverage exercises live-run hydration, live append/filtering, fetch-error/not-found handling for a live run, and task/run switch reset; run `cd gui/frontend && npm test -- AgentRunLog` or the closest focused Vitest target plus `npm run check`.
+- [ ] Manual GUI smoke: start a long-running Run or Groom action, close the task detail, wait until several log lines are written, reopen the same task, and confirm old lines are visible immediately and new lines continue appending until the run finishes. *(deferred to manual run by user; backend log path unchanged, Vitest coverage exercises the contract)*
 
 ## Related Tasks
 
@@ -52,4 +52,6 @@ Implementation constraints and non-goals:
 - 2026-05-15: Edited priority=P1, type=bug, size=S, module=gui, tags=gui,frontend,agent,logs,drawer,quick-win, goal
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=success
+- 2026-05-17: Started — moved to in-progress
+- 2026-05-17: Done — `AgentRunLog.svelte` live branch now subscribes to `agent:run-log` first (queuing into `pendingLive`), fetches `getRunLog(taskId, runId)` for the on-disk snapshot, then merges with a trailing-overlap dedupe so a line that landed during the in-flight fetch is not duplicated. Run-id filter unchanged; terminal-run path untouched. Coverage in `AgentRunLog.test.ts` (10 cases incl. queued/running hydration, run-id filtering, mid-fetch dedupe, partial-overlap, not-found, snapshot error, run switch via a small Svelte harness, terminal no-subscribe). Manual GUI smoke deferred to the user.
 

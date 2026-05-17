@@ -44,19 +44,15 @@
     // Reset buffer when switching runs so old lines don't bleed into the
     // new view.
     lines = [];
+    fileText = '';
+    fileError = null;
 
     if (!isLive) {
       // Terminal run — fetch the static log file. Prefer the prop taskId
       // (which the drawer always knows) over run?.taskId so the fetch
       // doesn't race the runsStore hydration.
       const effectiveTaskId = taskId || run?.taskId || '';
-      if (!effectiveTaskId) {
-        fileText = '';
-        fileError = null;
-        return;
-      }
-      fileText = '';
-      fileError = null;
+      if (!effectiveTaskId) return;
       let cancelled = false;
       getRunLog(effectiveTaskId, runId)
         .then((text) => {
@@ -75,25 +71,97 @@
       return () => { cancelled = true; };
     }
 
-    // Live run — subscribe to agent:run-log. Filter by run_id so two
-    // concurrent runs (M5+) don't interleave.
-    fileText = '';
-    fileError = null;
+    // Live run — fetch the existing on-disk snapshot AND subscribe to
+    // agent:run-log in the same effect so reopening a drawer mid-run shows
+    // prior output immediately. Order matters: subscribe FIRST so any line
+    // appended between the snapshot read and our subscription is captured
+    // (queued into `pendingLive`); merge after the snapshot resolves,
+    // de-duplicating the overlap window where a single line appears in
+    // both the snapshot tail and the queued events.
+    let cancelled = false;
+    let snapshotLoaded = false;
+    const pendingLive: string[] = [];
     const off = Events.On('agent:run-log', (ev: { data: unknown[] }) => {
+      if (cancelled) return;
       const p = ev?.data?.[0];
       if (!p || typeof p !== 'object') return;
       const payload = p as { run_id?: string; line?: string; stream?: string };
+      // Filter by run_id so two concurrent runs (M5+) don't interleave.
       if (payload.run_id !== runId) return;
       const text = stripAnsi(String(payload.line ?? ''));
-      // Functional update so Svelte's reactivity proxy sees the new array.
-      lines = [...lines, text];
-      // Auto-scroll on the next tick once the DOM has the new line.
-      queueMicrotask(scrollIfSticky);
+      if (snapshotLoaded) {
+        // Functional update so Svelte's reactivity proxy sees the new array.
+        lines = [...lines, text];
+        queueMicrotask(scrollIfSticky);
+      } else {
+        pendingLive.push(text);
+      }
     });
+
+    const applyPending = (snapshotLines: string[]) => {
+      if (cancelled) return;
+      const dup = trailingOverlap(snapshotLines, pendingLive);
+      lines = [...snapshotLines, ...pendingLive.slice(dup)];
+      snapshotLoaded = true;
+      queueMicrotask(scrollIfSticky);
+    };
+
+    const effectiveTaskId = taskId || run?.taskId || '';
+    if (!effectiveTaskId) {
+      // No task context — skip snapshot and surface only live events.
+      applyPending([]);
+    } else {
+      getRunLog(effectiveTaskId, runId)
+        .then((text) => applyPending(parseLogLines(text)))
+        .catch((e) => {
+          if (cancelled) return;
+          if (!isRunLogNotFoundError(e)) {
+            fileError = e instanceof Error ? e.message : String(e);
+          }
+          // Either way, flush pending so live events still render.
+          applyPending([]);
+        });
+    }
+
     return () => {
+      cancelled = true;
       try { off(); } catch { /* ignore */ }
     };
   });
+
+  /** Split snapshot text into individual lines, dropping the trailing empty
+   * entry that `split('\n')` produces when the text ends with a newline.
+   * ANSI escapes are stripped here so dedupe against the (already-stripped)
+   * live event lines is apples-to-apples — otherwise colored snapshot
+   * content would never compare equal to a stripped live line and we'd
+   * always show duplicates after the snapshot/live handoff. */
+  function parseLogLines(text: string): string[] {
+    if (text === '') return [];
+    const stripped = text.endsWith('\n') ? text.slice(0, -1) : text;
+    return stripped.split('\n').map(stripAnsi);
+  }
+
+  /** Number of leading `pending` entries that exactly match the trailing
+   * entries of `snapshot`. Returns `pending.length` when the entire pending
+   * array is a suffix of `snapshot` (so all of it can be dropped), and 0
+   * otherwise.
+   *
+   * Conservative-by-design: a partial K<N match would also be plausible
+   * (e.g. snapshot ends with [a] and pending starts with [a, b]) but the
+   * backend offers no per-line sequence number, so when log content
+   * contains repeated or blank lines a partial match can silently drop a
+   * real live line. Showing one cosmetic duplicate "a" line is strictly
+   * better than losing diagnostic output, so dedupe is all-or-nothing
+   * (TB-144 review finding).
+   */
+  function trailingOverlap(snapshot: string[], pending: string[]): number {
+    if (pending.length === 0 || pending.length > snapshot.length) return 0;
+    const offset = snapshot.length - pending.length;
+    for (let i = 0; i < pending.length; i++) {
+      if (snapshot[offset + i] !== pending[i]) return 0;
+    }
+    return pending.length;
+  }
 
   function scrollIfSticky() {
     if (!pre || !stickyBottom) return;

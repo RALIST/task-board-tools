@@ -223,14 +223,26 @@ func captureStdout(t *testing.T, fn func()) string {
 	os.Stdout = w
 	defer func() { os.Stdout = oldStdout }()
 
+	readDone := make(chan struct {
+		out string
+		err error
+	}, 1)
+	go func() {
+		data, err := io.ReadAll(r)
+		readDone <- struct {
+			out string
+			err error
+		}{out: string(data), err: err}
+	}()
+
 	fn()
 
 	if err := w.Close(); err != nil {
 		t.Fatalf("close stdout pipe: %v", err)
 	}
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("read stdout pipe: %v", err)
+	result := <-readDone
+	if result.err != nil {
+		t.Fatalf("read stdout pipe: %v", result.err)
 	}
-	return string(out)
+	return result.out
 }

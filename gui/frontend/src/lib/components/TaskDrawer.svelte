@@ -1045,7 +1045,7 @@
                   onclick={onGroomClick}>
                   {groomStarting ? 'Grooming…' : 'Groom'}
                 </button>
-                {#if liveStatus === 'running'}
+                {#if liveStatus === 'running' || liveStatus === 'queued'}
                   <button class="danger compact" type="button" onclick={startCancel}>
                     {cancelPrompt ? 'Click again to cancel' : 'Cancel'}
                   </button>

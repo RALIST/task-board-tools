@@ -107,6 +107,63 @@ describe('runsStore', () => {
     expect(final.exitCode).toBe(0);
   });
 
+  it('setRunsForTask does not regress a more-advanced status from a live event (TB-219)', () => {
+    // Simulate the race: agent:run-started has already fired (store has
+    // status=running) when an older listRuns snapshot resolves and reports
+    // status=queued. The bulk merge must preserve the live status.
+    upsertRun({ runId: 'r_live', taskId: 'TB-1', status: 'running', startedAt: '2026-05-17T10:00:01Z' });
+    setRunsForTask('TB-1', [
+      makeRun({ runId: 'r_live', taskId: 'TB-1', status: 'queued', queuedAt: '2026-05-17T10:00:00Z' }),
+    ]);
+    expect(runsByTask('TB-1')[0].status).toBe('running');
+    expect(runsByTask('TB-1')[0].startedAt).toBe('2026-05-17T10:00:01Z');
+  });
+
+  it('setRunsForTask preserves a terminal status against a stale running snapshot (TB-219)', () => {
+    upsertRun({ runId: 'r_done', taskId: 'TB-1', status: 'cancelled', exitCode: -1, finishedAt: '2026-05-17T10:00:05Z' });
+    setRunsForTask('TB-1', [
+      makeRun({ runId: 'r_done', taskId: 'TB-1', status: 'running', startedAt: '2026-05-17T10:00:01Z' }),
+    ]);
+    const got = runsByTask('TB-1')[0];
+    expect(got.status).toBe('cancelled');
+    expect(got.exitCode).toBe(-1);
+    expect(got.finishedAt).toBe('2026-05-17T10:00:05Z');
+  });
+
+  it('setRunsForTask accepts an incoming advancement over the store', () => {
+    upsertRun({ runId: 'r_a', taskId: 'TB-1', status: 'queued', queuedAt: '2026-05-17T10:00:00Z' });
+    setRunsForTask('TB-1', [
+      makeRun({ runId: 'r_a', taskId: 'TB-1', status: 'success', startedAt: '2026-05-17T10:00:01Z', finishedAt: '2026-05-17T10:00:02Z' }),
+    ]);
+    expect(runsByTask('TB-1')[0].status).toBe('success');
+  });
+
+  it('setRunsForTask keeps store-only runs that the snapshot has not yet observed (TB-219)', () => {
+    // A live agent:run-queued event can insert a brand-new run into the
+    // store before its JSONL line has been flushed/scanned. A concurrent
+    // snapshot that omits the run must NOT delete it — the snapshot is
+    // an additive merge, not a replace. Without this guarantee a freshly
+    // queued run flickers in and out as snapshots arrive.
+    upsertRun({ runId: 'r_keep', taskId: 'TB-1', status: 'running', startedAt: '2026-05-17T10:00:00Z' });
+    upsertRun({ runId: 'r_live_only', taskId: 'TB-1', status: 'queued', queuedAt: '2026-05-17T09:00:00Z' });
+    setRunsForTask('TB-1', [
+      makeRun({ runId: 'r_keep', taskId: 'TB-1', status: 'queued', queuedAt: '2026-05-17T10:00:00Z' }),
+    ]);
+    const ids = runsByTask('TB-1').map((r) => r.runId).sort();
+    expect(ids).toEqual(['r_keep', 'r_live_only']);
+  });
+
+  it('upsertRun does not regress an already-advanced status (TB-219)', () => {
+    // Out-of-order Wails delivery: terminal arrives, then a late `running`
+    // patch shows up. The store must keep the terminal state.
+    upsertRun({ runId: 'r_x', taskId: 'TB-1', status: 'success', exitCode: 0, finishedAt: '2026-05-17T10:00:05Z' });
+    upsertRun({ runId: 'r_x', taskId: 'TB-1', status: 'running', startedAt: '2026-05-17T10:00:01Z' });
+    const got = runsByTask('TB-1')[0];
+    expect(got.status).toBe('success');
+    expect(got.exitCode).toBe(0);
+    expect(got.finishedAt).toBe('2026-05-17T10:00:05Z');
+  });
+
   it('runsForTask is reactive across upserts', () => {
     const r = runsForTask('TB-1');
     expect(get(r)).toEqual([]);

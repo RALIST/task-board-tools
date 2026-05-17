@@ -7,30 +7,85 @@
     epics?: Task[];
     onClose: () => void;
     onCreated?: (id: string) => void;
+    /** Bindable read-out of whether any field differs from defaults. The
+     * parent reads this to apply the same discard-confirmation when its
+     * global Escape shortcut closes the dialog. */
+    dirty?: boolean;
   }
 
-  let { open, epics = [], onClose, onCreated }: Props = $props();
+  let {
+    open,
+    epics = [],
+    onClose,
+    onCreated,
+    dirty = $bindable(false),
+  }: Props = $props();
 
-  let title = $state('');
-  let module = $state('');
-  let type = $state<'bug' | 'feature' | 'tech-debt' | 'improvement' | 'spike'>('bug');
-  let priority = $state<'P0' | 'P1' | 'P2' | 'P3'>('P2');
-  let size = $state<'S' | 'M' | 'L' | 'XL'>('M');
-  let tags = $state('');
-  let description = $state('');
-  let parent = $state('');
-  let isEpic = $state(false);
+  const DEFAULTS = {
+    title: '',
+    module: '',
+    type: 'bug' as const,
+    priority: 'P2' as const,
+    size: 'M' as const,
+    tags: '',
+    description: '',
+    parent: '',
+    isEpic: false,
+  };
+
+  let title = $state(DEFAULTS.title);
+  let module = $state(DEFAULTS.module);
+  let type = $state<'bug' | 'feature' | 'tech-debt' | 'improvement' | 'spike'>(DEFAULTS.type);
+  let priority = $state<'P0' | 'P1' | 'P2' | 'P3'>(DEFAULTS.priority);
+  let size = $state<'S' | 'M' | 'L' | 'XL'>(DEFAULTS.size);
+  let tags = $state(DEFAULTS.tags);
+  let description = $state(DEFAULTS.description);
+  let parent = $state(DEFAULTS.parent);
+  let isEpic = $state(DEFAULTS.isEpic);
   let submitting = $state(false);
   let titleInput: HTMLInputElement | null = $state(null);
+
+  function resetFields() {
+    title = DEFAULTS.title;
+    module = DEFAULTS.module;
+    type = DEFAULTS.type;
+    priority = DEFAULTS.priority;
+    size = DEFAULTS.size;
+    tags = DEFAULTS.tags;
+    description = DEFAULTS.description;
+    parent = DEFAULTS.parent;
+    isEpic = DEFAULTS.isEpic;
+    submitting = false;
+  }
 
   // When the dialog opens, focus the title field and reset state.
   $effect(() => {
     if (open) {
-      title = ''; module = ''; type = 'bug'; priority = 'P2'; size = 'M';
-      tags = ''; description = ''; parent = ''; isEpic = false; submitting = false;
+      resetFields();
       // Slight delay to wait for the DOM transition before focus.
       queueMicrotask(() => titleInput?.focus());
     }
+  });
+
+  /** Form is dirty when any user-editable field differs from the create-task
+   * defaults. Submit clears these before calling onClose so the next reopen
+   * still starts empty. */
+  const isDirty = $derived(
+    title !== DEFAULTS.title
+      || module !== DEFAULTS.module
+      || type !== DEFAULTS.type
+      || priority !== DEFAULTS.priority
+      || size !== DEFAULTS.size
+      || tags !== DEFAULTS.tags
+      || description !== DEFAULTS.description
+      || parent !== DEFAULTS.parent
+      || isEpic !== DEFAULTS.isEpic,
+  );
+
+  // Publish dirty state to the parent so its global Esc handler can apply
+  // the same discard guard without re-deriving from individual fields.
+  $effect(() => {
+    dirty = isDirty;
   });
 
   async function submit(e: SubmitEvent) {
@@ -50,29 +105,33 @@
         epic: isEpic,
       });
       pushToast(`Created ${res.id}`, 'success');
+      // Reset BEFORE closing so the dirty flag is false by the time the
+      // parent (or its global Esc handler) reacts to onClose.
+      resetFields();
       onCreated?.(res.id);
       onClose();
     } catch (err) {
       pushToast(`Create failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
       submitting = false;
     }
   }
 
-  function onKeydown(ev: KeyboardEvent) {
-    if (!open) return;
-    if (ev.key === 'Escape') {
-      ev.preventDefault();
-      onClose();
+  /** Close the dialog, prompting for discard confirmation if the form has
+   * been edited. Used by Cancel, the header close button, and the backdrop
+   * click. The global Escape shortcut is owned by the parent (+page.svelte),
+   * which performs the same dirty check via the bindable `dirty` prop. */
+  export function tryClose() {
+    if (isDirty) {
+      const ok = window.confirm('Discard this unsaved task?');
+      if (!ok) return;
     }
+    onClose();
   }
 
   function onBackdropClick(ev: MouseEvent) {
-    if (ev.target === ev.currentTarget) onClose();
+    if (ev.target === ev.currentTarget) tryClose();
   }
 </script>
-
-<svelte:window onkeydown={onKeydown} />
 
 {#if open}
   <div
@@ -86,7 +145,7 @@
     <form class="dialog" onsubmit={submit}>
       <header>
         <h2>New task</h2>
-        <button type="button" class="close" onclick={onClose} aria-label="Close">×</button>
+        <button type="button" class="close" onclick={tryClose} aria-label="Close">×</button>
       </header>
 
       <label class="field">
@@ -161,7 +220,7 @@
       </label>
 
       <footer>
-        <button type="button" class="ghost" onclick={onClose}>Cancel</button>
+        <button type="button" class="ghost" onclick={tryClose}>Cancel</button>
         <button type="submit" class="primary" disabled={!title.trim() || submitting}>
           {submitting ? 'Creating…' : 'Create'}
         </button>

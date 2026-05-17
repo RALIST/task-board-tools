@@ -119,7 +119,16 @@ func cmdCreate(args []string) {
 	}
 
 	today := time.Now().Format("2006-01-02")
-	content := buildTaskContent(id, title, *taskType, *priority, *size, *module, *tags, *description, parentID, today, !*legacyFile)
+	// Mask credential-like substrings in every user-supplied free-text
+	// field before it lands in the task file or BOARD.md. The narrow AC
+	// only required `-d`, but a token pasted into a title, module name,
+	// or tag list would still leak through the H1 / Module / Tags lines
+	// (TB-203 review finding).
+	title = redactLine(title)
+	redactedModule := redactLine(*module)
+	redactedTags := redactLine(*tags)
+	redactedDescription := redactText(*description)
+	content := buildTaskContent(id, title, *taskType, *priority, *size, redactedModule, redactedTags, redactedDescription, parentID, today, !*legacyFile)
 
 	taskID := fmt.Sprintf("%s-%d", cfg.Prefix, id)
 	destDir := filepath.Join(boardDir, targetStatus)
@@ -160,10 +169,26 @@ func cmdCreate(args []string) {
 // reorderArgs separates flags and positional arguments so that all flags come
 // first. This allows `tb create "Title" -m module` to work even though Go's
 // flag package stops parsing at the first non-flag argument.
+//
+// A literal "--" terminates flag scanning: everything after it is positional
+// in original order, even if it starts with "-". The terminator is emitted
+// directly after the collected flags so the underlying FlagSet consumes it
+// and exposes the post-terminator args as positionals. Without this, an
+// attachment name like "-dash.txt" passed via `tb attach --rm ID -- -dash.txt`
+// would be reshuffled into the flag region and misread as the task ID.
 func reorderArgs(args []string) []string {
-	var flags, positional []string
+	var flags, positional, afterTerminator []string
+	terminatorSeen := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if terminatorSeen {
+			afterTerminator = append(afterTerminator, arg)
+			continue
+		}
+		if arg == "--" {
+			terminatorSeen = true
+			continue
+		}
 		if flagsWithValue[arg] {
 			// Flag that takes a value: consume this and next arg.
 			flags = append(flags, arg)
@@ -178,7 +203,15 @@ func reorderArgs(args []string) []string {
 			positional = append(positional, arg)
 		}
 	}
-	return append(flags, positional...)
+	if !terminatorSeen {
+		return append(flags, positional...)
+	}
+	result := make([]string, 0, len(flags)+1+len(positional)+len(afterTerminator))
+	result = append(result, flags...)
+	result = append(result, "--")
+	result = append(result, positional...)
+	result = append(result, afterTerminator...)
+	return result
 }
 
 func buildTaskContent(id int, title, taskType, priority, size, module, tags, description, parent, date string, includeAttachments bool) string {
