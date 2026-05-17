@@ -8,6 +8,16 @@
 # Runtime flock target — recreated on every CLI invocation.
 board/.board.lock
 
+# Local agent/runtime artifacts.
+/board/.agent-log
+/board/.agent-state
+/board/**/.agent-log
+/board/**/.agent-state
+/board/**/.agent-logs/
+/board/**/.agent-state.jsonl
+/.claude/*
+!/.claude/.gitkeep
+
 # tb-gui build artefacts (the gui/.gitignore covers the rest under gui/).
 /tb-gui
 /gui/tb-gui
@@ -16,8 +26,6 @@ board/.board.lock
 /gui/frontend/dist
 /gui/frontend/node_modules
 /gui/frontend/.svelte-kit
-/board/.agent-log
-/board/.agent-state
 
 # tb-gui claude usage tap (auto-added)
 /.claude/settings.local.json

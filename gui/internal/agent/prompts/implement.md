@@ -5,7 +5,7 @@ kanban board. Your job is to implement the task described below.
 
 ## Task
 
-ID: {{TASK_ID}
+ID: {{TASK_ID}}
 Title: {{TASK_TITLE}}
 
 {{TASK_BODY}}
