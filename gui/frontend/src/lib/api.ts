@@ -204,6 +204,56 @@ export async function openBoard(projectRoot: string): Promise<void> {
   await SettingsService.OpenBoard(projectRoot);
 }
 
+// Defaults mirror `tb init` and the Go-side InitBoardPathDefault /
+// InitPrefixDefault constants so the dialog and the backend agree when the
+// user accepts the empty placeholders.
+export const INIT_BOARD_PATH_DEFAULT = 'board';
+export const INIT_PREFIX_DEFAULT = 'PR';
+export const INIT_PREFIX_MAX_LEN = 10;
+export const INIT_PREFIX_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/;
+
+// validateInitBoardPath mirrors normalizeInitBoardPath in
+// gui/app/settings_service.go so the dialog can surface validation errors
+// before paying for a round-trip to the Wails service.
+export function validateInitBoardPath(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null; // empty → backend defaults to "board"
+  if (/^[/\\]/.test(trimmed)) {
+    return 'Board path must be relative to the project root.';
+  }
+  if (trimmed === '.' || trimmed === '..') {
+    return 'Board path must point to a directory inside the project root.';
+  }
+  if (trimmed.split(/[/\\]/).some((part) => part === '..')) {
+    return 'Board path may not escape the project root.';
+  }
+  return null;
+}
+
+export function validateInitPrefix(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null; // empty → backend defaults to "PR"
+  if (trimmed.length > INIT_PREFIX_MAX_LEN) {
+    return `Prefix is too long (max ${INIT_PREFIX_MAX_LEN}).`;
+  }
+  if (!INIT_PREFIX_PATTERN.test(trimmed)) {
+    return 'Prefix must start with a letter and contain only letters or digits.';
+  }
+  return null;
+}
+
+export async function initBoard(
+  projectRoot: string,
+  boardPath: string,
+  prefix: string,
+): Promise<void> {
+  await SettingsService.InitBoard(projectRoot, boardPath, prefix);
+}
+
+export function isAlreadyInitializedError(err: unknown): boolean {
+  return errorString(err).includes('.tb.yaml already exists');
+}
+
 export async function pickBoardDialog(): Promise<string> {
   // Use the runtime dialog from the click handler so Wails attaches each fresh
   // picker to the active window; the Go service method remains for native menu

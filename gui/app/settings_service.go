@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -42,9 +44,38 @@ type RecentBoard struct {
 }
 
 // ErrNoTbYaml is returned by OpenBoard when a path doesn't contain `.tb.yaml`.
-// The frontend turns this into a non-blocking toast and leaves the previous
-// board active (per TB-2 acceptance).
+// The frontend turns this into the InitBoard prompt so the user can choose
+// to initialize a board in that folder. Until they confirm, the previously
+// active board is left in place.
 var ErrNoTbYaml = errors.New("path has no .tb.yaml — not a tb project")
+
+// ErrInvalidPrefix is returned when InitBoard rejects a task-ID prefix that
+// doesn't match the GUI's conservative whitelist (letter-led, 1–10
+// alphanumeric). The CLI itself is more permissive, but the prefix becomes
+// part of filenames so the GUI keeps the surface tight.
+var ErrInvalidPrefix = errors.New("prefix must start with a letter and contain only letters or digits (max 10)")
+
+// ErrInvalidBoardPath is returned when InitBoard rejects a board path that
+// is empty, absolute, or tries to escape the project root via "..".
+var ErrInvalidBoardPath = errors.New("board path must be a non-empty relative path inside the project root")
+
+// ErrBoardAlreadyInitialized is returned by InitBoard when the project root
+// already contains a `.tb.yaml`. The frontend treats this as "open it
+// instead" rather than overwriting an existing config with new values.
+var ErrBoardAlreadyInitialized = errors.New(".tb.yaml already exists in this folder")
+
+// InitBoardPathDefault and InitPrefixDefault mirror `tb init`'s defaults so
+// the InitBoard dialog and the CLI agree on the empty-value behavior.
+const (
+	InitBoardPathDefault = "board"
+	InitPrefixDefault    = "PR"
+	initPrefixMaxLen     = 10
+)
+
+// initPrefixRe is the conservative whitelist for task-ID prefixes. The
+// resulting prefix appears in `<prefix>-<N>` filenames, so the rule mirrors
+// what a portable filename safely allows.
+var initPrefixRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
 
 // Switcher is the contract SettingsService needs from the watcher. Passed in
 // at construction so the service stays test-friendly.
@@ -69,6 +100,13 @@ type SettingsService struct {
 	board     *BoardService
 	wch       Switcher
 	activator BoardActivator
+
+	// openMu serializes OpenBoard calls so two concurrent invocations
+	// cannot interleave: a slow candidate validation from an older call
+	// must not resume and commit side effects (watcher swap, daemon
+	// activation, recents update, board:opened/board:reloaded emit) on
+	// top of a newer board that has already opened (TB-208 review).
+	openMu sync.Mutex
 
 	mu      sync.RWMutex
 	info    BoardInfo
@@ -143,6 +181,8 @@ func (s *SettingsService) GetBoardInfo() (BoardInfo, error) {
 // is returned (`ErrNoTbYaml` for missing config, plain error otherwise). The
 // frontend dispatches errors to a toast and keeps the existing UI.
 func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) error {
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
 	if projectRoot == "" {
 		return errors.New("empty project root")
 	}
@@ -164,6 +204,16 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 	})
 	if err != nil {
 		return fmt.Errorf("locate tb binary: %w", err)
+	}
+
+	// Validate the candidate board's active scope BEFORE committing the
+	// switch. A duplicate-task ID (or any other `tb ls` failure) must
+	// abort here, before we touch the watcher, the BoardService client,
+	// the daemon, the recent-board list, or emit board:opened/board:reloaded.
+	// Otherwise the frontend sees a brief "switched" state followed by a
+	// load failure and the daemon scans an inconsistent board (TB-208).
+	if err := validateCandidateBoardActive(ctx, client); err != nil {
+		return err
 	}
 
 	if s.wch != nil {
@@ -210,6 +260,120 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 
 	_ = ctx // keep the signature ergonomic; future hooks may honour cancel
 	return nil
+}
+
+// InitBoard creates a fresh tb board under projectRoot — running the same
+// on-disk steps as `tb init <projectRoot> --board-path=<boardPath> --prefix=<prefix>`
+// — and then commits the switch through OpenBoard so watcher, BoardService,
+// daemon, recents, and `board:opened`/`board:reloaded` behave identically to
+// opening an existing board.
+//
+// Validation runs before any file is touched, so a bad prefix or board path
+// never leaves a half-written `.tb.yaml`. If the project root already
+// contains `.tb.yaml`, InitBoard returns ErrBoardAlreadyInitialized without
+// invoking the CLI; the frontend treats that as "just open it" via the
+// regular OpenBoard call.
+//
+// If `tb init` succeeds but the subsequent OpenBoard validation fails (e.g.
+// TB-208 candidate-board checks reject the new layout), the on-disk
+// artifacts remain — the folder is a valid board — but the previously
+// active SettingsService state is left untouched.
+func (s *SettingsService) InitBoard(ctx context.Context, projectRoot, boardPath, prefix string) error {
+	absRoot, err := normalizeInitProjectRoot(projectRoot)
+	if err != nil {
+		return err
+	}
+
+	bp, err := normalizeInitBoardPath(boardPath)
+	if err != nil {
+		return err
+	}
+
+	pfx, err := normalizeInitPrefix(prefix)
+	if err != nil {
+		return err
+	}
+
+	configPath := filepath.Join(absRoot, tbConfigFileName)
+	switch _, statErr := os.Stat(configPath); {
+	case statErr == nil:
+		return ErrBoardAlreadyInitialized
+	case errors.Is(statErr, os.ErrNotExist):
+		// expected — we're creating it
+	default:
+		return fmt.Errorf("stat %s: %w", configPath, statErr)
+	}
+
+	client, err := cli.NewClient(cli.Options{
+		BinaryPath: s.openBoardCLIPath(),
+		Cwd:        absRoot,
+		Logger:     s.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("locate tb binary: %w", err)
+	}
+	if _, err := client.Run(ctx, "init", absRoot, "--board-path="+bp, "--prefix="+pfx); err != nil {
+		return fmt.Errorf("tb init: %w", err)
+	}
+
+	return s.OpenBoard(ctx, absRoot)
+}
+
+// normalizeInitProjectRoot resolves projectRoot to an absolute path and
+// verifies it's an existing directory. The CLI would also catch this, but
+// failing here yields a friendlier error than a process exit code.
+func normalizeInitProjectRoot(projectRoot string) (string, error) {
+	if strings.TrimSpace(projectRoot) == "" {
+		return "", errors.New("empty project root")
+	}
+	abs, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve abs path: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("project root: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("project root is not a directory: %s", abs)
+	}
+	return abs, nil
+}
+
+// normalizeInitBoardPath trims, defaults, and validates the requested board
+// path. Empty falls back to InitBoardPathDefault to match `tb init`.
+func normalizeInitBoardPath(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return InitBoardPathDefault, nil
+	}
+	if filepath.IsAbs(p) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
+		return "", ErrInvalidBoardPath
+	}
+	clean := filepath.Clean(p)
+	if clean == "." || clean == ".." {
+		return "", ErrInvalidBoardPath
+	}
+	if slices.Contains(strings.Split(filepath.ToSlash(clean), "/"), "..") {
+		return "", ErrInvalidBoardPath
+	}
+	return p, nil
+}
+
+// normalizeInitPrefix trims, defaults, and validates the prefix against the
+// GUI whitelist. Empty falls back to InitPrefixDefault.
+func normalizeInitPrefix(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return InitPrefixDefault, nil
+	}
+	if len(p) > initPrefixMaxLen {
+		return "", ErrInvalidPrefix
+	}
+	if !initPrefixRe.MatchString(p) {
+		return "", ErrInvalidPrefix
+	}
+	return p, nil
 }
 
 // SetCLIPath validates and persists the tb binary override. If a board is
@@ -473,6 +637,22 @@ func atoiNonNegative(s string) (int, error) {
 		n = n*10 + int(r-'0')
 	}
 	return n, nil
+}
+
+// validateCandidateBoardActive runs `tb ls --json --status active` against
+// the candidate board's CLI client and returns an actionable error if the
+// board fails the same invariants BoardService.LoadBoardWithMode enforces
+// (duplicate task IDs across status directories, etc). Duplicate-task
+// failures are reshaped via boardLoadError so the caller sees the same
+// "cannot load active board: task X appears in multiple status directories"
+// message as the runtime refresh path — never a raw "Binding call failed"
+// pass-through.
+func validateCandidateBoardActive(ctx context.Context, c *cli.Client) error {
+	var tasks []Task
+	if err := c.RunJSON(ctx, &tasks, "ls", "--json", "--status", "active"); err != nil {
+		return boardLoadError(err, "active")
+	}
+	return nil
 }
 
 // defaultRecentsPath returns $XDG_CONFIG_HOME/tb-gui/recent.json, falling back

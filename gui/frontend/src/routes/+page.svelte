@@ -4,6 +4,7 @@
   import Board from '$lib/components/Board.svelte';
   import CreateTaskDialog from '$lib/components/CreateTaskDialog.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
+  import InitBoardDialog from '$lib/components/InitBoardDialog.svelte';
   import SettingsPanel from '$lib/components/SettingsPanel.svelte';
   import TaskDrawer from '$lib/components/TaskDrawer.svelte';
   import Toast from '$lib/components/Toast.svelte';
@@ -47,7 +48,13 @@
   let recents = $state<RecentBoard[]>([]);
   let bootStatus = $state<'loading' | 'ready' | 'pick'>('loading');
   let createOpen = $state(false);
+  // Mirrors CreateTaskDialog.dirty so this component's global Escape
+  // shortcut applies the same discard guard as the dialog's own close paths.
+  let createDirty = $state(false);
   let settingsOpen = $state(false);
+  // Folder picked but lacking `.tb.yaml` — fed to InitBoardDialog so the user
+  // can confirm `tb init` against it (or cancel back to the previous board).
+  let initBoardRoot = $state('');
 
   const offEvents: Array<() => void> = [];
 
@@ -132,8 +139,9 @@
   });
 
   async function pickAndOpen() {
+    let path = '';
     try {
-      const path = await pickBoardDialog();
+      path = await pickBoardDialog();
       if (!path) return;
       await openBoard(path);
       projectRoot = path;
@@ -143,12 +151,29 @@
     } catch (err) {
       if (isCancelledError(err)) return;
       if (isNoTbYamlError(err)) {
-        pushToast('That folder has no .tb.yaml — not a tb project. The previous board is still active.');
+        // Hand off to the InitBoardDialog. The previous board (if any)
+        // remains active until the user confirms.
+        initBoardRoot = path;
         return;
       }
       if (isNoBoardError(err)) return;
       pushToast(errorString(err));
     }
+  }
+
+  async function onInitBoardConfirmed() {
+    const newRoot = initBoardRoot;
+    initBoardRoot = '';
+    // OpenBoard already emitted board:opened from the backend, but refresh
+    // explicitly so a not-yet-listening watcher still gets us to ready.
+    projectRoot = newRoot;
+    try { recents = await listRecentBoards(); } catch { /* recents are non-fatal */ }
+    await refresh();
+    bootStatus = 'ready';
+  }
+
+  function onInitBoardCancelled() {
+    initBoardRoot = '';
   }
 
   async function openRecent(r: RecentBoard) {
@@ -188,6 +213,14 @@
     setStatusMode(show ? 'all' : 'active');
   }
 
+  function tryCloseCreate() {
+    if (createDirty) {
+      const ok = window.confirm('Discard this unsaved task?');
+      if (!ok) return;
+    }
+    createOpen = false;
+  }
+
   function onGlobalKeydown(event: KeyboardEvent) {
     const focusedCardId = focusedTaskId();
     const action = shortcutAction(event, {
@@ -210,7 +243,7 @@
         settingsOpen = false;
         break;
       case 'close-create':
-        createOpen = false;
+        tryCloseCreate();
         break;
       case 'close-drawer':
         closeTask();
@@ -284,10 +317,17 @@
 <CreateTaskDialog
   open={createOpen}
   {epics}
+  bind:dirty={createDirty}
   onClose={() => (createOpen = false)}
   onCreated={(id) => openTask(id)} />
 
 <SettingsPanel open={settingsOpen} onClose={() => (settingsOpen = false)} />
+
+<InitBoardDialog
+  open={initBoardRoot !== ''}
+  projectRoot={initBoardRoot}
+  onCancel={onInitBoardCancelled}
+  onInitialized={onInitBoardConfirmed} />
 
 <Toast />
 

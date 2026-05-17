@@ -30,8 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-217 | Manual QA: attachment removal mis-parses dash-leading filename | P1 | cli | — |
-| TB-223 | Audit secondary docs for stale layout/status | P1 | docs | — |
+| TB-224 | Support task-root attachments | P2 | cli/gui | — |
 
 ## Backlog
 
@@ -65,7 +64,6 @@
 | TB-141 | Fake-runner integration test: kill->interrupted->resume cycle | feature | P1 | M | gui |
 | TB-142 | Docs sweep: ARCHITECTURE.md + CLAUDE.md + FEATURES.md for resume | improvement | P1 | S | docs |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
-| TB-144 | Append logs realtime when task is opened | bug | P1 | S | gui |
 | TB-172 | Auto-groom | feature | P1 | L | gui |
 | TB-173 | GUI: persist auto-groom setting and toggle | feature | P1 | M | gui |
 | TB-174 | GUI: auto-groom triage tasks via groom-mode daemon runs | feature | P1 | M | gui |
@@ -75,7 +73,6 @@
 | TB-178 | GUI: persist auto-implement settings and query | feature | P0 | M | gui |
 | TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |
 | TB-180 | GUI: show auto-implement controls and feedback | feature | P0 | S | gui |
-| TB-181 | Persist draft task/prevent close unsaved form | bug | P1 | S | gui |
 | TB-182 | Add special labes\tags\status for user attention | feature | P1 | L | agent |
 | TB-183 | CLI: add user-attention agent status and note section | feature | P1 | M | cli |
 | TB-184 | Docs: define user-attention handoff protocol | improvement | P1 | S | docs |
@@ -96,20 +93,22 @@
 | TB-199 | Workflow: review-failed marker and retry priority | feature | P1 | M | agent |
 | TB-200 | Docs: document code-review workflow | improvement | P1 | S | docs |
 | TB-202 | Create proper name and icon for app | improvement | P2 | S | gui |
-| TB-203 | obfuscation agents logs and tasks | bug | P1 | M | gui |
 | TB-204 | Show epic progress | improvement | P2 | M | gui/frontend |
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
-| TB-208 | Switch projects bug | bug | P1 | M | gui |
-| TB-219 | Manual QA: running agent remains queued and cannot be cancelled | bug | P1 | M | gui |
+| TB-226 | CLI: preserve literal command examples in task creation | bug | P1 | S | cli |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-225 | Ask user to init board from GUI when he tries to open folder without initialized tb status | feature | gui |
+| TB-223 | Audit secondary docs for stale layout/status | improvement | docs |
 | TB-222 | Refresh README for current repo layout | improvement | docs |
 | TB-221 | Prepare repository for GitHub push | tech-debt | tooling |
+| TB-219 | Manual QA: running agent remains queued and cannot be cancelled | bug | gui |
 | TB-218 | QA probe GUI create dialog | bug | gui/frontend |
+| TB-217 | Manual QA: attachment removal mis-parses dash-leading filename | bug | cli |
 | TB-216 | QA probe legacy file parity | bug | cli |
 | TB-215 | QA probe groom placeholder | bug | gui |
 | TB-214 | QA probe daemon pickup | bug | gui |
@@ -117,8 +116,11 @@
 | TB-212 | QA probe folder attachments | bug | cli |
 | TB-211 | QA probe CLI happy edited | improvement | cli |
 | TB-210 | Manual QA: MVP live-board pass | spike | gui |
+| TB-208 | Switch projects bug | bug | gui |
 | TB-207 | Allow tasl title edit from GUI | improvement | gui |
+| TB-203 | obfuscation agents logs and tasks | bug | gui |
 | TB-201 | MacOS: window buttons hides header | bug | gui |
+| TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
@@ -146,14 +148,7 @@
 | TB-147 | TB-93/CLI: implement startup recovery sweep for stale .promote/.attach staging dirs OR amend doc | tech-debt | cli |
 | TB-146 | TB-93/CLI: attach promotion orphans file-form agent state + logs | bug | cli |
 | TB-145 | Board switch error | bug | gui |
+| TB-144 | Append logs realtime when task is opened | bug | gui |
 | TB-129 | Remove ”non-editable” section when edit task’s body | bug | gui |
 | TB-127 | Open ticket full screen | improvement | gui |
 | TB-126 | GUI: dropping a file on a task card attaches it | improvement | gui |
-| TB-125 | GUI: whole TaskDrawer accepts attachment file drops | improvement | gui |
-| TB-124 | Test attachments | bug |  |
-| TB-123 | Test claude logs | bug |  |
-| TB-108 | GUI attachment smoke blocked by missing attach surfaces | bug | gui |
-| TB-107 | Show global agent quota in app header | feature | gui |
-| TB-106 | Mixed-board final smoke test for TB-93 | spike | cli |
-| TB-105 | GUI: watcher emits one logical refresh per attachment op and folder move | feature | gui |
-| TB-104 | GUI: drag-and-drop attachments onto task card and drawer | feature | gui |

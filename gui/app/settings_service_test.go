@@ -199,8 +199,11 @@ func TestOpenBoard_UsesPersistedCLIPath(t *testing.T) {
 		t.Fatalf("LoadBoard: %v", err)
 	}
 
-	if got := readMarkerLog(t, logPath); got != "persisted\n" {
-		t.Fatalf("stub log: got %q, want persisted marker", got)
+	// OpenBoard runs `tb ls --json --status active` to validate the
+	// candidate board before committing the switch (TB-208), and then the
+	// explicit board.LoadBoard call adds a second invocation.
+	if got := readMarkerLog(t, logPath); got != "persisted\npersisted\n" {
+		t.Fatalf("stub log: got %q, want persisted marker twice (validate + LoadBoard)", got)
 	}
 }
 
@@ -235,8 +238,11 @@ func TestSetCLIPath_ReloadsActiveBoardClient(t *testing.T) {
 		t.Fatalf("LoadBoard second: %v", err)
 	}
 
-	if got := readMarkerLog(t, logPath); got != "first\nsecond\n" {
-		t.Fatalf("stub log: got %q, want first then second", got)
+	// "first" is logged twice: once by OpenBoard's candidate-board validate
+	// (TB-208), once by the explicit LoadBoard. Then SetCLIPath swaps in
+	// the "second" binary, which records the next LoadBoard call.
+	if got := readMarkerLog(t, logPath); got != "first\nfirst\nsecond\n" {
+		t.Fatalf("stub log: got %q, want first validate+load then second", got)
 	}
 }
 
@@ -274,7 +280,11 @@ func TestSetCLIPath_BadPathDoesNotPersistOrSwapActiveClient(t *testing.T) {
 	if _, err := board.LoadBoard(context.Background()); err != nil {
 		t.Fatalf("LoadBoard after bad path: %v", err)
 	}
-	if got := readMarkerLog(t, logPath); got != "valid\nvalid\n" {
+	// Three "valid" entries: OpenBoard's TB-208 candidate validate, the
+	// explicit pre-bad-path LoadBoard, and the explicit post-bad-path
+	// LoadBoard (still on the valid binary because SetCLIPath rejected
+	// the missing one).
+	if got := readMarkerLog(t, logPath); got != "valid\nvalid\nvalid\n" {
 		t.Fatalf("stub log: got %q, want active client to remain on valid binary", got)
 	}
 }
