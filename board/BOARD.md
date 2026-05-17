@@ -94,19 +94,19 @@
 | TB-198 | Agent: add review mode and findings section | feature | P1 | M | agent |
 | TB-199 | Workflow: review-failed marker and retry priority | feature | P1 | M | agent |
 | TB-200 | Docs: document code-review workflow | improvement | P1 | S | docs |
-| TB-201 | MacOS: window buttons hides header | bug | P2 | M | gui |
 | TB-202 | Create proper name and icon for app | improvement | P2 | S | gui |
 | TB-203 | obfuscation agents logs and tasks | bug | P1 | M | gui |
 | TB-204 | Show epic progress | improvement | P2 | M | gui/frontend |
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
-| TB-207 | Allow tasl title edit from GUI | improvement | P2 | M | gui |
 | TB-208 | Switch projects bug | bug | P1 | M | gui |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-207 | Allow tasl title edit from GUI | improvement | gui |
+| TB-201 | MacOS: window buttons hides header | bug | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
@@ -155,5 +155,3 @@
 | TB-96 | CLI: read folder-form tasks identically to file-form | feature | cli |
 | TB-95 | Publish TB-93 folder-task milestone in docs | improvement | docs |
 | TB-94 | Spec folder-task contract in docs/ARCHITECTURE.md | feature | docs |
-| TB-93 | Move from file-based to folder-based approach | feature | cli |
-| TB-92 | Limit showed tags in header to 10 | bug |  |

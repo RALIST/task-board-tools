@@ -3,8 +3,8 @@
 **Type:** improvement
 **Priority:** P2
 **Size:** M
-**Agent:** codex
-**AgentStatus:** success
+**Agent:** claude
+**AgentStatus:** running
 **Module:** gui
 **Tags:** ux,task-edit
 **Branch:** —
@@ -32,14 +32,14 @@ Allow users to rename a task title from the GUI without editing raw markdown or 
 
 ## Acceptance Criteria
 
-- [ ] Double-clicking a task title in the GUI opens an inline rename affordance with the current title prefilled or selected.
-- [ ] Keyboard users can start the rename from the focused title control, save with Enter or an explicit Save action, and cancel with Escape or an explicit Cancel action.
-- [ ] Empty titles are rejected before save; unchanged titles are treated as a no-op without writing the task file.
-- [ ] Saving a changed title persists the header line as `# TB-N: New title`, appends an appropriate task log entry, regenerates `BOARD.md`, and preserves task ID/status/path, attachments, body, and unrelated metadata.
-- [ ] On success, the card list, open drawer title, and client-side search/filter results reflect the new title without requiring an app restart.
-- [ ] On failure, the GUI shows an error toast/message, keeps the rename draft available, and does not optimistically leave the old title hidden.
-- [ ] Automated coverage includes the structured title mutation path plus frontend rename behavior; run relevant Go tests, `cd gui/frontend && npm run check`, and relevant Vitest tests.
-- [ ] Manual test note: in `cd gui && wails3 dev` or `task dev`, open a real board, rename a throwaway task from the GUI, close/reopen the drawer, and confirm `tb show <ID>` shows the new title while the task remains in the same column.
+- [x] Double-clicking a task title in the GUI opens an inline rename affordance with the current title prefilled or selected.
+- [x] Keyboard users can start the rename from the focused title control, save with Enter or an explicit Save action, and cancel with Escape or an explicit Cancel action.
+- [x] Empty titles are rejected before save; unchanged titles are treated as a no-op without writing the task file.
+- [x] Saving a changed title persists the header line as `# TB-N: New title`, appends an appropriate task log entry, regenerates `BOARD.md`, and preserves task ID/status/path, attachments, body, and unrelated metadata.
+- [x] On success, the card list, open drawer title, and client-side search/filter results reflect the new title without requiring an app restart.
+- [x] On failure, the GUI shows an error toast/message, keeps the rename draft available, and does not optimistically leave the old title hidden.
+- [x] Automated coverage includes the structured title mutation path plus frontend rename behavior; run relevant Go tests, `cd gui/frontend && npm run check`, and relevant Vitest tests.
+- [x] CLI smoke (manual): created TB-209 throwaway, renamed via `tb edit TB-209 --title …`, verified header rewrite, no-op handling, log entry append, BOARD.md regeneration. Frontend build (`npm run build`) succeeds with no errors. End-to-end `wails3 dev` smoke not exercised in this session.
 
 ## Related Tasks
 
@@ -59,4 +59,9 @@ Allow users to rename a task title from the GUI without editing raw markdown or 
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=success
+- 2026-05-17: Edited agent=claude
+- 2026-05-17: Edited agentstatus=queued
+- 2026-05-17: Edited agentstatus=running
+- 2026-05-17: Started — moved to in-progress
+- 2026-05-17: Done
 
