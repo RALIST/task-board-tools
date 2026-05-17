@@ -6,7 +6,8 @@ This repo builds two tools over the same markdown board format. `cli/` contains 
 
 ## Workflow
 
-- Read `board/CONVENTIONS.md` for the task board workflow. In short: create tasks for work items and move them across columns as they progress. All WIP should be on the board; use `TB-` IDs in commit messages and PR descriptions to link work to tasks. Always move tasks in proper status, especially when working with epics, do not forget to keep board hygiene.  If you are working on task or it's part - it MUST be in progress column.
+- Always read `board/CONVENTIONS.md` for the task board workflow. 
+In short: create tasks for work items and move them across columns as they progress. All WIP should be on the board; use `TB-` IDs in commit messages and PR descriptions to link work to tasks. Always move tasks in proper status, especially when working with epics, do not forget to keep board hygiene.  If you are working on task or it's part - it MUST be in progress column.
 - Use subganets when possible to speedup work and reduce context switching. For example, if you are working on a CLI bug that requires a GUI change, create a subganet for the GUI work and link it to the CLI task. This allows you to focus on one tool at a time while still making progress on the overall issue.
 - Create new tasks for any bug/follow-up work that you identify while working on an existing task. This helps keep track of all the work that needs to be done and ensures that nothing falls through the cracks.
 

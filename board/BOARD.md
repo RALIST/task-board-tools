@@ -30,7 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-210 | Manual QA: MVP live-board pass | P1 | gui | main |
+| TB-221 | Prepare repository for GitHub push | P1 | tooling | — |
 
 ## Backlog
 
@@ -114,6 +114,7 @@
 | TB-213 | QA probe agent run | bug | gui |
 | TB-212 | QA probe folder attachments | bug | cli |
 | TB-211 | QA probe CLI happy edited | improvement | cli |
+| TB-210 | Manual QA: MVP live-board pass | spike | gui |
 | TB-207 | Allow tasl title edit from GUI | improvement | gui |
 | TB-201 | MacOS: window buttons hides header | bug | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
@@ -156,4 +157,3 @@
 | TB-104 | GUI: drag-and-drop attachments onto task card and drawer | feature | gui |
 | TB-103 | GUI: TaskDrawer attachments list, add via picker, remove via tb | feature | gui |
 | TB-102 | Agent: task-local logs/state for folder tasks + stale recovery | feature | gui |
-| TB-101 | CLI: BOARD.md byte-identical regardless of storage form | feature | cli |

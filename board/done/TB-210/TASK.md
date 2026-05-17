@@ -62,3 +62,5 @@ Verification commands:
 - 2026-05-17: Started — moved to in-progress
 - 2026-05-17: Recorded manual QA results, finding tickets, blocked coverage, and verification commands.
 - 2026-05-17: Retracted TB-220 after user clarified the prompt diff was a parallel manual edit, not QA fallout.
+- 2026-05-17: Moved to done
+
