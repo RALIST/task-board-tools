@@ -38,3 +38,5 @@ Evidence task: TB-212 still has `board/backlog/TB-212/attachments/-dash.txt`.
 ## Log
 
 - 2026-05-17: Created
+- 2026-05-17: Started — moved to in-progress
+

@@ -15,7 +15,6 @@ board/.board.lock
 /board/**/.agent-state
 /board/**/.agent-logs/
 /board/**/.agent-state.jsonl
-/.claude/*
 !/.claude/.gitkeep
 
 # tb-gui build artefacts (the gui/.gitignore covers the rest under gui/).

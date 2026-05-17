@@ -14,6 +14,7 @@ The transformation is in progress. Treat `docs/` as the authoritative spec.
 ## Task board
 
 @board/CONVENTIONS.md
+@board/SKILL.md
 
 ## Where to start
 

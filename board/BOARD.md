@@ -30,7 +30,8 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-217 | Manual QA: attachment removal mis-parses dash-leading filename | P1 | cli | — |
+| TB-223 | Audit secondary docs for stale layout/status | P1 | docs | — |
 
 ## Backlog
 
@@ -100,7 +101,6 @@
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-208 | Switch projects bug | bug | P1 | M | gui |
-| TB-217 | Manual QA: attachment removal mis-parses dash-leading filename | bug | P1 | S | cli |
 | TB-219 | Manual QA: running agent remains queued and cannot be cancelled | bug | P1 | M | gui |
 
 ## Recently Done
