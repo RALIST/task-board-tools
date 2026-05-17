@@ -107,6 +107,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-222 | Refresh README for current repo layout | improvement | docs |
 | TB-221 | Prepare repository for GitHub push | tech-debt | tooling |
 | TB-218 | QA probe GUI create dialog | bug | gui/frontend |
 | TB-216 | QA probe legacy file parity | bug | cli |
@@ -156,4 +157,3 @@
 | TB-106 | Mixed-board final smoke test for TB-93 | spike | cli |
 | TB-105 | GUI: watcher emits one logical refresh per attachment op and folder move | feature | gui |
 | TB-104 | GUI: drag-and-drop attachments onto task card and drawer | feature | gui |
-| TB-103 | GUI: TaskDrawer attachments list, add via picker, remove via tb | feature | gui |

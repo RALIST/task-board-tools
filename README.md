@@ -6,10 +6,10 @@ Two binaries built from this repo:
 
 | Binary | Path | Purpose |
 |--------|------|---------|
-| **`tb`** | `cli/` | Terminal CLI. Manages the board, owns all structured mutations. Used by humans and by AI agents. Zero external Go dependencies. |
-| **`tb-gui`** | `gui/` | Desktop app (Wails3 + Svelte 5). Kanban board with DnD, filters, markdown editor, agent assignment, live updates. |
+| **`tb`** | `cli/` | Terminal CLI. Manages the board, owns all structured mutations. Used by humans, the GUI, and AI agents. |
+| **`tb-gui`** | `gui/` | Desktop app (Wails3 + Svelte 5). Kanban board with DnD, filters, markdown editor, attachments, agent assignment, live updates, and settings. |
 
-Tasks are plain Markdown files in directories (`backlog/`, `in-progress/`, `done/`, `archive/`) — the directory is the status. No database. No server.
+Tasks are plain Markdown files in directories (`backlog/`, `in-progress/`, `done/`, `archive/`) — the directory is the status. Current tasks default to folder form (`board/backlog/TB-123/TASK.md`) so attachments and task-local agent artifacts can live beside the task. Legacy single-file tasks (`TB-123.md`) remain readable. No database. No server.
 
 ## Why
 
@@ -25,65 +25,88 @@ You want a tracker that:
 - [docs/FEATURES.md](docs/FEATURES.md) — feature list with acceptance criteria
 - [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) — milestones, risks, status
 
-## Quick start (CLI today)
-
-The CLI currently lives in `tb/` and has its own git history. It will be renamed to `cli/` and merged into this repo in milestone M1.
+## Quick Start
 
 ```bash
-cd tb && go build -o tb . && ln -sf "$(pwd)/tb" ~/.local/bin/tb
+# Build the CLI.
+cd cli
+go build -o tb .
+ln -sf "$(pwd)/tb" ~/.local/bin/tb
 
+# Create a board in another project.
 cd /your/project
 tb init                                # creates ./board and .tb.yaml
-tb create "First task" -m core         # adds backlog/PR-1.md
+tb create "First task" -m core         # adds board/backlog/PR-1/TASK.md
 tb ls                                  # see the backlog
 tb start 1 && tb done 1                # workflow
-tb board                               # print kanban summary
+tb regenerate                          # refresh generated board/BOARD.md
 ```
 
-GUI is in development — see `docs/IMPLEMENTATION.md` for current milestone.
+The GUI uses the same board format:
+
+```bash
+cd gui/frontend && npm install
+cd ..
+task dev                               # or: wails3 dev -config ./build/config.yml
+```
 
 ## Repo layout (current)
 
 ```
 task-board-tools/
-├── tb/                 # tb CLI — separate git repo, gitignored here until M1
+├── cli/                # tb CLI module (tools/tb)
+├── gui/                # tb-gui Wails3 desktop app module (tools/tb-gui)
+│   ├── app/            # Wails services exposed to Svelte
+│   ├── internal/       # CLI bridge, watcher, agent runner, daemon helpers
+│   └── frontend/       # Svelte 5 frontend, tests, generated bindings
 ├── docs/               # PROJECT, ARCHITECTURE, FEATURES, IMPLEMENTATION
-└── README.md
-```
-
-After M1 lands the layout becomes:
-
-```
-task-board-tools/
-├── cli/                # was tb/ — renamed, merged into this repo
-├── gui/                # tb-gui Wails3 app (M2+)
-├── docs/
+├── board/              # this repo's own task board; BOARD.md is generated
+├── .agents/            # Codex skills used by this checkout
+├── .codex/             # Codex config, hooks, and agents
+├── .claude/            # tracked placeholder only; local Claude files are ignored
 ├── go.work             # Go workspace tying cli + gui together
 └── README.md
 ```
 
 ## Build
 
-**CLI** (today, in `tb/`):
+Run Go commands from the module directories; the repo root has `go.work` but is not itself a Go module.
+
+**CLI**:
+
 ```bash
-cd tb && go build -o tb .
+cd cli && go build -o tb .
+cd cli && go test ./...
 ```
 
-**CLI** (after M1, from repo root):
+**GUI backend**:
+
 ```bash
-go build -o tb ./cli
+cd gui && go test ./...
 ```
 
-**GUI** (planned for M2):
+**GUI frontend**:
+
 ```bash
-cd gui && wails3 build
+cd gui/frontend && npm install
+cd gui/frontend && npm run check
+cd gui/frontend && npm test
 ```
 
-Requires Go 1.26+, Node/pnpm, and a C toolchain (for Wails GUI).
+**Desktop build/dev**:
+
+```bash
+cd gui && task dev
+cd gui && task build
+```
+
+Equivalent Wails commands are `wails3 dev -config ./build/config.yml` and `wails3 build -config ./build/config.yml`.
+
+Requires Go 1.26.1+, Wails3 `v3.0.0-alpha.91`, Node/npm, and a C toolchain for the desktop app.
 
 ## Status
 
-Early development. CLI is fully functional and used in production by the author. GUI is being built in milestones; see `docs/IMPLEMENTATION.md`.
+The CLI, GUI, agent run/groom flow, daemon, settings polish, folder-form tasks, and attachments are implemented through M8. The board still tracks active backlog work for worktree isolation, session resume, auto-groom/auto-implement, code-review workflow, and UX/tooling polish. See `docs/IMPLEMENTATION.md` and this repo's `board/` for current state.
 
 ## License
 
