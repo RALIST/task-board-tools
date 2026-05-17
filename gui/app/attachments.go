@@ -12,8 +12,15 @@ import (
 	"strings"
 )
 
-// Attachment is a single file under <status>/<ID>/attachments/. Size is in
-// bytes. The frontend renders these as drawer rows.
+const (
+	folderTaskFileName = "TASK.md"
+	attachmentsDirName = "attachments"
+	legacyAttachPrefix = attachmentsDirName + "/"
+)
+
+// Attachment is a single user-managed file under <status>/<ID>/, or a legacy
+// compatibility file under <status>/<ID>/attachments/. Size is in bytes. The
+// frontend renders these as drawer rows.
 type Attachment struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
@@ -83,12 +90,12 @@ type MutationValidationError struct{ Msg string }
 
 func (e *MutationValidationError) Error() string { return e.Msg }
 
-// ListAttachments returns the files in <status>/<ID>/attachments/, sorted by
-// name. Returns an empty slice (not nil) for tasks that exist but have no
-// attachments directory, or for legacy file-form tasks. Returns ErrNotFound
-// when the task id has no folder-form directory.
+// ListAttachments returns task-root user attachments plus legacy
+// attachments/<name> files, sorted by name. Returns an empty slice (not nil)
+// for folder tasks with no attachments, or for legacy file-form tasks. Returns
+// ErrNotFound when the task id has no folder-form directory.
 //
-// Reads from disk directly: the CLI owns *writes* to the attachments dir, but
+// Reads from disk directly: the CLI owns *writes* to the task dir, but
 // reads are lock-free per the architecture invariant (same model the rest of
 // the GUI uses).
 func (b *BoardService) ListAttachments(ctx context.Context, id string) ([]Attachment, error) {
@@ -108,27 +115,59 @@ func (b *BoardService) ListAttachments(ctx context.Context, id string) ([]Attach
 		}
 		return nil, err
 	}
-	attachmentsDir := filepath.Join(taskDir, "attachments")
-	entries, err := os.ReadDir(attachmentsDir)
+	entries, err := os.ReadDir(taskDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []Attachment{}, nil
-		}
-		return nil, fmt.Errorf("read attachments dir: %w", err)
+		return nil, fmt.Errorf("read task dir: %w", err)
 	}
 	out := make([]Attachment, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() {
+		name := entry.Name()
+		if name == attachmentsDirName {
+			out = append(out, listLegacyAttachments(taskDir)...)
+			continue
+		}
+		if isReservedAttachmentName(name) || entry.IsDir() {
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
-		out = append(out, Attachment{Name: entry.Name(), Size: info.Size()})
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		out = append(out, Attachment{Name: name, Size: info.Size()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func listLegacyAttachments(taskDir string) []Attachment {
+	attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
+	info, err := os.Lstat(attachmentsDir)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(attachmentsDir)
+	if err != nil {
+		return nil
+	}
+	out := make([]Attachment, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if isReservedAttachmentName(name) || entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		out = append(out, Attachment{Name: legacyAttachPrefix + name, Size: info.Size()})
+	}
+	return out
 }
 
 // AddAttachments runs `tb attach <id> <paths...>`. The CLI owns source
@@ -155,12 +194,11 @@ func (b *BoardService) RemoveAttachments(ctx context.Context, id string, names [
 }
 
 // OpenAttachment launches the attachment in the OS default handler. The name
-// must be a bare filename (no separators) — same validation the CLI applies
-// to `tb attach --rm` — and the resolved path must stay inside the task's
-// attachments dir, defending against `..`/symlink escapes if the on-disk
-// state was tampered with out-of-band.
+// must be either a task-root filename or a legacy attachments/<filename> ref,
+// and the resolved path must stay inside that attachment root.
 func (b *BoardService) OpenAttachment(ctx context.Context, id, name string) error {
-	if err := validateAttachmentName(name); err != nil {
+	ref, err := parseAttachmentRef(name)
+	if err != nil {
 		return err
 	}
 	boardDir, err := b.resolveBoardDir(ctx)
@@ -171,25 +209,9 @@ func (b *BoardService) OpenAttachment(ctx context.Context, id, name string) erro
 	if err != nil {
 		return err
 	}
-	attachmentsDir := filepath.Join(taskDir, "attachments")
-	// Probe attachmentsDir explicitly so a missing dir surfaces as a
-	// user-actionable not-found error rather than the opaque "resolve
-	// attachments dir: ..." that EvalSymlinks emits when the path is absent.
-	// resolveTaskDir already proved the parent task dir exists, so the only
-	// way to get here without attachments/ is out-of-band tampering.
-	if _, err := os.Stat(attachmentsDir); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("attachment %q not found on %s: no attachments directory", name, id)
-		}
-		return fmt.Errorf("stat attachments dir: %w", err)
-	}
-	realAttachmentsDir, err := filepath.EvalSymlinks(attachmentsDir)
+	candidate, realBase, err := attachmentPath(taskDir, ref)
 	if err != nil {
-		return fmt.Errorf("resolve attachments dir: %w", err)
-	}
-	candidate := filepath.Join(attachmentsDir, name)
-	if !pathWithin(realAttachmentsDir, mustResolveOrSelf(candidate)) {
-		return fmt.Errorf("attachment %q resolves outside attachments/", name)
+		return err
 	}
 	info, err := os.Lstat(candidate)
 	if err != nil {
@@ -201,11 +223,48 @@ func (b *BoardService) OpenAttachment(ctx context.Context, id, name string) erro
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("attachment %q is a symlink; refusing to open", name)
 	}
+	if info.IsDir() {
+		return fmt.Errorf("attachment %q is a directory; refusing to open", name)
+	}
+	if !pathWithin(realBase, mustResolveOrSelf(candidate)) {
+		return fmt.Errorf("attachment %q resolves outside its attachment root", name)
+	}
 	opener := b.openFile
 	if opener == nil {
 		opener = defaultOpener{}
 	}
 	return opener.Open(ctx, candidate)
+}
+
+type attachmentRef struct {
+	base   string
+	legacy bool
+}
+
+func attachmentPath(taskDir string, ref attachmentRef) (string, string, error) {
+	if ref.legacy {
+		attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
+		info, err := os.Lstat(attachmentsDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", "", fmt.Errorf("legacy attachments directory not found")
+			}
+			return "", "", fmt.Errorf("stat legacy attachments dir: %w", err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", "", fmt.Errorf("legacy attachments directory is not a real directory")
+		}
+		realDir, err := filepath.EvalSymlinks(attachmentsDir)
+		if err != nil {
+			return "", "", fmt.Errorf("resolve legacy attachments dir: %w", err)
+		}
+		return filepath.Join(attachmentsDir, ref.base), realDir, nil
+	}
+	realTaskDir, err := filepath.EvalSymlinks(taskDir)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve task dir: %w", err)
+	}
+	return filepath.Join(taskDir, ref.base), realTaskDir, nil
 }
 
 func mustResolveOrSelf(path string) string {
@@ -223,7 +282,36 @@ func pathWithin(base, target string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
-func validateAttachmentName(name string) error {
+func parseAttachmentRef(name string) (attachmentRef, error) {
+	if strings.TrimSpace(name) == "" {
+		return attachmentRef{}, &MutationValidationError{Msg: "attachment name is required"}
+	}
+	if strings.ContainsRune(name, 0) {
+		return attachmentRef{}, &MutationValidationError{Msg: "attachment name contains a NUL byte"}
+	}
+	if filepath.IsAbs(name) || strings.HasPrefix(name, "/") || filepath.VolumeName(name) != "" {
+		return attachmentRef{}, &MutationValidationError{Msg: "attachment name must not be an absolute path"}
+	}
+	if strings.Contains(name, `\`) {
+		return attachmentRef{}, &MutationValidationError{Msg: "attachment name must not contain path separators"}
+	}
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		if len(parts) != 2 || parts[0] != attachmentsDirName {
+			return attachmentRef{}, &MutationValidationError{Msg: "attachment name must be a file name or " + legacyAttachPrefix + "<name>"}
+		}
+		if err := validateAttachmentLeafName(parts[1]); err != nil {
+			return attachmentRef{}, err
+		}
+		return attachmentRef{base: parts[1], legacy: true}, nil
+	}
+	if err := validateAttachmentLeafName(name); err != nil {
+		return attachmentRef{}, err
+	}
+	return attachmentRef{base: name}, nil
+}
+
+func validateAttachmentLeafName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return &MutationValidationError{Msg: "attachment name is required"}
 	}
@@ -239,5 +327,20 @@ func validateAttachmentName(name string) error {
 	if strings.ContainsAny(name, `/\`) {
 		return &MutationValidationError{Msg: "attachment name must not contain path separators"}
 	}
+	if isReservedAttachmentName(name) {
+		return &MutationValidationError{Msg: "attachment name is reserved for task internals"}
+	}
 	return nil
+}
+
+func isReservedAttachmentName(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch strings.ToLower(name) {
+	case strings.ToLower(folderTaskFileName), strings.ToLower(attachmentsDirName):
+		return true
+	default:
+		return false
+	}
 }

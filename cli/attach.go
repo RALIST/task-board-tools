@@ -14,6 +14,7 @@ import (
 )
 
 const attachmentsDirName = "attachments"
+const legacyAttachmentPrefix = attachmentsDirName + "/"
 
 type attachmentSource struct {
 	path string
@@ -29,8 +30,15 @@ type attachResult struct {
 }
 
 type attachmentRemoval struct {
-	name string
+	arg  string
+	ref  string
 	path string
+}
+
+type attachmentRef struct {
+	ref    string
+	base   string
+	legacy bool
 }
 
 func cmdAttach(args []string) {
@@ -169,15 +177,7 @@ func removeTaskAttachments(boardDir, taskID string, names []string, stdout io.Wr
 		return err
 	}
 
-	attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
-	if err := validateRealDirectory(attachmentsDir, fmt.Sprintf("attachments directory for %s", taskID)); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("task %s has no folder-form attachments directory", taskID)
-		}
-		return err
-	}
-
-	removals, err := validateAttachmentRemovals(attachmentsDir, taskID, names)
+	removals, err := validateAttachmentRemovals(taskDir, taskID, names)
 	if err != nil {
 		return err
 	}
@@ -187,15 +187,17 @@ func removeTaskAttachments(boardDir, taskID string, names []string, stdout io.Wr
 		return fmt.Errorf("cannot read %s: %w", ref.Path, err)
 	}
 
-	content := removeAttachmentEntries(string(data), names)
-	content = appendLogEntry(content, fmt.Sprintf("- %s: Removed attachments: %s\n", time.Now().Format("2006-01-02"), strings.Join(names, ", ")))
+	refs := attachmentRemovalRefs(removals)
+	displayNames := attachmentRemovalArgs(removals)
+	content := removeAttachmentEntries(string(data), refs)
+	content = appendLogEntry(content, fmt.Sprintf("- %s: Removed attachments: %s\n", time.Now().Format("2006-01-02"), strings.Join(displayNames, ", ")))
 	if err := writeFileAtomic(ref.Path, []byte(content), 0644); err != nil {
 		return fmt.Errorf("cannot write %s: %w", ref.Path, err)
 	}
 
 	for _, removal := range removals {
 		if err := os.Remove(removal.path); err != nil {
-			return fmt.Errorf("cannot remove attachment %q: %w", removal.name, err)
+			return fmt.Errorf("cannot remove attachment %q: %w", removal.arg, err)
 		}
 	}
 
@@ -209,10 +211,10 @@ func removeTaskAttachments(boardDir, taskID string, names []string, stdout io.Wr
 
 	if stdout != nil {
 		label := "attachments"
-		if len(names) == 1 {
+		if len(displayNames) == 1 {
 			label = "attachment"
 		}
-		fmt.Fprintf(stdout, "Removed %s from %s: %s\n", label, taskID, strings.Join(names, ", "))
+		fmt.Fprintf(stdout, "Removed %s from %s: %s\n", label, taskID, strings.Join(displayNames, ", "))
 	}
 	return nil
 }
@@ -231,53 +233,132 @@ func validateRealDirectory(path, label string) error {
 	return nil
 }
 
-func validateAttachmentRemovals(attachmentsDir, taskID string, names []string) ([]attachmentRemoval, error) {
-	realAttachmentsDir, err := filepath.EvalSymlinks(attachmentsDir)
+func validateAttachmentRemovals(taskDir, taskID string, names []string) ([]attachmentRemoval, error) {
+	realTaskDir, err := filepath.EvalSymlinks(taskDir)
 	if err != nil {
-		return nil, fmt.Errorf("cannot resolve attachments directory for %s: %w", taskID, err)
+		return nil, fmt.Errorf("cannot resolve task directory for %s: %w", taskID, err)
 	}
 
 	seen := make(map[string]bool, len(names))
+	resolvedSeen := make(map[string]bool, len(names))
 	removals := make([]attachmentRemoval, 0, len(names))
-	for _, name := range names {
-		if err := validateAttachmentRemovalName(name); err != nil {
+	for _, raw := range names {
+		ref, err := parseAttachmentRef(raw)
+		if err != nil {
 			return nil, err
 		}
-		if seen[name] {
-			return nil, fmt.Errorf("duplicate attachment name %q", name)
+		if seen[ref.ref] {
+			return nil, fmt.Errorf("duplicate attachment name %q", raw)
 		}
-		seen[name] = true
+		seen[ref.ref] = true
 
-		candidate := filepath.Join(attachmentsDir, name)
-		if !pathWithin(attachmentsDir, candidate) {
-			return nil, fmt.Errorf("attachment name %q resolves outside %s/", name, attachmentsDirName)
+		candidate, realBase, actualRef, err := resolveAttachmentRemovalPath(taskDir, realTaskDir, ref)
+		if err != nil {
+			return nil, fmt.Errorf("attachment %q not found on %s", raw, taskID)
 		}
+		if resolvedSeen[actualRef] {
+			return nil, fmt.Errorf("duplicate attachment name %q", raw)
+		}
+		resolvedSeen[actualRef] = true
 
 		info, err := os.Lstat(candidate)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("attachment %q not found on %s", name, taskID)
+				return nil, fmt.Errorf("attachment %q not found on %s", raw, taskID)
 			}
-			return nil, fmt.Errorf("cannot stat attachment %q: %w", name, err)
+			return nil, fmt.Errorf("cannot stat attachment %q: %w", raw, err)
 		}
 		if info.IsDir() {
-			return nil, fmt.Errorf("attachment %q is a directory; refusing to remove it", name)
+			return nil, fmt.Errorf("attachment %q is a directory; refusing to remove it", raw)
 		}
 
 		resolved, err := filepath.EvalSymlinks(candidate)
 		if err != nil {
-			return nil, fmt.Errorf("attachment %q cannot be resolved safely: %w", name, err)
+			return nil, fmt.Errorf("attachment %q cannot be resolved safely: %w", raw, err)
 		}
-		if !pathWithin(realAttachmentsDir, resolved) {
-			return nil, fmt.Errorf("attachment %q resolves outside %s/; refusing to remove it", name, attachmentsDirName)
+		if !pathWithin(realBase, resolved) {
+			location := "task directory"
+			if strings.HasPrefix(actualRef, legacyAttachmentPrefix) {
+				location = attachmentsDirName + "/"
+			}
+			return nil, fmt.Errorf("attachment %q resolves outside %s; refusing to remove it", raw, location)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("attachment %q is a symlink; refusing to remove it", raw)
 		}
 
-		removals = append(removals, attachmentRemoval{name: name, path: candidate})
+		removals = append(removals, attachmentRemoval{arg: raw, ref: actualRef, path: candidate})
 	}
 	return removals, nil
 }
 
-func validateAttachmentRemovalName(name string) error {
+func resolveAttachmentRemovalPath(taskDir, realTaskDir string, ref attachmentRef) (string, string, string, error) {
+	if ref.legacy {
+		legacyDir := filepath.Join(taskDir, attachmentsDirName)
+		realLegacyDir, err := realDirectory(legacyDir)
+		if err != nil {
+			return "", "", "", err
+		}
+		return filepath.Join(legacyDir, ref.base), realLegacyDir, ref.ref, nil
+	}
+
+	candidate := filepath.Join(taskDir, ref.base)
+	if _, err := os.Lstat(candidate); err == nil {
+		return candidate, realTaskDir, ref.ref, nil
+	} else if !os.IsNotExist(err) {
+		return "", "", "", err
+	}
+
+	// Compatibility: pre-TB-224 users removed legacy attachments by basename
+	// (`tb attach --rm TB-1 old.txt`). Keep that working when no task-root file
+	// with that basename exists. Use attachments/<name> to target legacy
+	// explicitly when both forms are present.
+	legacyDir := filepath.Join(taskDir, attachmentsDirName)
+	legacyCandidate := filepath.Join(legacyDir, ref.base)
+	if _, err := os.Lstat(legacyCandidate); err != nil {
+		return "", "", "", err
+	}
+	realLegacyDir, err := realDirectory(legacyDir)
+	if err != nil {
+		return "", "", "", err
+	}
+	return legacyCandidate, realLegacyDir, legacyAttachmentPrefix + ref.base, nil
+}
+
+func realDirectory(path string) (string, error) {
+	if err := validateRealDirectory(path, path); err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(path)
+}
+
+func parseAttachmentRef(name string) (attachmentRef, error) {
+	if strings.ContainsRune(name, 0) {
+		return attachmentRef{}, fmt.Errorf("attachment name %q contains a NUL byte", name)
+	}
+	if filepath.IsAbs(name) || strings.HasPrefix(name, "/") || filepath.VolumeName(name) != "" {
+		return attachmentRef{}, fmt.Errorf("attachment name %q must not be an absolute path", name)
+	}
+	if strings.Contains(name, `\`) {
+		return attachmentRef{}, fmt.Errorf("attachment name %q must not contain path separators", name)
+	}
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		if len(parts) != 2 || parts[0] != attachmentsDirName {
+			return attachmentRef{}, fmt.Errorf("attachment name %q must be a file name or %s<name>", name, legacyAttachmentPrefix)
+		}
+		if err := validateAttachmentLeafName(parts[1]); err != nil {
+			return attachmentRef{}, err
+		}
+		return attachmentRef{ref: legacyAttachmentPrefix + parts[1], base: parts[1], legacy: true}, nil
+	}
+	if err := validateAttachmentLeafName(name); err != nil {
+		return attachmentRef{}, err
+	}
+	return attachmentRef{ref: name, base: name}, nil
+}
+
+func validateAttachmentLeafName(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("attachment name cannot be empty")
 	}
@@ -292,6 +373,9 @@ func validateAttachmentRemovalName(name string) error {
 	}
 	if strings.ContainsAny(name, `/\`) {
 		return fmt.Errorf("attachment name %q must not contain path separators", name)
+	}
+	if isReservedAttachmentName(name) {
+		return fmt.Errorf("attachment name %q is reserved for task internals", name)
 	}
 	return nil
 }
@@ -328,9 +412,9 @@ func prepareAttachmentSources(paths []string) ([]attachmentSource, error) {
 			return nil, fmt.Errorf("attachment source %s does not have a usable file name", raw)
 		}
 		// Reject names the --rm path also rejects (NUL, separators, abs paths,
-		// `.`/`..`) so the add and remove sides cannot diverge on what a valid
-		// attachment name is.
-		if err := validateAttachmentRemovalName(name); err != nil {
+		// `.`/`..`, and task-internal names) so add/remove cannot diverge on
+		// what a valid attachment name is.
+		if err := validateAttachmentLeafName(name); err != nil {
 			return nil, fmt.Errorf("attachment source %s: %w", raw, err)
 		}
 		if prev, ok := seen[name]; ok {
@@ -371,11 +455,7 @@ func promoteFileTaskWithAttachments(boardDir string, ref taskRef, sources []atta
 		}
 	}()
 
-	stagingAttachmentsDir := filepath.Join(stagingDir, attachmentsDirName)
-	if err := os.Mkdir(stagingAttachmentsDir, 0755); err != nil {
-		return attachResult{}, fmt.Errorf("cannot create attachment staging directory: %w", err)
-	}
-	if err := copySourcesIntoDir(sources, stagingAttachmentsDir); err != nil {
+	if err := copySourcesIntoDir(sources, stagingDir); err != nil {
 		return attachResult{}, err
 	}
 
@@ -518,18 +598,22 @@ func attachToFolderTask(ref taskRef, sources []attachmentSource) (attachResult, 
 	if taskDir == "" {
 		return attachResult{}, fmt.Errorf("task %s is not in folder form", ref.ID)
 	}
-	attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
-	existing, err := readAttachmentNames(attachmentsDir)
+	existing, err := readAttachmentRefs(taskDir)
 	if err != nil {
 		return attachResult{}, err
 	}
 	existingSet := make(map[string]bool, len(existing))
-	for _, name := range existing {
-		existingSet[name] = true
+	for _, ref := range existing {
+		existingSet[attachmentRefBase(ref)] = true
 	}
 	for _, source := range sources {
 		if existingSet[source.name] {
 			return attachResult{}, fmt.Errorf("attachment %q already exists on %s; refusing to overwrite", source.name, ref.ID)
+		}
+		if _, err := os.Lstat(filepath.Join(taskDir, source.name)); err == nil {
+			return attachResult{}, fmt.Errorf("attachment %q already exists on %s; refusing to overwrite", source.name, ref.ID)
+		} else if err != nil && !os.IsNotExist(err) {
+			return attachResult{}, fmt.Errorf("cannot inspect attachment destination %q: %w", source.name, err)
 		}
 	}
 
@@ -547,19 +631,23 @@ func attachToFolderTask(ref taskRef, sources []attachmentSource) (attachResult, 
 	if err := copySourcesIntoDir(sources, stagingDir); err != nil {
 		return attachResult{}, err
 	}
-	if err := os.MkdirAll(attachmentsDir, 0755); err != nil {
-		return attachResult{}, fmt.Errorf("cannot create attachments directory %s: %w", attachmentsDir, err)
-	}
 
 	// A crash between publishing the last attachment (below) and writing TASK.md
 	// leaves attachment files on disk that are not yet listed in `## Attachments`.
-	// The attachments directory is the source of truth; the section is derived
-	// from it, so the next `tb attach` rebuilds the section via readAttachmentNames
+	// The task directory is the source of truth; the section is derived from it,
+	// so the next `tb attach` rebuilds the section via readAttachmentRefs
 	// + mergeAttachmentNames. The window is cosmetic, not data-loss.
 	var published []string
 	for _, source := range sources {
 		src := filepath.Join(stagingDir, source.name)
-		dst := filepath.Join(attachmentsDir, source.name)
+		dst := filepath.Join(taskDir, source.name)
+		if _, err := os.Lstat(dst); err == nil {
+			bestEffortRemoveFiles(published)
+			return attachResult{}, fmt.Errorf("attachment %q already exists on %s; refusing to overwrite", source.name, ref.ID)
+		} else if err != nil && !os.IsNotExist(err) {
+			bestEffortRemoveFiles(published)
+			return attachResult{}, fmt.Errorf("cannot inspect attachment destination %q: %w", source.name, err)
+		}
 		if err := os.Rename(src, dst); err != nil {
 			bestEffortRemoveFiles(published)
 			return attachResult{}, fmt.Errorf("cannot publish attachment %s: %w", source.name, err)
@@ -666,21 +754,58 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-func readAttachmentNames(attachmentsDir string) ([]string, error) {
-	entries, err := os.ReadDir(attachmentsDir)
+func readAttachmentRefs(taskDir string) ([]string, error) {
+	entries, err := os.ReadDir(taskDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("cannot read attachments directory %s: %w", attachmentsDir, err)
+		return nil, fmt.Errorf("cannot read task directory %s: %w", taskDir, err)
 	}
 
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		names = append(names, entry.Name())
+		name := entry.Name()
+		if name == attachmentsDirName {
+			names = append(names, readLegacyAttachmentRefs(taskDir)...)
+			continue
+		}
+		if isReservedAttachmentName(name) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, fmt.Errorf("cannot inspect attachment candidate %s: %w", filepath.Join(taskDir, name), err)
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+func readLegacyAttachmentRefs(taskDir string) []string {
+	attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
+	info, err := os.Lstat(attachmentsDir)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(attachmentsDir)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if isReservedAttachmentName(name) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		names = append(names, legacyAttachmentPrefix+name)
+	}
+	return names
 }
 
 func attachmentSourceNames(sources []attachmentSource) []string {
@@ -709,7 +834,7 @@ func upsertAttachmentsSection(content string, names []string) string {
 	names = mergeAttachmentNames(nil, names)
 	var b strings.Builder
 	for _, name := range names {
-		fmt.Fprintf(&b, "- attachments/%s\n", filepath.ToSlash(name))
+		fmt.Fprintf(&b, "- %s\n", filepath.ToSlash(name))
 	}
 	return upsertTaskSection(content, "## Attachments", strings.TrimRight(b.String(), "\n"))
 }
@@ -730,7 +855,7 @@ func removeAttachmentEntries(content string, names []string) string {
 	kept := make([]string, 0, len(lines))
 	hasBody := false
 	for _, line := range lines {
-		if name, ok := attachmentEntryName(line); ok && remove[name] {
+		if name, ok := attachmentEntryRef(line); ok && remove[name] {
 			continue
 		}
 		kept = append(kept, line)
@@ -745,21 +870,49 @@ func removeAttachmentEntries(content string, names []string) string {
 	return content[:section.bodyStart] + strings.Join(kept, "") + content[section.end:]
 }
 
-func attachmentEntryName(line string) (string, bool) {
+func attachmentEntryRef(line string) (string, bool) {
 	trimmed := strings.TrimSpace(strings.TrimRight(line, "\r\n"))
 	if !strings.HasPrefix(trimmed, "- ") {
 		return "", false
 	}
 	value := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
-	prefix := attachmentsDirName + "/"
-	if !strings.HasPrefix(value, prefix) {
+	ref, err := parseAttachmentRef(value)
+	if err != nil {
 		return "", false
 	}
-	name := strings.TrimPrefix(value, prefix)
-	if name == "" || strings.ContainsAny(name, `/\`) {
-		return "", false
+	return ref.ref, true
+}
+
+func attachmentRefBase(ref string) string {
+	return strings.TrimPrefix(ref, legacyAttachmentPrefix)
+}
+
+func attachmentRemovalRefs(removals []attachmentRemoval) []string {
+	refs := make([]string, 0, len(removals))
+	for _, removal := range removals {
+		refs = append(refs, removal.ref)
 	}
-	return name, true
+	return refs
+}
+
+func attachmentRemovalArgs(removals []attachmentRemoval) []string {
+	args := make([]string, 0, len(removals))
+	for _, removal := range removals {
+		args = append(args, removal.arg)
+	}
+	return args
+}
+
+func isReservedAttachmentName(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch strings.ToLower(name) {
+	case strings.ToLower(folderTaskFileName), strings.ToLower(attachmentsDirName):
+		return true
+	default:
+		return false
+	}
 }
 
 func removeTaskSection(content string, section taskSectionRange) string {
@@ -781,7 +934,7 @@ func removeTaskSection(content string, section taskSectionRange) string {
 // bestEffortRemoveFiles deletes each path and warns to stderr on any failure.
 // Used to roll back partial attachment publishes when a subsequent step fails;
 // a remaining file is cosmetic (the next `tb attach` rebuilds the `##
-// Attachments` section from attachmentsDir) but the user still deserves to
+// Attachments` section from the task directory) but the user still deserves to
 // know cleanup was incomplete.
 func bestEffortRemoveFiles(paths []string) {
 	for _, path := range paths {

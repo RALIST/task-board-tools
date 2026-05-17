@@ -36,11 +36,11 @@ func TestAttachPromotesLegacyFileTask(t *testing.T) {
 	assertContains(t, content, "# TB-1: Legacy Task")
 	assertContains(t, content, "**Module:** cli")
 	assertContains(t, content, "- 2026-05-14: Created")
-	assertContains(t, content, "## Attachments\n\n- attachments/design.txt\n\n## Log")
+	assertContains(t, content, "## Attachments\n\n- design.txt\n\n## Log")
 	assertContains(t, content, "Promoted to folder form")
 	assertContains(t, content, "Attached design.txt")
 
-	attachmentPath := filepath.Join(boardDir, "backlog", "TB-1", "attachments", "design.txt")
+	attachmentPath := filepath.Join(boardDir, "backlog", "TB-1", "design.txt")
 	if got := readFileString(t, attachmentPath); got != "design bytes" {
 		t.Fatalf("attachment content = %q", got)
 	}
@@ -93,7 +93,7 @@ func TestAttachPromotionMigratesLegacyAgentArtifacts(t *testing.T) {
 	taskPath := filepath.Join(taskDir, folderTaskFileName)
 	content := readFileString(t, taskPath)
 	assertContains(t, content, "# TB-1: Legacy Agent")
-	assertContains(t, content, "## Attachments\n\n- attachments/design.txt\n\n## Log")
+	assertContains(t, content, "## Attachments\n\n- design.txt\n\n## Log")
 
 	migratedState := filepath.Join(taskDir, ".agent-state.jsonl")
 	if got := readFileString(t, migratedState); got != string(stateBytes) {
@@ -111,7 +111,7 @@ func TestAttachPromotionMigratesLegacyAgentArtifacts(t *testing.T) {
 		t.Fatalf("legacy root logs dir should be gone after promotion, stat err=%v", err)
 	}
 
-	attachmentPath := filepath.Join(taskDir, "attachments", "design.txt")
+	attachmentPath := filepath.Join(taskDir, "design.txt")
 	if got := readFileString(t, attachmentPath); got != "design bytes" {
 		t.Fatalf("attachment content = %q", got)
 	}
@@ -151,7 +151,7 @@ func TestAttachAddRespectsDoubleDashTerminator(t *testing.T) {
 		t.Fatalf("runAttach: %v", err)
 	}
 
-	attached := filepath.Join(boardDir, "backlog", "TB-7", "attachments", "-leading-dash.txt")
+	attached := filepath.Join(boardDir, "backlog", "TB-7", "-leading-dash.txt")
 	if got := readFileString(t, attached); got != "payload" {
 		t.Fatalf("attachment content = %q", got)
 	}
@@ -170,7 +170,7 @@ func TestAttachAddTreatsRemoveLikePathAfterTerminator(t *testing.T) {
 	if err := runAttach([]string{"TB-8", "--", srcPath}, nil); err != nil {
 		t.Fatalf("runAttach: %v", err)
 	}
-	attached := filepath.Join(boardDir, "backlog", "TB-8", "attachments", "--rm")
+	attached := filepath.Join(boardDir, "backlog", "TB-8", "--rm")
 	if got := readFileString(t, attached); got != "payload" {
 		t.Fatalf("attachment content = %q", got)
 	}
@@ -197,14 +197,29 @@ func TestAttachAddsFileToFolderTask(t *testing.T) {
 	}
 
 	content := readFileString(t, filepath.Join(taskDir, folderTaskFileName))
-	assertContains(t, content, "## Attachments\n\n- attachments/new.txt\n- attachments/old.txt\n\n## Log")
+	assertContains(t, content, "## Attachments\n\n- attachments/old.txt\n- new.txt\n\n## Log")
 	assertContains(t, content, "Attached new.txt")
-	if got := readFileString(t, filepath.Join(attachmentsDir, "new.txt")); got != "new" {
+	if got := readFileString(t, filepath.Join(taskDir, "new.txt")); got != "new" {
 		t.Fatalf("new attachment content = %q", got)
 	}
 	if got := readFileString(t, filepath.Join(attachmentsDir, "old.txt")); got != "old" {
 		t.Fatalf("existing attachment content = %q", got)
 	}
+}
+
+func TestAttachAddsFileToTaskRootAndKeepsLegacyAttachments(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	taskDir := seedFolderTaskWithAttachments(t, boardDir, "backlog", "TB-22", "Mixed Attach", []string{"legacy.txt"})
+	sourcePath := writeAttachmentSource(t, "root.txt", "root bytes")
+
+	if _, err := attachTask(boardDir, "TB-22", []string{sourcePath}); err != nil {
+		t.Fatalf("attachTask: %v", err)
+	}
+
+	assertExists(t, filepath.Join(taskDir, "root.txt"))
+	assertExists(t, filepath.Join(taskDir, attachmentsDirName, "legacy.txt"))
+	content := readFileString(t, filepath.Join(taskDir, folderTaskFileName))
+	assertContains(t, content, "## Attachments\n\n- attachments/legacy.txt\n- root.txt\n\n## Log")
 }
 
 func TestAttachImportsMultipleFiles(t *testing.T) {
@@ -217,15 +232,14 @@ func TestAttachImportsMultipleFiles(t *testing.T) {
 		t.Fatalf("attachTask: %v", err)
 	}
 
-	attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
-	if got := readFileString(t, filepath.Join(attachmentsDir, "a.txt")); got != "aye" {
+	if got := readFileString(t, filepath.Join(taskDir, "a.txt")); got != "aye" {
 		t.Fatalf("a.txt = %q", got)
 	}
-	if got := readFileString(t, filepath.Join(attachmentsDir, "b.txt")); got != "bee" {
+	if got := readFileString(t, filepath.Join(taskDir, "b.txt")); got != "bee" {
 		t.Fatalf("b.txt = %q", got)
 	}
 	content := readFileString(t, filepath.Join(taskDir, folderTaskFileName))
-	assertContains(t, content, "## Attachments\n\n- attachments/a.txt\n- attachments/b.txt\n\n## Log")
+	assertContains(t, content, "## Attachments\n\n- a.txt\n- b.txt\n\n## Log")
 	assertContains(t, content, "Attached b.txt, a.txt")
 }
 
@@ -278,6 +292,63 @@ func TestAttachNameCollisionLeavesFolderTaskUnchanged(t *testing.T) {
 	}
 }
 
+func TestAttachRejectsTaskRootCollision(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	taskDir := seedFolderTask(t, boardDir, "backlog", "TB-6", "Root Collision")
+	taskPath := filepath.Join(taskDir, folderTaskFileName)
+	initial := readFileString(t, taskPath)
+	existingPath := filepath.Join(taskDir, "same.txt")
+	if err := os.WriteFile(existingPath, []byte("existing"), 0644); err != nil {
+		t.Fatalf("write existing attachment: %v", err)
+	}
+	sourcePath := writeAttachmentSource(t, "same.txt", "replacement")
+
+	if _, err := attachTask(boardDir, "TB-6", []string{sourcePath}); err == nil {
+		t.Fatal("attachTask succeeded, want root collision error")
+	}
+
+	if got := readFileString(t, taskPath); got != initial {
+		t.Fatalf("task content changed after collision:\n%s", got)
+	}
+	if got := readFileString(t, existingPath); got != "existing" {
+		t.Fatalf("existing root attachment was overwritten: %q", got)
+	}
+}
+
+func TestAttachRejectsReservedTaskRootNames(t *testing.T) {
+	cases := []struct {
+		name    string
+		wantErr string
+	}{
+		{name: "TASK.md", wantErr: "reserved"},
+		{name: ".agent-state.jsonl", wantErr: "reserved"},
+		{name: ".hidden.tmp", wantErr: "reserved"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			boardDir := newCommandTestBoard(t)
+			taskDir := seedFolderTask(t, boardDir, "backlog", "TB-9", "Reserved")
+			taskPath := filepath.Join(taskDir, folderTaskFileName)
+			initial := readFileString(t, taskPath)
+			sourcePath := writeAttachmentSource(t, tc.name, "payload")
+
+			_, err := attachTask(boardDir, "TB-9", []string{sourcePath})
+			if err == nil {
+				t.Fatal("attachTask succeeded, want reserved-name error")
+			}
+			assertContains(t, err.Error(), tc.wantErr)
+			if after := readFileString(t, taskPath); after != initial {
+				t.Fatalf("task content changed after reserved-name validation:\nbefore:\n%s\nafter:\n%s", initial, after)
+			}
+			if tc.name != folderTaskFileName {
+				assertMissing(t, filepath.Join(taskDir, tc.name))
+			}
+			assertMissing(t, filepath.Join(taskDir, attachmentsDirName, tc.name))
+		})
+	}
+}
+
 func TestAttachRemoveSingleAttachment(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	taskDir := seedFolderTaskWithAttachments(t, boardDir, "backlog", "TB-1", "Remove One", []string{"one.txt", "two.txt"})
@@ -300,6 +371,71 @@ func TestAttachRemoveSingleAttachment(t *testing.T) {
 
 	boardContent := readFileString(t, filepath.Join(boardDir, "BOARD.md"))
 	assertContains(t, boardContent, "TB-1")
+}
+
+func TestAttachRemoveRootAndLegacyAttachments(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	taskDir := seedFolderTaskWithAttachments(t, boardDir, "backlog", "TB-11", "Mixed Remove", []string{"legacy.txt"})
+	taskPath := filepath.Join(taskDir, folderTaskFileName)
+	if err := os.WriteFile(filepath.Join(taskDir, "root.txt"), []byte("root\n"), 0644); err != nil {
+		t.Fatalf("write root attachment: %v", err)
+	}
+	content := upsertAttachmentsSection(readFileString(t, taskPath), []string{"attachments/legacy.txt", "root.txt"})
+	if err := os.WriteFile(taskPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write task attachments section: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := runAttach([]string{"--rm", "TB-11", "root.txt", "attachments/legacy.txt"}, &out); err != nil {
+		t.Fatalf("runAttach: %v", err)
+	}
+
+	assertContains(t, out.String(), "Removed attachments from TB-11: root.txt, attachments/legacy.txt")
+	assertMissing(t, filepath.Join(taskDir, "root.txt"))
+	assertMissing(t, filepath.Join(taskDir, attachmentsDirName, "legacy.txt"))
+	content = readFileString(t, taskPath)
+	assertNotContains(t, content, "- root.txt")
+	assertNotContains(t, content, "- attachments/legacy.txt")
+}
+
+func TestAttachRemoveRejectsDuplicateLegacyAliasesWithoutMutation(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	taskDir := seedFolderTaskWithAttachments(t, boardDir, "backlog", "TB-15", "Duplicate Aliases", []string{"old.txt"})
+	taskPath := filepath.Join(taskDir, folderTaskFileName)
+	attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
+	before := readFileString(t, taskPath)
+
+	err := runAttach([]string{"--rm", "TB-15", "old.txt", "attachments/old.txt"}, nil)
+	if err == nil {
+		t.Fatal("runAttach succeeded, want duplicate alias error")
+	}
+	assertContains(t, err.Error(), `duplicate attachment name "attachments/old.txt"`)
+	assertExists(t, filepath.Join(attachmentsDir, "old.txt"))
+	if after := readFileString(t, taskPath); after != before {
+		t.Fatalf("task markdown changed after duplicate alias validation:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+	assertMissing(t, filepath.Join(boardDir, "BOARD.md"))
+}
+
+func TestAttachRemoveDashLeadingFilenameAfterTerminator(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	taskDir := seedFolderTaskWithAttachments(t, boardDir, "backlog", "TB-1", "Dash Remove", []string{"-dash.txt", "keep.txt"})
+	taskPath := filepath.Join(taskDir, folderTaskFileName)
+	attachmentsDir := filepath.Join(taskDir, attachmentsDirName)
+
+	var out bytes.Buffer
+	if err := runAttach([]string{"--rm", "TB-1", "--", "-dash.txt"}, &out); err != nil {
+		t.Fatalf("runAttach: %v", err)
+	}
+
+	assertContains(t, out.String(), "Removed attachment from TB-1: -dash.txt")
+	assertMissing(t, filepath.Join(attachmentsDir, "-dash.txt"))
+	assertExists(t, filepath.Join(attachmentsDir, "keep.txt"))
+
+	content := readFileString(t, taskPath)
+	assertNotContains(t, content, "- attachments/-dash.txt")
+	assertContains(t, content, "- attachments/keep.txt")
+	assertContains(t, content, ": Removed attachments: -dash.txt")
 }
 
 func TestAttachRemoveMultipleAttachmentsInDone(t *testing.T) {
@@ -364,12 +500,12 @@ func TestAttachRemoveRejectsNonFolderTargets(t *testing.T) {
 			wantErr: `task TB-1 is file-form`,
 		},
 		{
-			name: "folder form without attachments directory",
+			name: "folder form without matching attachment",
 			setup: func(t *testing.T, boardDir string) string {
 				taskDir := seedFolderTask(t, boardDir, "backlog", "TB-1", "No Attachments Dir")
 				return filepath.Join(taskDir, folderTaskFileName)
 			},
-			wantErr: `task TB-1 has no folder-form attachments directory`,
+			wantErr: `attachment "one.txt" not found on TB-1`,
 		},
 	}
 
@@ -401,7 +537,7 @@ func TestAttachRemoveRejectsUnsafeNamesWithoutMutation(t *testing.T) {
 		{name: "empty", arg: "", wantErr: "attachment name cannot be empty"},
 		{name: "absolute", arg: "/tmp/outside.txt", wantErr: "must not be an absolute path"},
 		{name: "dotdot", arg: "..", wantErr: "is not allowed"},
-		{name: "slash separator", arg: "nested/file.txt", wantErr: "must not contain path separators"},
+		{name: "unsupported slash separator", arg: "nested/file.txt", wantErr: "must be a file name or attachments/<name>"},
 		{name: "backslash separator", arg: `nested\file.txt`, wantErr: "must not contain path separators"},
 	}
 
@@ -424,6 +560,57 @@ func TestAttachRemoveRejectsUnsafeNamesWithoutMutation(t *testing.T) {
 			}
 			assertMissing(t, filepath.Join(boardDir, "BOARD.md"))
 		})
+	}
+}
+
+func TestAttachRemoveRejectsReservedNamesWithoutMutation(t *testing.T) {
+	cases := []string{"TASK.md", ".agent-state.jsonl", ".agent-logs", ".attach.123.tmp"}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			boardDir := newCommandTestBoard(t)
+			taskDir := seedFolderTask(t, boardDir, "backlog", "TB-12", "Reserved Remove")
+			taskPath := filepath.Join(taskDir, folderTaskFileName)
+			if err := os.WriteFile(filepath.Join(taskDir, ".agent-state.jsonl"), []byte("state\n"), 0644); err != nil {
+				t.Fatalf("write state: %v", err)
+			}
+			if err := os.Mkdir(filepath.Join(taskDir, ".agent-logs"), 0755); err != nil {
+				t.Fatalf("mkdir logs: %v", err)
+			}
+			before := readFileString(t, taskPath)
+
+			err := runAttach([]string{"--rm", "TB-12", name}, nil)
+			if err == nil {
+				t.Fatal("runAttach succeeded, want reserved-name error")
+			}
+			assertContains(t, err.Error(), "reserved")
+			if after := readFileString(t, taskPath); after != before {
+				t.Fatalf("task markdown changed after failed validation:\nbefore:\n%s\nafter:\n%s", before, after)
+			}
+			assertExists(t, filepath.Join(taskDir, folderTaskFileName))
+			assertExists(t, filepath.Join(taskDir, ".agent-state.jsonl"))
+			assertExists(t, filepath.Join(taskDir, ".agent-logs"))
+		})
+	}
+}
+
+func TestAttachRemoveRejectsTaskRootDirectoryWithoutMutation(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	taskDir := seedFolderTask(t, boardDir, "backlog", "TB-13", "Directory Remove")
+	taskPath := filepath.Join(taskDir, folderTaskFileName)
+	dirPath := filepath.Join(taskDir, "notes-dir")
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatalf("mkdir directory candidate: %v", err)
+	}
+	before := readFileString(t, taskPath)
+
+	err := runAttach([]string{"--rm", "TB-13", "notes-dir"}, nil)
+	if err == nil {
+		t.Fatal("runAttach succeeded, want directory refusal")
+	}
+	assertContains(t, err.Error(), `attachment "notes-dir" is a directory; refusing to remove it`)
+	assertExists(t, dirPath)
+	if after := readFileString(t, taskPath); after != before {
+		t.Fatalf("task markdown changed after directory refusal:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
 
@@ -455,6 +642,41 @@ func TestAttachRemoveRejectsOutsideResolution(t *testing.T) {
 		t.Fatal("runAttach succeeded, want outside-resolution error")
 	}
 	assertContains(t, err.Error(), `attachment "escape.txt" resolves outside attachments/`)
+	assertExists(t, linkPath)
+	assertExists(t, outside)
+	if after := readFileString(t, taskPath); after != before {
+		t.Fatalf("task markdown changed after failed validation:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+	assertMissing(t, filepath.Join(boardDir, "BOARD.md"))
+}
+
+func TestAttachRemoveRejectsRootSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink behavior differs on Windows")
+	}
+
+	boardDir := newCommandTestBoard(t)
+	taskDir := seedFolderTask(t, boardDir, "backlog", "TB-14", "Root Escape")
+	taskPath := filepath.Join(taskDir, folderTaskFileName)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside\n"), 0644); err != nil {
+		t.Fatalf("write outside target: %v", err)
+	}
+	linkPath := filepath.Join(taskDir, "escape.txt")
+	if err := os.Symlink(outside, linkPath); err != nil {
+		t.Fatalf("symlink outside attachment: %v", err)
+	}
+	content := upsertAttachmentsSection(readFileString(t, taskPath), []string{"escape.txt"})
+	if err := os.WriteFile(taskPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write task attachments section: %v", err)
+	}
+	before := readFileString(t, taskPath)
+
+	err := runAttach([]string{"--rm", "TB-14", "escape.txt"}, nil)
+	if err == nil {
+		t.Fatal("runAttach succeeded, want outside-resolution error")
+	}
+	assertContains(t, err.Error(), `attachment "escape.txt" resolves outside task directory`)
 	assertExists(t, linkPath)
 	assertExists(t, outside)
 	if after := readFileString(t, taskPath); after != before {
@@ -534,6 +756,8 @@ func TestUsageIncludesAttachRemove(t *testing.T) {
 	out := captureStdout(t, usage)
 	assertContains(t, out, "tb attach --rm <ID> <attachment-name>...")
 	assertContains(t, out, "Remove task attachments")
+	assertContains(t, out, "New attachments are stored in the task directory")
+	assertContains(t, out, "Reserved attachment names")
 }
 
 func holdAttachLockForTest(t *testing.T) {
@@ -587,7 +811,11 @@ func seedFolderTaskWithAttachments(t *testing.T, boardDir, status, id, title str
 	}
 
 	taskPath := filepath.Join(taskDir, folderTaskFileName)
-	content := upsertAttachmentsSection(readFileString(t, taskPath), attachmentNames)
+	refs := make([]string, 0, len(attachmentNames))
+	for _, name := range attachmentNames {
+		refs = append(refs, legacyAttachmentPrefix+name)
+	}
+	content := upsertAttachmentsSection(readFileString(t, taskPath), refs)
 	if err := os.WriteFile(taskPath, []byte(content), 0644); err != nil {
 		t.Fatalf("write task attachments section: %v", err)
 	}

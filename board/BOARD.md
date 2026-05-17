@@ -30,7 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-224 | Support task-root attachments | P2 | cli/gui | — |
+| — | — | — | — | — |
 
 ## Backlog
 
@@ -103,6 +103,7 @@
 | ID | Title | Type | Module |
 |----|-------|------|--------|
 | TB-225 | Ask user to init board from GUI when he tries to open folder without initialized tb status | feature | gui |
+| TB-224 | Support task-root attachments | improvement | cli/gui |
 | TB-223 | Audit secondary docs for stale layout/status | improvement | docs |
 | TB-222 | Refresh README for current repo layout | improvement | docs |
 | TB-221 | Prepare repository for GitHub push | tech-debt | tooling |

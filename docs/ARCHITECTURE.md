@@ -118,9 +118,10 @@ A task is stored on disk in one of two forms. Both are first-class and coexist o
 │   ├── TB-1.md                      # file form: task = a single markdown file
 │   └── TB-2/                        # folder form: task = a directory
 │       ├── TASK.md                  #   canonical markdown (same format as file form)
-│       ├── attachments/             #   user attachments live here
-│       │   ├── design.pdf
-│       │   └── screenshot.png
+│       ├── design.pdf               #   user attachment (new layout)
+│       ├── screenshot.png           #   user attachment (new layout)
+│       ├── attachments/             #   legacy attachments, compatibility only
+│       │   └── old-evidence.pdf
 │       ├── .agent-state.jsonl       #   task-local agent run history
 │       └── .agent-logs/             #   task-local agent stdout/stderr
 │           └── r_a1b2c3d4.log
@@ -140,7 +141,7 @@ A task is stored on disk in one of two forms. Both are first-class and coexist o
 |---------------------|------------------------------------------|----------------------------------------------|
 | Path                | `<status>/<ID>.md`                       | `<status>/<ID>/TASK.md`                      |
 | Status = directory  | the `.md` lives in the status dir        | the task dir lives in the status dir         |
-| Attachments         | not supported in-place                   | `<status>/<ID>/attachments/<filename>`       |
+| Attachments         | not supported in-place                   | new: `<status>/<ID>/<filename>`; legacy: `<status>/<ID>/attachments/<filename>` |
 | Agent state JSONL   | `<boardDir>/.agent-state/<ID>.jsonl`     | `<status>/<ID>/.agent-state.jsonl`           |
 | Agent run logs      | `<boardDir>/.agent-logs/<ID>/<rid>.log`  | `<status>/<ID>/.agent-logs/<rid>.log`        |
 | Created by          | legacy / explicit opt-in flag            | `tb create` default                          |
@@ -161,16 +162,19 @@ If both `<ID>/TASK.md` and `<ID>.md` are present at the same time, that is a **c
 
 ### Attachments section in `TASK.md`
 
-A folder-form task may carry an optional `## Attachments` section in the body. It lists what is in the `attachments/` directory, one entry per line:
+A folder-form task may carry an optional `## Attachments` section in the body. New attachments live directly in the task directory and are listed as root-relative filenames. Existing legacy attachments under `attachments/` remain supported and are listed with the `attachments/` prefix:
 
 ```markdown
 ## Attachments
 
-- attachments/design.pdf
-- attachments/screenshot.png
+- design.pdf
+- screenshot.png
+- attachments/old-evidence.pdf
 ```
 
 The section is maintained by `tb attach` / `tb attach --rm` — it is not hand-edited. File-form tasks do not have this section.
+
+Reserved task-internal names are never treated as user attachments: `TASK.md`, `attachments`, dotfiles and dotdirs (including `.agent-state.jsonl`, `.agent-logs/`, `.attach.*` staging directories, and `.*.tmp.*` atomic-write temp files), path traversal, symlinks, and directories. The only slash-containing user-facing attachment reference accepted during the compatibility period is `attachments/<filename>` for legacy files.
 
 ### Lock semantics
 
@@ -184,7 +188,7 @@ The section is maintained by `tb attach` / `tb attach --rm` — it is not hand-e
 Every write that produces a task-content file inside a task folder goes through `writeFileAtomic` (temp file in the same directory + fsync + `os.Rename`):
 
 - `<status>/<ID>/TASK.md` — exactly the same rule as `<status>/<ID>.md` in the file form. Direct `os.WriteFile` of a `.md` file is forbidden outside `cli/atomicfs.go`.
-- `<status>/<ID>/attachments/<filename>` — each attachment is staged in the same directory under a `.tmp.*` name and renamed into place, so a reader either sees the previous bytes (if any) or the full new bytes, never a half-copied file.
+- `<status>/<ID>/<filename>` — each new attachment is first copied into a hidden staging directory under the task directory and then renamed into the task root, so a reader either sees no file or the full new bytes, never a half-copied file. Legacy `<status>/<ID>/attachments/<filename>` files keep the same atomicity guarantees until an explicit migration removes that layout.
 
 Per-task agent state (`.agent-state.jsonl`) keeps the same write semantics as its board-root predecessor — append-only via the agent runtime. The atomic-write invariant is about task-content files (the markdown and attachments); JSONL append behavior is owned by the daemon and documented in "Agent state" below.
 
@@ -195,7 +199,7 @@ Promotion runs when a file-form task acquires its first attachment, or by explic
 1. Acquire `.board.lock` (`LOCK_EX`).
 2. Re-read `<status>/<ID>.md` and confirm the task still exists in file form (defends against a race lost to a concurrent move).
 3. Create a staging directory `<status>/.<ID>.promote.<pid>.<rand>/`. The leading `.` keeps the staging dir invisible to the status-directory scanner.
-4. Copy the existing `.md` body into a `TASK.md` buffer and append the `Promoted to folder form on <date>` `## Log` entry to it. If the triggering operation brings inbound attachments, stage them under `<staging>/attachments/` via `writeFileAtomic` and add their entries to the buffer's `## Attachments` section.
+4. Copy the existing `.md` body into a `TASK.md` buffer and append the `Promoted to folder form on <date>` `## Log` entry to it. If the triggering operation brings inbound attachments, stage them directly under `<staging>/` via `writeFileAtomic` and add their root-relative entries to the buffer's `## Attachments` section.
 5. Write the buffer to `<staging>/TASK.md` via `writeFileAtomic`. After this step the staging dir holds the final task content as it will appear post-publish.
 6. `os.Rename(<staging>, <status>/<ID>)`. This single rename publishes the folder. Because `<ID>` (directory) and `<ID>.md` (file) are disjoint names, the rename cannot collide; from this point on the resolver returns folder form.
 7. `os.Remove(<status>/<ID>.md)`. The legacy file disappears.

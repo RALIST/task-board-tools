@@ -89,7 +89,7 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 ### F2.5 — Live updates via fsnotify ☑
 - Watcher emits Wails events on file changes (`board:reloaded`, `task:updated:<id>`).
 - Frontend store patches reactively.
-- Ignores `BOARD.md`, `.next-id`, `.board.lock`, board-root `.agent-state/*` / `.agent-logs/*`, and task-local `.agent-state.jsonl` / `.agent-logs/*`.
+- Ignores `BOARD.md`, `.next-id`, `.board.lock`, board-root `.agent-state/*` / `.agent-logs/*`, task-local `.agent-state.jsonl` / `.agent-logs/*`, and hidden task-local temp/staging paths.
 - **Acceptance**: run `tb mv WS-1 ip` in terminal; GUI moves the card within 1s without manual refresh.
 
 ---

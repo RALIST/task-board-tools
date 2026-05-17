@@ -110,19 +110,19 @@ describe('attachment wrappers', () => {
   it('removeAttachments forwards id and names verbatim to the binding', async () => {
     mocks.bindRemoveAttachments.mockResolvedValueOnce(undefined);
 
-    await removeAttachments('TB-1', ['x.txt']);
+    await removeAttachments('TB-1', ['x.txt', 'attachments/legacy.txt']);
 
     expect(mocks.bindRemoveAttachments).toHaveBeenCalledTimes(1);
-    expect(mocks.bindRemoveAttachments).toHaveBeenCalledWith('TB-1', ['x.txt']);
+    expect(mocks.bindRemoveAttachments).toHaveBeenCalledWith('TB-1', ['x.txt', 'attachments/legacy.txt']);
   });
 
   it('openAttachment forwards id and name verbatim to the binding', async () => {
     mocks.bindOpenAttachment.mockResolvedValueOnce(undefined);
 
-    await openAttachment('TB-1', 'evidence.txt');
+    await openAttachment('TB-1', 'attachments/evidence.txt');
 
     expect(mocks.bindOpenAttachment).toHaveBeenCalledTimes(1);
-    expect(mocks.bindOpenAttachment).toHaveBeenCalledWith('TB-1', 'evidence.txt');
+    expect(mocks.bindOpenAttachment).toHaveBeenCalledWith('TB-1', 'attachments/evidence.txt');
   });
 
   it('listAttachments returns the raw rows from the binding', async () => {
@@ -159,11 +159,11 @@ describe('attachment wrappers', () => {
     await expect(removeAttachments('TB-1', ['missing.txt'])).rejects.toThrow(/not found on TB-1/);
   });
 
-  it('openAttachment propagates binding errors (missing dir, missing file, OS failure)', async () => {
-    const err = new Error('attachment "spec.txt" not found on TB-1: no attachments directory');
+  it('openAttachment propagates binding errors (missing file, OS failure)', async () => {
+    const err = new Error('attachment "spec.txt" not found on TB-1');
     mocks.bindOpenAttachment.mockRejectedValueOnce(err);
 
-    await expect(openAttachment('TB-1', 'spec.txt')).rejects.toThrow(/no attachments directory/);
+    await expect(openAttachment('TB-1', 'spec.txt')).rejects.toThrow(/not found on TB-1/);
   });
 
   it('pickAttachmentFiles requests a multi-select file picker and filters empty entries', async () => {

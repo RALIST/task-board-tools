@@ -2,8 +2,22 @@ import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Attachment, TaskDetail } from '$lib/api';
 
+const runtimeEvents = vi.hoisted(() => ({
+  handlers: new Map<string, Set<(ev?: unknown) => void>>(),
+}));
+
 vi.mock('@wailsio/runtime', () => ({
-  Events: { On: () => () => {} },
+  Events: {
+    On: (name: string, cb: (ev?: unknown) => void) => {
+      let set = runtimeEvents.handlers.get(name);
+      if (!set) {
+        set = new Set();
+        runtimeEvents.handlers.set(name, set);
+      }
+      set.add(cb);
+      return () => set?.delete(cb);
+    },
+  },
 }));
 
 // $lib/api spies — all functions stubbed; tests selectively reset mock behavior.
@@ -85,10 +99,15 @@ function flushMicrotasks() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function emitRuntimeEvent(name: string, payload?: unknown) {
+  for (const cb of runtimeEvents.handlers.get(name) ?? []) cb(payload);
+}
+
 let component: ReturnType<typeof mount> | null = null;
 
 beforeEach(() => {
   document.body.innerHTML = '';
+  runtimeEvents.handlers.clear();
   vi.useRealTimers();
   apiMocks.getTask.mockReset();
   apiMocks.listAttachments.mockReset();
@@ -133,6 +152,32 @@ describe('TaskDrawer attachments UI (TB-152)', () => {
     expect(sizes[1]).toBe('5.0 MiB');
   });
 
+  it('renders mixed task-root and legacy attachment refs without rewriting names', async () => {
+    apiMocks.listAttachments.mockResolvedValue([
+      { name: 'attachments/legacy.txt', size: 7 },
+      { name: 'root.txt', size: 4 },
+    ]);
+    apiMocks.openAttachment.mockResolvedValue(undefined);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const names = Array.from(document.querySelectorAll<HTMLButtonElement>('.att-name'));
+    expect(names.map((b) => b.textContent?.trim())).toEqual(['attachments/legacy.txt', 'root.txt']);
+
+    names[0].click();
+    names[1].click();
+    await tick();
+
+    expect(apiMocks.openAttachment).toHaveBeenNthCalledWith(1, 'TB-99', 'attachments/legacy.txt');
+    expect(apiMocks.openAttachment).toHaveBeenNthCalledWith(2, 'TB-99', 'root.txt');
+  });
+
   it('exposes data-file-drop-target and data-task-id on the surface', async () => {
     apiMocks.listAttachments.mockResolvedValue([]);
 
@@ -149,7 +194,7 @@ describe('TaskDrawer attachments UI (TB-152)', () => {
   });
 
   it('row click invokes openAttachment with the task id and file name', async () => {
-    apiMocks.listAttachments.mockResolvedValue([{ name: 'spec.txt', size: 12 }]);
+    apiMocks.listAttachments.mockResolvedValue([{ name: 'attachments/spec.txt', size: 12 }]);
     apiMocks.openAttachment.mockResolvedValue(undefined);
 
     component = mount(TaskDrawer, {
@@ -165,7 +210,7 @@ describe('TaskDrawer attachments UI (TB-152)', () => {
     btn!.click();
     await tick();
 
-    expect(apiMocks.openAttachment).toHaveBeenCalledWith('TB-99', 'spec.txt');
+    expect(apiMocks.openAttachment).toHaveBeenCalledWith('TB-99', 'attachments/spec.txt');
   });
 
   it('Add files button invokes pickAttachmentFiles then addAttachments', async () => {
@@ -192,6 +237,72 @@ describe('TaskDrawer attachments UI (TB-152)', () => {
     expect(apiMocks.pickAttachmentFiles).toHaveBeenCalled();
     expect(apiMocks.addAttachments).toHaveBeenCalledWith('TB-99', ['/tmp/a.txt']);
   });
+
+  it('waits for watcher event before refreshing after picker add', async () => {
+    apiMocks.listAttachments
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ name: 'root.txt', size: 4 }]);
+    apiMocks.pickAttachmentFiles.mockResolvedValue(['/tmp/root.txt']);
+    apiMocks.addAttachments.mockResolvedValue(undefined);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+    expect(apiMocks.listAttachments).toHaveBeenCalledTimes(1);
+
+    const addBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+      (b) => b.textContent?.trim().startsWith('Add files'),
+    );
+    addBtn!.click();
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    expect(apiMocks.addAttachments).toHaveBeenCalledWith('TB-99', ['/tmp/root.txt']);
+    expect(apiMocks.listAttachments).toHaveBeenCalledTimes(1);
+
+    emitRuntimeEvent('board:reloaded');
+    await flushMicrotasks();
+    await tick();
+
+    expect(apiMocks.listAttachments).toHaveBeenCalledTimes(2);
+    expect(document.querySelector<HTMLButtonElement>('.att-name')?.textContent?.trim()).toBe('root.txt');
+  });
+
+  it('disables attachment controls while a file-drop attach is running for this task', async () => {
+    apiMocks.listAttachments.mockResolvedValue([{ name: 'root.txt', size: 4 }]);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const addBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+      (b) => b.textContent?.trim().startsWith('Add files'),
+    );
+    const removeBtn = document.querySelector<HTMLButtonElement>('.att-remove');
+    expect(addBtn?.disabled).toBe(false);
+    expect(removeBtn?.disabled).toBe(false);
+
+    emitRuntimeEvent('attach:dropping', { data: { taskId: 'TB-99' } });
+    await tick();
+    expect(addBtn?.textContent?.trim()).toBe('Working…');
+    expect(addBtn?.disabled).toBe(true);
+    expect(removeBtn?.disabled).toBe(true);
+
+    emitRuntimeEvent('attach:dropped', { data: { taskId: 'TB-99', ok: true } });
+    await tick();
+    expect(addBtn?.textContent?.trim()).toBe('Add files…');
+    expect(addBtn?.disabled).toBe(false);
+    expect(removeBtn?.disabled).toBe(false);
+  });
 });
 
 describe('TaskDrawer attachment remove confirmation (TB-153)', () => {
@@ -217,7 +328,7 @@ describe('TaskDrawer attachment remove confirmation (TB-153)', () => {
   });
 
   it('second click within the window commits the removal', async () => {
-    apiMocks.listAttachments.mockResolvedValue([{ name: 'note.txt', size: 10 }]);
+    apiMocks.listAttachments.mockResolvedValue([{ name: 'attachments/note.txt', size: 10 }]);
     apiMocks.removeAttachments.mockResolvedValue(undefined);
 
     component = mount(TaskDrawer, {
@@ -235,7 +346,41 @@ describe('TaskDrawer attachment remove confirmation (TB-153)', () => {
     await tick();
     await flushMicrotasks();
 
-    expect(apiMocks.removeAttachments).toHaveBeenCalledWith('TB-99', ['note.txt']);
+    expect(apiMocks.removeAttachments).toHaveBeenCalledWith('TB-99', ['attachments/note.txt']);
+  });
+
+  it('waits for watcher event before refreshing after remove', async () => {
+    apiMocks.listAttachments
+      .mockResolvedValueOnce([{ name: 'root.txt', size: 10 }])
+      .mockResolvedValueOnce([]);
+    apiMocks.removeAttachments.mockResolvedValue(undefined);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+    expect(apiMocks.listAttachments).toHaveBeenCalledTimes(1);
+
+    const remove = document.querySelector<HTMLButtonElement>('.att-remove');
+    remove!.click();
+    await tick();
+    remove!.click();
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    expect(apiMocks.removeAttachments).toHaveBeenCalledWith('TB-99', ['root.txt']);
+    expect(apiMocks.listAttachments).toHaveBeenCalledTimes(1);
+
+    emitRuntimeEvent('board:reloaded');
+    await flushMicrotasks();
+    await tick();
+
+    expect(apiMocks.listAttachments).toHaveBeenCalledTimes(2);
+    expect(document.querySelector<HTMLButtonElement>('.att-name')).toBeNull();
   });
 });
 

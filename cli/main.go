@@ -127,5 +127,11 @@ Task IDs use the configured prefix (default: PR). The prefix is optional in comm
 Configuration:
   tb discovers .tb.yaml by walking up from the current directory.
   Fallback: TB_BOARD_DIR environment variable.
+
+Attachments:
+  New attachments are stored in the task directory as <status>/<ID>/<filename>.
+  Legacy attachments/<filename> files remain supported for compatibility.
+  Reserved attachment names: TASK.md, attachments, dotfiles/dotdirs such as
+  .agent-state.jsonl, .agent-logs/, .attach.* staging dirs, and .*.tmp.* files.
 `)
 }

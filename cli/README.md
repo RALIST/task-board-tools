@@ -56,7 +56,7 @@ tb init . --prefix=NEW    # changes prefix, keeps existing board path
 | `done` | `tb done 123` | Move task to done |
 | `mv` | `tb mv 123 done` | Move task to any status |
 | `edit` | `tb edit 123 -p P1 -s L -m ui` | Edit task metadata (priority, type, size, module, tags) |
-| `attach` | `tb attach 123 screenshot.png notes.pdf` | Copy files into a task's `attachments/` directory |
+| `attach` | `tb attach 123 screenshot.png notes.pdf` | Copy files into a folder-form task directory |
 | `close` | `tb close 123` | Archive task (moves to `archive/`) |
 | `show` | `tb show 123` | Print task content to stdout |
 | `open` | `tb open 123` | Open task in default editor/app |
@@ -145,9 +145,11 @@ Searches full file content (title, goal, context, acceptance criteria, log — e
 tb attach 123 screenshot.png notes.pdf
 ```
 
-`tb attach` copies regular files into `<status>/<ID>/attachments/` while holding `.board.lock`. If the task is still in legacy file form (`<status>/<ID>.md`), the command promotes it to folder form (`<status>/<ID>/TASK.md`) and preserves the existing markdown body and log history.
+`tb attach` copies regular files directly into the task directory (`<status>/<ID>/<filename>`) while holding `.board.lock`. If the task is still in legacy file form (`<status>/<ID>.md`), the command promotes it to folder form (`<status>/<ID>/TASK.md`) and preserves the existing markdown body and log history.
 
-Collision policy: attachment names are the source file basenames, and `tb attach` refuses to overwrite. If two incoming files share a basename, or a basename already exists in `attachments/`, the command fails before publishing new attachments.
+Collision policy: attachment names are the source file basenames, and `tb attach` refuses to overwrite task internals or existing attachments. Existing legacy files under `<status>/<ID>/attachments/<filename>` remain readable and removable during the compatibility period; when both locations contain the same basename, use `attachments/<filename>` to target the legacy file explicitly.
+
+Reserved attachment names are excluded from attachment behavior: `TASK.md`, `attachments`, any dotfile or dotdir (including `.agent-state.jsonl`, `.agent-logs/`, `.attach.*` staging directories, and `.*.tmp.*` temp files), path traversal, and path separators except the legacy `attachments/<filename>` reference accepted by remove and GUI open paths.
 
 ## Scan — auto-create tasks from TODOs
 
@@ -226,4 +228,4 @@ project/
     BOARD.md         Auto-generated kanban view
 ```
 
-New tasks are folder-form by default: `status/PREFIX-NNN/TASK.md`, with attachments in `status/PREFIX-NNN/attachments/`. Legacy tasks may still exist as `status/PREFIX-NNN.md`, and `tb create --legacy-file` can create one intentionally. `BOARD.md` is regenerated automatically by `tb create`/`mv`/`start`/`done`/`close`/`attach`/`scan --apply`.
+New tasks are folder-form by default: `status/PREFIX-NNN/TASK.md`, with new attachments stored directly in `status/PREFIX-NNN/`. Legacy tasks may still exist as `status/PREFIX-NNN.md`, and `tb create --legacy-file` can create one intentionally. `BOARD.md` is regenerated automatically by `tb create`/`mv`/`start`/`done`/`close`/`attach`/`scan --apply`.

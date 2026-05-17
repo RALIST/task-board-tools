@@ -113,6 +113,46 @@ func TestAttachmentAdd_FiresOneBoardReloaded(t *testing.T) {
 	}
 }
 
+// TestTaskRootAttachmentAdd_FiresOneBoardReloaded covers the TB-224 storage
+// contract: new attachments are regular files in the task directory itself.
+func TestTaskRootAttachmentAdd_FiresOneBoardReloaded(t *testing.T) {
+	board := makeBoard(t)
+	taskDir := filepath.Join(board, "backlog", "TB-11")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	taskFile := filepath.Join(taskDir, "TASK.md")
+	if err := os.WriteFile(taskFile, []byte("# TB-11\n\n## Attachments\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	em := &captureEmitter{}
+	startWatcher(t, board, em)
+	time.Sleep(50 * time.Millisecond)
+
+	tmpAttach := filepath.Join(taskDir, ".note.txt.tmp")
+	if err := os.WriteFile(tmpAttach, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmpAttach, filepath.Join(taskDir, "note.txt")); err != nil {
+		t.Fatal(err)
+	}
+	taskTmp := taskFile + ".tmp.X"
+	if err := os.WriteFile(taskTmp, []byte("# TB-11\n\n## Attachments\n- note.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(taskTmp, taskFile); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(400 * time.Millisecond)
+
+	count := countEvents(em, "board:reloaded")
+	if count != 1 {
+		t.Fatalf("task-root attachment add produced %d board:reloaded events, want 1: %+v", count, em.snapshot())
+	}
+}
+
 // TestAttachmentRemove_FiresOneBoardReloaded mirrors the add test but
 // removes one file then rewrites TASK.md.
 func TestAttachmentRemove_FiresOneBoardReloaded(t *testing.T) {
@@ -150,6 +190,74 @@ func TestAttachmentRemove_FiresOneBoardReloaded(t *testing.T) {
 	count := countEvents(em, "board:reloaded")
 	if count != 1 {
 		t.Fatalf("attachment remove produced %d board:reloaded events, want 1: %+v", count, em.snapshot())
+	}
+}
+
+func TestTaskRootAttachmentRemove_FiresOneBoardReloaded(t *testing.T) {
+	board := makeBoard(t)
+	taskDir := filepath.Join(board, "backlog", "TB-12")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	taskFile := filepath.Join(taskDir, "TASK.md")
+	if err := os.WriteFile(taskFile, []byte("# TB-12\n\n## Attachments\n- x.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	attach := filepath.Join(taskDir, "x.txt")
+	if err := os.WriteFile(attach, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	em := &captureEmitter{}
+	startWatcher(t, board, em)
+	time.Sleep(50 * time.Millisecond)
+
+	if err := os.Remove(attach); err != nil {
+		t.Fatal(err)
+	}
+	taskTmp := taskFile + ".tmp.X"
+	if err := os.WriteFile(taskTmp, []byte("# TB-12\n\n## Attachments\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(taskTmp, taskFile); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(400 * time.Millisecond)
+
+	count := countEvents(em, "board:reloaded")
+	if count != 1 {
+		t.Fatalf("task-root attachment remove produced %d board:reloaded events, want 1: %+v", count, em.snapshot())
+	}
+}
+
+func TestTaskRootAttachmentRename_FiresOneBoardReloaded(t *testing.T) {
+	board := makeBoard(t)
+	taskDir := filepath.Join(board, "backlog", "TB-13")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "TASK.md"), []byte("# TB-13\n\n## Attachments\n- draft.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(taskDir, "draft.txt")
+	if err := os.WriteFile(src, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	em := &captureEmitter{}
+	startWatcher(t, board, em)
+	time.Sleep(50 * time.Millisecond)
+
+	if err := os.Rename(src, filepath.Join(taskDir, "final.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(400 * time.Millisecond)
+
+	count := countEvents(em, "board:reloaded")
+	if count != 1 {
+		t.Fatalf("task-root attachment rename produced %d board:reloaded events, want 1: %+v", count, em.snapshot())
 	}
 }
 
@@ -267,6 +375,50 @@ func TestRealCLITempAndStagingPatterns_AreIgnored(t *testing.T) {
 	}
 	if count := countEvents(em, "task:updated:TB-1"); count != 0 {
 		t.Fatalf("real CLI temp/staging patterns triggered task:updated: %d events: %+v", count, em.snapshot())
+	}
+}
+
+func TestTaskRootInternalFiles_AreIgnored(t *testing.T) {
+	board := makeBoard(t)
+	taskDir := filepath.Join(board, "backlog", "TB-21")
+	if err := os.MkdirAll(filepath.Join(taskDir, ".agent-logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "TASK.md"), []byte("# TB-21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	em := &captureEmitter{}
+	startWatcher(t, board, em)
+	time.Sleep(50 * time.Millisecond)
+
+	if err := os.WriteFile(filepath.Join(taskDir, ".agent-state.jsonl"), []byte("state\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".agent-logs", "r_123.log"), []byte("log\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".attach.12345.deadbeef", "ignored"), nil, 0o644); err == nil {
+		t.Fatal("unexpectedly wrote inside missing staging dir")
+	}
+	staging := filepath.Join(taskDir, ".attach.12345.deadbeef")
+	if err := os.Mkdir(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "candidate.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(staging); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(400 * time.Millisecond)
+
+	if count := countEvents(em, "board:reloaded"); count != 0 {
+		t.Fatalf("internal files leaked through ignore filter: %d board:reloaded events: %+v", count, em.snapshot())
+	}
+	if count := countEvents(em, "task:updated:TB-21"); count != 0 {
+		t.Fatalf("internal files triggered task update: %d events: %+v", count, em.snapshot())
 	}
 }
 

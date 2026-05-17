@@ -42,18 +42,23 @@ func makeFolderTask(t *testing.T, board, status, id string, attachments map[stri
 	if err := os.WriteFile(filepath.Join(taskDir, "TASK.md"), []byte("# "+id+": demo\n"), 0o644); err != nil {
 		t.Fatalf("write TASK.md: %v", err)
 	}
-	if len(attachments) > 0 {
-		ad := filepath.Join(taskDir, "attachments")
-		if err := os.MkdirAll(ad, 0o755); err != nil {
-			t.Fatalf("mkdir attachments: %v", err)
-		}
-		for name, content := range attachments {
-			if err := os.WriteFile(filepath.Join(ad, name), []byte(content), 0o644); err != nil {
-				t.Fatalf("write attachment %s: %v", name, err)
-			}
+	for name, content := range attachments {
+		if err := os.WriteFile(filepath.Join(taskDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write attachment %s: %v", name, err)
 		}
 	}
 	return taskDir
+}
+
+func makeLegacyAttachment(t *testing.T, taskDir, name, content string) {
+	t.Helper()
+	ad := filepath.Join(taskDir, "attachments")
+	if err := os.MkdirAll(ad, 0o755); err != nil {
+		t.Fatalf("mkdir legacy attachments: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ad, name), []byte(content), 0o644); err != nil {
+		t.Fatalf("write legacy attachment %s: %v", name, err)
+	}
 }
 
 func makeBoardFS(t *testing.T) string {
@@ -96,6 +101,42 @@ func TestListAttachments_FolderTask_SortedAndSized(t *testing.T) {
 	}
 	if list[0].Size != int64(len("hello world")) || list[1].Size != int64(len("zzz")) {
 		t.Fatalf("sizes wrong: %+v", list)
+	}
+}
+
+func TestListAttachments_MixedRootLegacyAndReservedFiles(t *testing.T) {
+	board := makeBoardFS(t)
+	taskDir := makeFolderTask(t, board, "backlog", "TB-10", map[string]string{
+		"root.txt": "root",
+	})
+	makeLegacyAttachment(t, taskDir, "legacy.txt", "legacy")
+	if err := os.WriteFile(filepath.Join(taskDir, ".agent-state.jsonl"), []byte("state"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(taskDir, ".agent-logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".hidden.tmp"), []byte("tmp"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(taskDir, "notes-dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewBoardService()
+	svc.setBoardDir(board)
+
+	list, err := svc.ListAttachments(context.Background(), "TB-10")
+	if err != nil {
+		t.Fatalf("ListAttachments: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("want 2 attachments, got %d: %+v", len(list), list)
+	}
+	got := []string{list[0].Name, list[1].Name}
+	want := []string{"attachments/legacy.txt", "root.txt"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("attachment names = %v, want %v", got, want)
 	}
 }
 
@@ -161,7 +202,30 @@ func TestOpenAttachment_LaunchesViaOpener(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("want 1 open call, got %d (%v)", len(calls), calls)
 	}
-	want := filepath.Join(board, "in-progress", "TB-4", "attachments", "notes.txt")
+	want := filepath.Join(board, "in-progress", "TB-4", "notes.txt")
+	if calls[0] != want {
+		t.Fatalf("opened wrong path: got %q want %q", calls[0], want)
+	}
+}
+
+func TestOpenAttachment_LaunchesLegacyAttachmentViaOpener(t *testing.T) {
+	board := makeBoardFS(t)
+	taskDir := makeFolderTask(t, board, "in-progress", "TB-14", nil)
+	makeLegacyAttachment(t, taskDir, "legacy.txt", "hi")
+
+	opener := &fakeOpener{}
+	svc := NewBoardService()
+	svc.setBoardDir(board)
+	svc.openFile = opener
+
+	if err := svc.OpenAttachment(context.Background(), "TB-14", "attachments/legacy.txt"); err != nil {
+		t.Fatalf("OpenAttachment: %v", err)
+	}
+	calls := opener.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("want 1 open call, got %d (%v)", len(calls), calls)
+	}
+	want := filepath.Join(board, "in-progress", "TB-14", "attachments", "legacy.txt")
 	if calls[0] != want {
 		t.Fatalf("opened wrong path: got %q want %q", calls[0], want)
 	}
@@ -187,24 +251,18 @@ func TestOpenAttachment_RejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestOpenAttachment_RejectsSymlinkEscape(t *testing.T) {
+func TestOpenAttachment_RejectsRootSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")
 	}
 	board := makeBoardFS(t)
 	taskDir := makeFolderTask(t, board, "backlog", "TB-6", nil)
 
-	attachmentsDir := filepath.Join(taskDir, "attachments")
-	if err := os.MkdirAll(attachmentsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a symlink inside attachments/ pointing outside the task dir.
 	outside := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(outside, []byte("nope"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(attachmentsDir, "evil.txt")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(taskDir, "evil.txt")); err != nil {
 		t.Fatalf("create symlink: %v", err)
 	}
 
@@ -223,6 +281,67 @@ func TestOpenAttachment_RejectsSymlinkEscape(t *testing.T) {
 	}
 	if calls := opener.snapshot(); len(calls) != 0 {
 		t.Fatalf("opener should not be invoked for symlink; got %v", calls)
+	}
+}
+
+func TestOpenAttachment_RejectsLegacySymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	board := makeBoardFS(t)
+	taskDir := makeFolderTask(t, board, "backlog", "TB-16", nil)
+	attachmentsDir := filepath.Join(taskDir, "attachments")
+	if err := os.MkdirAll(attachmentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(attachmentsDir, "evil.txt")); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	opener := &fakeOpener{}
+	svc := NewBoardService()
+	svc.setBoardDir(board)
+	svc.openFile = opener
+
+	err := svc.OpenAttachment(context.Background(), "TB-16", "attachments/evil.txt")
+	if err == nil {
+		t.Fatalf("symlink escape should be rejected")
+	}
+	if calls := opener.snapshot(); len(calls) != 0 {
+		t.Fatalf("opener should not be invoked for symlink; got %v", calls)
+	}
+}
+
+func TestOpenAttachment_RejectsReservedNames(t *testing.T) {
+	board := makeBoardFS(t)
+	taskDir := makeFolderTask(t, board, "backlog", "TB-17", nil)
+	if err := os.WriteFile(filepath.Join(taskDir, ".agent-state.jsonl"), []byte("state"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(taskDir, ".agent-logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	opener := &fakeOpener{}
+	svc := NewBoardService()
+	svc.setBoardDir(board)
+	svc.openFile = opener
+
+	for _, name := range []string{"TASK.md", ".agent-state.jsonl", ".agent-logs", "attachments"} {
+		err := svc.OpenAttachment(context.Background(), "TB-17", name)
+		if err == nil {
+			t.Fatalf("OpenAttachment(%q) succeeded, want reserved-name error", name)
+		}
+		if !strings.Contains(err.Error(), "reserved") {
+			t.Fatalf("OpenAttachment(%q) error = %v, want reserved-name error", name, err)
+		}
+	}
+	if calls := opener.snapshot(); len(calls) != 0 {
+		t.Fatalf("opener should not be invoked for reserved names; got %v", calls)
 	}
 }
 
