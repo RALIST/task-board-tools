@@ -5,7 +5,7 @@ A lightweight, zero-dependency Go CLI for managing a markdown task board. Concur
 ## Install
 
 ```bash
-cd tools/tb && go build -o tb . && ln -sf "$(pwd)/tb" ~/.local/bin/tb
+cd cli && go build -o tb . && ln -sf "$(pwd)/tb" ~/.local/bin/tb
 ```
 
 ## Setup

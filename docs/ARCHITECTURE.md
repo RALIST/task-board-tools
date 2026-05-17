@@ -63,7 +63,7 @@ Two binaries built from one repo, sharing the same on-disk format.
             └── r_a1b2c3d4.log
 ```
 
-The CLI manages `BOARD.md`, `.next-id`, all status dirs, and `archive/`. The GUI manages `.agent-state/` and `.agent-logs/` (the CLI doesn't touch them).
+The CLI manages `BOARD.md`, `.next-id`, all status dirs, and `archive/`. The GUI manages agent run state/logs: board-root `.agent-state/` and `.agent-logs/` for file-form tasks, and task-local `.agent-state.jsonl` / `.agent-logs/` for folder-form tasks.
 
 Tasks can be stored either as a single `.md` file or as a directory; the layout above shows the file form. See "Folder-form tasks" below for the directory form and the rules that govern both.
 
@@ -247,7 +247,7 @@ Exported to the frontend via Wails3 bindings.
 
 - **`cli/`** — thin `exec` wrapper with consistent error handling.
 - **`parser/`** — markdown reader (duplicates CLI parser; read-only, no lock).
-- **`watcher/`** — fsnotify wrapper. Watches the status directories, ignores `BOARD.md`, `.next-id`, `.board.lock`, `.agent-state/`, `.agent-logs/`. Debounces 200ms. Emits Wails events `board:reloaded` (create/remove/rename) and `task:updated:<id>` (write).
+- **`watcher/`** — fsnotify wrapper. Watches the status directories, ignores `BOARD.md`, `.next-id`, `.board.lock`, and agent artifact paths (`.agent-state/`, `.agent-logs/`, task-local `.agent-state.jsonl`, task-local `.agent-logs/`). Debounces 200ms. Emits Wails events `board:reloaded` (create/remove/rename) and `task:updated:<id>` (write).
 - **`agent/`** — `Runner` interface + `ClaudeRunner`, `CodexRunner`, `GroomingDecorator`. Embedded prompt templates via `//go:embed`; `GroomingDecorator` is the only mode-aware runner layer and swaps the prompt for `mode=groom`.
 - **`daemon/`** — goroutine that owns the queue, scans for `AgentStatus: queued`, runs them through the worker pool, writes JSONL events.
 - **`shell/`** — native application menu and system tray controller. It calls the same Wails services as the frontend and emits `settings:open-panel` for the Svelte settings panel.
@@ -311,8 +311,10 @@ Hybrid storage:
 | Where | Lives in | Purpose |
 |-------|----------|---------|
 | `Agent`, `AgentStatus` metadata in task.md | the task file | Current assignment, visible to humans and to CLI |
-| `.agent-state/PREFIX-NNN.jsonl` | append-only JSONL | Full run history: queued → started → stdout lines → finished |
-| `.agent-logs/PREFIX-NNN/<run_id>.log` | one file per run | Full stdout/stderr text for inspection |
+| File-form run history | `<boardDir>/.agent-state/PREFIX-NNN.jsonl` | Append-only JSONL: queued → started → stdout/stderr lines → finished |
+| File-form run logs | `<boardDir>/.agent-logs/PREFIX-NNN/<run_id>.log` | Full stdout/stderr text for inspection |
+| Folder-form run history | `<status>/<ID>/.agent-state.jsonl` | Same event stream, stored beside the task so it moves with the folder |
+| Folder-form run logs | `<status>/<ID>/.agent-logs/<run_id>.log` | Same full log, stored beside the task |
 
 JSONL event shapes (every event carries `task_id` so a log-trawler needs no cross-file index; agent-run events also carry `mode`, currently `implement` or `groom`):
 
@@ -378,7 +380,7 @@ Pinned versions confirmed by `wails3 doctor` (see `board/in-progress/TB-16.md` l
 | Component | Version | Notes |
 |-----------|---------|-------|
 | Wails CLI | `v3.0.0-alpha.91` | Alpha. Pin in `gui/go.mod` until v3 stable. |
-| Go | `1.26.2+` (darwin/arm64 verified) | `1.26.x` series — newer minors should work; revisit if doctor fails after a Go bump. |
+| Go | `1.26.1+` (darwin/arm64 verified) | `1.26.x` series — newer minors should work; revisit if doctor fails after a Go bump. |
 | Node | `v20+` with `npm` `11.x` (or `pnpm`) | SvelteKit frontend toolchain. |
 | CGo | `gcc` (Xcode CLI tools) or `clang` | Required for Wails3 native windowing — `cli/` itself stays CGo-free. |
 | Xcode CLI tools | `2416+` | macOS only; provides system frameworks Wails3 links against. |

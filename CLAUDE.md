@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **`tb` CLI** — terminal-first task tracker; markdown files in status directories; owns all structured mutations via `.board.lock`.
 - **`tb-gui`** — Wails3 alpha + Svelte 5 desktop app; kanban UI; runs an embedded agent daemon that can hand tasks to `claude` or `codex` CLIs.
 
-The transformation is in progress. Treat `docs/` as the authoritative spec.
+Treat `docs/` as the authoritative spec, and keep it current when behavior or architecture changes.
 
 ## Task board
 
@@ -22,7 +22,7 @@ Read in this order:
 
 1. `docs/PROJECT.md` — product, audience, scenarios, glossary.
 2. `docs/ARCHITECTURE.md` — components, on-disk format, locking rules, agent state, daemon.
-3. `docs/FEATURES.md` — feature roadmap M0–M7 with acceptance criteria.
+3. `docs/FEATURES.md` — feature roadmap with acceptance criteria.
 4. `docs/IMPLEMENTATION.md` — current milestone status + risk register. **Update this file as work progresses.**
 5. `cli/CLAUDE.md` — authoritative guide for the existing CLI's internals.
 
@@ -30,9 +30,8 @@ Don't rely on this file for details — those docs are the source of truth.
 
 ## Current state
 
-- M0 (documentation foundation) — committed.
-- M1 (CLI extensions: `cli/` rename, `--json` output, agent metadata fields, `--status active|archive|all`, regenerate consistency, root `go.work`) — done.
-- M2+ — not started.
+- M0-M8 are implemented: CLI extensions, Wails/Svelte GUI, mutations, agent runs, daemon, groom flow, polish, folder-form tasks, and attachments.
+- Current active work is tracked in `board/`; `docs/IMPLEMENTATION.md` is the status log.
 
 The CLI now lives at `cli/` and is tracked directly by this repo. The original `tb/` git history was preserved separately as `../task-board-tools-tb-history.bundle`.
 
@@ -44,9 +43,17 @@ cd cli && go build -o tb .
 go build ./cli   # produces ./tb at repo root (module is tools/tb)
 ```
 
-There is no linter config. The only tests are `cli/board_test.go` — run with `cd cli && go test ./...`.
+Run checks from the module directories:
 
-GUI does not exist yet; planned to live in `gui/` with `wails3 build`.
+```bash
+cd cli && go test ./...
+cd gui && go test ./...
+cd gui/frontend && npm install
+cd gui/frontend && npm run check
+cd gui/frontend && npm test
+cd gui && task dev      # or: wails3 dev -config ./build/config.yml
+cd gui && task build    # or: wails3 build -config ./build/config.yml
+```
 
 ## Architecture invariants (do not break)
 
@@ -59,17 +66,17 @@ GUI does not exist yet; planned to live in `gui/` with `wails3 build`.
   - `active` = backlog + in-progress + done
   - `all` = active + archive
   - aliases: `b`=backlog, `ip`/`wip`=in-progress, `d`=done
-- **Agent state is hybrid**: `Agent` / `AgentStatus` fields in task `.md` (current state, visible to humans/CLI); `board/.agent-state/<ID>.jsonl` (append-only run history); `board/.agent-logs/<ID>/<run_id>.log` (full stdout/stderr).
+- **Agent state is hybrid**: `Agent` / `AgentStatus` fields in task `.md` (current state, visible to humans/CLI); file-form tasks use `board/.agent-state/<ID>.jsonl` and `board/.agent-logs/<ID>/<run_id>.log`; folder-form tasks use `<status>/<ID>/.agent-state.jsonl` and `<status>/<ID>/.agent-logs/<run_id>.log`.
 - **`AgentStatus` values**: `queued | running | success | failed | cancelled`. `cancelled` is user-initiated; stale-recovery never overwrites it.
 - **`.next-id` allocator** detects collisions on every allocation — don't bypass it.
-- **Folder-form tasks.** Tasks may be stored as `<status>/<ID>.md` (file form) or `<status>/<ID>/TASK.md` (folder form, with `attachments/` and task-local `.agent-state.jsonl` / `.agent-logs/`). The contract — resolution order, lock semantics, atomic-write rules for files inside a task folder, the file → folder promotion procedure, and which paths deliberately differ between forms — is specified in [`docs/ARCHITECTURE.md` → "Folder-form tasks"](docs/ARCHITECTURE.md#folder-form-tasks). Implementations of the TB-93 epic must conform to that section.
+- **Folder-form tasks.** Tasks may be stored as `<status>/<ID>.md` (file form) or `<status>/<ID>/TASK.md` (folder form, with `attachments/` and task-local `.agent-state.jsonl` / `.agent-logs/`). The contract — resolution order, lock semantics, atomic-write rules for files inside a task folder, the file → folder promotion procedure, and which paths deliberately differ between forms — is specified in [`docs/ARCHITECTURE.md` → "Folder-form tasks"](docs/ARCHITECTURE.md#folder-form-tasks). Follow-up work touching storage forms must conform to that section.
 
 ## Working conventions
 
 - All structured task mutations call `regenerateBoard` at the end so `BOARD.md` never lags the directory state and the GUI watcher (M2+) gets a single fsnotify signal per mutation.
 - JSON output (M1): empty result → `[]` or `{}`, never prose like "No tasks found.". Stdout = data; stderr = errors/warnings.
-- Single-instance lock for `tb-gui` (M2) — only one GUI process per user; second invocation focuses the existing window.
-- Daemon stale-recovery on startup (M5): tasks left in `AgentStatus: running` after a crash get reconciled by checking PID liveness + replaying JSONL.
+- `tb-gui` is single-instance; a second invocation focuses the existing window.
+- Daemon stale-recovery on startup: tasks left in `AgentStatus: running` after a crash get reconciled by checking PID liveness + replaying JSONL.
 - use `frontend-design` skill for GUI work
 - always run code review session after each meaningful unit of work through /codex:adversarial-review or  `fullstack-code-reviewer`
 - rebuild and install cli binary after any changes in master branch to keep local bin up to date with latest changes.

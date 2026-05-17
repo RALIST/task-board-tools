@@ -61,9 +61,8 @@ task-board-tools/
 │   └── frontend/       # Svelte 5 frontend, tests, generated bindings
 ├── docs/               # PROJECT, ARCHITECTURE, FEATURES, IMPLEMENTATION
 ├── board/              # this repo's own task board; BOARD.md is generated
-├── .agents/            # Codex skills used by this checkout
 ├── .codex/             # Codex config, hooks, and agents
-├── .claude/            # tracked placeholder only; local Claude files are ignored
+├── .claude/            # Claude placeholder/skills kept in repo; local runtime files ignored
 ├── go.work             # Go workspace tying cli + gui together
 └── README.md
 ```

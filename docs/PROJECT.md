@@ -64,16 +64,16 @@ GUI shows epics in a dedicated section with a progress bar.
 | Term | Meaning |
 |------|---------|
 | **Board** | A directory containing `backlog/`, `in-progress/`, `done/`, `archive/` subdirs + `.tb.yaml` config in the parent. |
-| **Task** | A markdown file `PREFIX-NNN.md` inside one of the status directories. The directory determines the status. |
+| **Task** | A markdown task in one of the status directories. Current tasks default to folder form (`PREFIX-NNN/TASK.md` with optional `attachments/` and task-local agent artifacts); legacy file form (`PREFIX-NNN.md`) is still supported. The containing status directory determines status. |
 | **Status** | One of `backlog`, `in-progress`, `done`, `archive`. Plus filter aliases: `active` (all but archive) and `all` (everything). |
 | **Project root** | The directory containing `.tb.yaml`. Everything else is resolved from there. |
 | **Prefix** | Project-specific task ID prefix (e.g., `WS`, `PR`). Tasks are `WS-1`, `WS-2`, … |
 | **Epic** | A task with the `epic` tag. Other tasks can declare `**Parent:** WS-N` to belong to it. |
 | **Agent** | One of `claude` (runs `claude -p`) or `codex` (runs `codex exec`). Assigned to a task via the `**Agent:**` metadata field. |
 | **AgentStatus** | One of `queued`, `running`, `success`, `failed`, `cancelled`. The daemon watches for `queued` and picks them up. `cancelled` is user-initiated (Cancel button or `tb edit --agent-status cancelled`) and is never overwritten by stale-recovery. |
-| **Run** | A single execution of an agent on a task. Recorded in `board/.agent-state/PREFIX-NNN.jsonl` (one event per line) and `board/.agent-logs/PREFIX-NNN/<run_id>.log`. |
+| **Run** | A single execution of an agent on a task. File-form tasks record events/logs under `board/.agent-state/PREFIX-NNN.jsonl` and `board/.agent-logs/PREFIX-NNN/<run_id>.log`; folder-form tasks keep them beside the task in `.agent-state.jsonl` and `.agent-logs/<run_id>.log`. |
 | **Groom** | An agent run in "grooming" mode: instead of writing code, the agent refines the task's Goal and Acceptance Criteria. |
-| **Daemon** | A goroutine inside the GUI process that scans for queued tasks and runs the assigned agent. MVP only — single-instance. |
+| **Daemon** | A goroutine inside the single-instance GUI process that scans for queued tasks, runs the assigned agent, and recovers stale runs on startup. |
 | **BOARD.md** | A generated kanban-style summary of the board. Regenerated automatically after every mutation. Never edited by hand. |
 
 ## Out of scope (MVP)
