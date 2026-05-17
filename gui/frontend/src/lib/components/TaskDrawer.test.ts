@@ -22,6 +22,7 @@ const apiMocks = vi.hoisted(() => ({
   cancelRun: vi.fn(),
   groomTask: vi.fn(),
   closeTask: vi.fn(),
+  renameTask: vi.fn(),
   errorString: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
@@ -96,6 +97,7 @@ beforeEach(() => {
   apiMocks.removeAttachments.mockReset();
   apiMocks.openAttachment.mockReset();
   apiMocks.pickAttachmentFiles.mockReset();
+  apiMocks.renameTask.mockReset();
 
   apiMocks.getTask.mockResolvedValue(makeDetail());
   apiMocks.listRuns.mockResolvedValue([]);
@@ -321,5 +323,176 @@ describe('TaskDrawer attachment accessibility (TB-154)', () => {
     expect(hint).toBeDefined();
     expect(hint!.textContent).toMatch(/Add files/);
     expect(hint!.textContent).toMatch(/drag-and-drop files onto this drawer/);
+  });
+});
+
+describe('TaskDrawer inline title rename (TB-207)', () => {
+  beforeEach(() => {
+    apiMocks.listAttachments.mockResolvedValue([]);
+  });
+
+  async function openDrawer(id = 'TB-99', title = 'Original Title') {
+    apiMocks.getTask.mockResolvedValue(makeDetail({ id, title }));
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: id },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+  }
+
+  it('exposes a Rename button alongside the title for keyboard users', async () => {
+    await openDrawer();
+    const renameBtn = document.querySelector<HTMLButtonElement>('.rename-btn');
+    expect(renameBtn).not.toBeNull();
+    expect(renameBtn!.getAttribute('aria-label')).toBe('Rename task');
+  });
+
+  it('Rename button swaps in an input prefilled with the current title', async () => {
+    await openDrawer('TB-99', 'Original Title');
+    document.querySelector<HTMLButtonElement>('.rename-btn')!.click();
+    await tick();
+    await Promise.resolve();
+    await tick();
+
+    const input = document.querySelector<HTMLInputElement>('.title-input');
+    expect(input).not.toBeNull();
+    expect(input!.value).toBe('Original Title');
+    // h2 is gone while editing.
+    expect(document.querySelector('.surface-head h2')).toBeNull();
+  });
+
+  it('double-click on the title also enters rename mode', async () => {
+    await openDrawer('TB-99', 'Original');
+    const h2 = document.querySelector<HTMLElement>('.surface-head h2')!;
+    h2.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await tick();
+    expect(document.querySelector('.title-input')).not.toBeNull();
+  });
+
+  it('Save button invokes renameTask with trimmed value and closes editor on success', async () => {
+    apiMocks.renameTask.mockResolvedValue(undefined);
+    await openDrawer('TB-99', 'Original');
+    document.querySelector<HTMLButtonElement>('.rename-btn')!.click();
+    await tick();
+
+    const input = document.querySelector<HTMLInputElement>('.title-input')!;
+    input.value = '   New Title   ';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+
+    const saveBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('.title-edit-actions button'))
+      .find((b) => b.textContent?.trim().startsWith('Save'));
+    expect(saveBtn).toBeDefined();
+    saveBtn!.click();
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    expect(apiMocks.renameTask).toHaveBeenCalledWith('TB-99', 'New Title');
+    // Editor closed.
+    expect(document.querySelector('.title-input')).toBeNull();
+  });
+
+  it('Enter inside the input submits the rename', async () => {
+    apiMocks.renameTask.mockResolvedValue(undefined);
+    await openDrawer('TB-99', 'Original');
+    document.querySelector<HTMLButtonElement>('.rename-btn')!.click();
+    await tick();
+
+    const input = document.querySelector<HTMLInputElement>('.title-input')!;
+    input.value = 'Renamed via Enter';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    expect(apiMocks.renameTask).toHaveBeenCalledWith('TB-99', 'Renamed via Enter');
+  });
+
+  it('Cancel button discards the draft without calling renameTask', async () => {
+    await openDrawer('TB-99', 'Stable');
+    document.querySelector<HTMLButtonElement>('.rename-btn')!.click();
+    await tick();
+    const input = document.querySelector<HTMLInputElement>('.title-input')!;
+    input.value = 'Drafted';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const cancelBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('.title-edit-actions button'))
+      .find((b) => b.textContent?.trim() === 'Cancel');
+    cancelBtn!.click();
+    await tick();
+
+    expect(apiMocks.renameTask).not.toHaveBeenCalled();
+    expect(document.querySelector('.title-input')).toBeNull();
+    expect(document.querySelector<HTMLElement>('.surface-head h2')?.textContent).toBe('Stable');
+  });
+
+  it('Escape inside the input cancels the draft without closing the drawer', async () => {
+    await openDrawer('TB-99', 'Stable');
+    document.querySelector<HTMLButtonElement>('.rename-btn')!.click();
+    await tick();
+    const input = document.querySelector<HTMLInputElement>('.title-input')!;
+    input.value = 'Drafted';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await tick();
+
+    expect(apiMocks.renameTask).not.toHaveBeenCalled();
+    expect(document.querySelector('.title-input')).toBeNull();
+    // Drawer surface is still mounted.
+    expect(document.querySelector('.surface')).not.toBeNull();
+  });
+
+  it('empty title rejects with a toast and leaves the editor open', async () => {
+    await openDrawer('TB-99', 'Stable');
+    document.querySelector<HTMLButtonElement>('.rename-btn')!.click();
+    await tick();
+    const input = document.querySelector<HTMLInputElement>('.title-input')!;
+    input.value = '   ';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await tick();
+
+    expect(apiMocks.renameTask).not.toHaveBeenCalled();
+    expect(document.querySelector('.title-input')).not.toBeNull();
+  });
+
+  it('unchanged title is treated as a no-op without calling renameTask', async () => {
+    await openDrawer('TB-99', 'Same');
+    document.querySelector<HTMLButtonElement>('.rename-btn')!.click();
+    await tick();
+    const input = document.querySelector<HTMLInputElement>('.title-input')!;
+    input.value = 'Same';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    expect(apiMocks.renameTask).not.toHaveBeenCalled();
+    expect(document.querySelector('.title-input')).toBeNull();
+  });
+
+  it('rename failure keeps the draft open and surfaces the error', async () => {
+    apiMocks.renameTask.mockRejectedValue(new Error('boom'));
+    await openDrawer('TB-99', 'Old');
+    document.querySelector<HTMLButtonElement>('.rename-btn')!.click();
+    await tick();
+    const input = document.querySelector<HTMLInputElement>('.title-input')!;
+    input.value = 'Attempt';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await tick();
+    await flushMicrotasks();
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    expect(apiMocks.renameTask).toHaveBeenCalledTimes(1);
+    const still = document.querySelector<HTMLInputElement>('.title-input');
+    expect(still).not.toBeNull();
+    expect(still!.value).toBe('Attempt');
   });
 });

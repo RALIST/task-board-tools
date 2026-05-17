@@ -17,6 +17,7 @@
     openAttachment,
     pickAttachmentFiles,
     removeAttachments,
+    renameTask,
     runAgent,
     type AgentName,
     type Attachment,
@@ -106,6 +107,13 @@
   let attachmentRemovePending = $state<string | null>(null);
   let attachmentRemoveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Inline title rename state. Reset on task switch (below) so an in-flight
+  // draft never leaks across tasks.
+  let renaming = $state(false);
+  let renameDraft = $state('');
+  let renameSaving = $state(false);
+  let renameInput = $state<HTMLInputElement | null>(null);
+
   $effect(() => {
     const id = taskId;
     userClearedAgent = false;
@@ -115,6 +123,10 @@
     // and silently remove the wrong task's attachment.
     if (attachmentRemoveTimer) { clearTimeout(attachmentRemoveTimer); attachmentRemoveTimer = null; }
     attachmentRemovePending = null;
+    // Cancel any in-flight rename when switching tasks.
+    renaming = false;
+    renameDraft = '';
+    renameSaving = false;
     if (!id) {
       detail = null; err = null; loading = false;
       editMode = false; bodyDirty = false; archivePrompt = false;
@@ -570,6 +582,72 @@
     editMode = false;
   }
 
+  // ---- Title rename ----
+
+  function beginRename() {
+    if (!detail || renaming || renameSaving) return;
+    renameDraft = detail.metadata.title ?? '';
+    renaming = true;
+    queueMicrotask(() => {
+      renameInput?.focus();
+      renameInput?.select();
+    });
+  }
+
+  function cancelRename() {
+    if (renameSaving) return;
+    renaming = false;
+    renameDraft = '';
+  }
+
+  async function commitRename() {
+    if (!detail || renameSaving) return;
+    const next = renameDraft.trim();
+    if (next === '') {
+      pushToast('Title cannot be empty', 'info');
+      return;
+    }
+    const current = (detail.metadata.title ?? '').trim();
+    if (next === current) {
+      // No-op rename — close the editor without a CLI round-trip.
+      renaming = false;
+      return;
+    }
+    renameSaving = true;
+    try {
+      await renameTask(detail.metadata.id, next);
+      pushToast(`Renamed ${detail.metadata.id}`, 'success');
+      renaming = false;
+      // detail will refresh via task:updated / board:reloaded.
+    } catch (e) {
+      pushToast(`Rename failed: ${e instanceof Error ? e.message : String(e)}`);
+      // Keep the editor open with the draft so the user can fix and retry.
+    } finally {
+      renameSaving = false;
+    }
+  }
+
+  function onTitleKeydown(ev: KeyboardEvent) {
+    // Enter is the button's native activation key; we only intercept F2
+    // so power users have the familiar OS-level "rename" shortcut.
+    if (renaming) return;
+    if (ev.key === 'F2') {
+      ev.preventDefault();
+      beginRename();
+    }
+  }
+
+  function onRenameInputKeydown(ev: KeyboardEvent) {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      void commitRename();
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancelRename();
+    }
+  }
+
   function refreshAttachments(id: string, cancelled: boolean) {
     const my = ++attachmentsReqSeq;
     attachmentsLoading = true;
@@ -670,6 +748,9 @@
   function onKeydown(ev: KeyboardEvent) {
     if (!taskId) return;
     if (ev.key === 'Escape') {
+      // While renaming, Escape cancels the draft (handled on the input);
+      // the drawer must not also close.
+      if (renaming) return;
       ev.preventDefault();
       tryClose();
     } else if (editMode && (ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') {
@@ -740,7 +821,45 @@
         <div class="title-block">
           {#if detail}
             <span class="id">{detail.metadata.id}</span>
-            <h2>{detail.metadata.title}</h2>
+            {#if renaming}
+              <div class="title-edit">
+                <input
+                  class="title-input"
+                  type="text"
+                  bind:value={renameDraft}
+                  bind:this={renameInput}
+                  onkeydown={onRenameInputKeydown}
+                  disabled={renameSaving}
+                  aria-label="Task title" />
+                <div class="title-edit-actions">
+                  <button
+                    class="primary compact"
+                    type="button"
+                    onclick={() => void commitRename()}
+                    disabled={renameSaving || renameDraft.trim() === ''}>
+                    {renameSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    class="ghost compact"
+                    type="button"
+                    onclick={cancelRename}
+                    disabled={renameSaving}>Cancel</button>
+                </div>
+              </div>
+            {:else}
+              <div class="title-row">
+                <h2
+                  title="Double-click to rename"
+                  ondblclick={beginRename}>{detail.metadata.title}</h2>
+                <button
+                  class="rename-btn"
+                  type="button"
+                  aria-label="Rename task"
+                  title="Rename (Enter / F2)"
+                  onkeydown={onTitleKeydown}
+                  onclick={beginRename}>Rename</button>
+              </div>
+            {/if}
           {:else}
             <span class="id">{taskId}</span>
             <h2>Loading…</h2>
@@ -985,6 +1104,9 @@
     z-index: 50;
     backdrop-filter: blur(2px);
   }
+  :global(html.platform-mac) .backdrop {
+    padding-top: var(--mac-titlebar-height);
+  }
   .surface {
     background: var(--bg-elev);
     width: 100%;
@@ -1040,6 +1162,52 @@
     line-height: 1.3;
     font-weight: 600;
     word-break: break-word;
+    border-radius: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .rename-btn {
+    flex: 0 0 auto;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--fg-dim);
+    font: inherit;
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .rename-btn:hover { background: rgba(255, 255, 255, 0.10); color: var(--fg); }
+  .rename-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .title-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .title-input {
+    background: rgba(0, 0, 0, 0.30);
+    border: 1px solid var(--accent);
+    color: var(--fg);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 20px;
+    line-height: 1.3;
+    font-weight: 600;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .title-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(74, 141, 248, 0.25); }
+  .title-input:disabled { opacity: 0.7; }
+  .title-edit-actions {
+    display: flex;
+    gap: 6px;
   }
   .close {
     background: none;

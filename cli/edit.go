@@ -30,11 +30,12 @@ func cmdEdit(args []string) {
 	tags := fs.String("t", "", "tags (comma-separated, replaces existing)")
 	agent := fs.String("a", "", "agent (claude, codex)")
 	agentStatus := fs.String("agent-status", "", "agent status (queued, running, success, failed, cancelled)")
+	title := fs.String("title", "", "task title (replaces the H1 header)")
 	goalPath := fs.String("goal", "", "replace/insert ## Goal from file path or - for stdin")
 	acceptancePath := fs.String("acceptance", "", "replace/insert ## Acceptance Criteria from file path or - for stdin")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued] [--goal file|-] [--acceptance file|-]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued] [--title \"New title\"] [--goal file|-] [--acceptance file|-]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -88,6 +89,18 @@ func cmdEdit(args []string) {
 			os.Exit(1)
 		}
 	}
+	// Whitespace-only --title is ambiguous; rejecting it forces callers
+	// to either supply a real title or omit the flag.
+	titleProvided := false
+	newTitle := ""
+	if *title != "" {
+		newTitle = strings.TrimSpace(*title)
+		if newTitle == "" {
+			fmt.Fprintln(os.Stderr, "error: --title must not be empty or whitespace")
+			os.Exit(1)
+		}
+		titleProvided = true
+	}
 
 	// Collect metadata changes in flag order so stdout and log entries are stable.
 	var changes []editChange
@@ -134,7 +147,7 @@ func cmdEdit(args []string) {
 		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Acceptance Criteria", body: body, label: "acceptance"})
 	}
 
-	if len(changes) == 0 && len(bodyEdits) == 0 {
+	if len(changes) == 0 && len(bodyEdits) == 0 && !titleProvided {
 		fmt.Fprintln(os.Stderr, "error: no changes specified")
 		fs.Usage()
 		os.Exit(1)
@@ -161,6 +174,21 @@ func cmdEdit(args []string) {
 
 	lines := strings.Split(string(data), "\n")
 
+	// Apply a title rename if requested. If the new title matches the
+	// existing one we treat the call as a no-op so callers can submit the
+	// flag unconditionally without forcing a redundant write + log entry.
+	titleApplied := false
+	if titleProvided {
+		updated, prevTitle, err := replaceTaskTitle(lines, newTitle)
+		if err != nil {
+			fatal("%v", err)
+		}
+		if prevTitle != newTitle {
+			lines = updated
+			titleApplied = true
+		}
+	}
+
 	// Apply each metadata change.
 	// `Agent` and `AgentStatus` accept the sentinel "none" to mean "clear
 	// the field"; for those a value of "none" deletes the metadata line
@@ -175,10 +203,20 @@ func cmdEdit(args []string) {
 		applied = append(applied, change.label)
 	}
 
+	if titleApplied {
+		applied = append(applied, "title="+newTitle)
+	}
+
 	content := strings.Join(lines, "\n")
 	for _, edit := range bodyEdits {
 		content = upsertTaskSection(content, edit.heading, edit.body)
 		applied = append(applied, edit.label)
+	}
+
+	if len(applied) == 0 {
+		// Title was supplied but matched the existing one — silent no-op.
+		fmt.Printf("Updated %s: no changes (title unchanged)\n", taskID)
+		return
 	}
 
 	// Append one combined log entry for metadata and body changes.
@@ -432,6 +470,31 @@ func insertLine(lines []string, idx int, line string) []string {
 	result = append(result, line)
 	result = append(result, lines[idx:]...)
 	return result
+}
+
+// replaceTaskTitle rewrites the H1 header (`# PREFIX-N: <title>`) with newTitle,
+// preserving the ID. Returns the updated lines and the previous title (after
+// trimming surrounding whitespace) so callers can detect no-op renames. The
+// returned slice shares storage with the input.
+func replaceTaskTitle(lines []string, newTitle string) ([]string, string, error) {
+	headerIdx := -1
+	for i := 0; i < len(lines) && i < maxMetadataLines; i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "# "+cfg.Prefix+"-") {
+			headerIdx = i
+			break
+		}
+	}
+	if headerIdx == -1 {
+		return lines, "", fmt.Errorf("cannot rename: task header line not found in first %d lines", maxMetadataLines)
+	}
+
+	id, prev, malformed := parseTaskHeader(lines[headerIdx])
+	if malformed || id == "" {
+		return lines, "", fmt.Errorf("cannot rename: malformed task header on line %d", headerIdx+1)
+	}
+
+	lines[headerIdx] = "# " + id + ": " + newTitle
+	return lines, prev, nil
 }
 
 // clearField removes the metadata line for `field` from lines (if present).

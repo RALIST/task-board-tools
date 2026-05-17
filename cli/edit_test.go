@@ -286,6 +286,116 @@ func TestEditBodySections(t *testing.T) {
 	}
 }
 
+func TestEditTitleRename(t *testing.T) {
+	initial := strings.Join([]string{
+		"# TB-1: Original title",
+		"",
+		"**Type:** bug",
+		"**Priority:** P2",
+		"**Size:** M",
+		"**Module:** cli",
+		"**Branch:** -",
+		"",
+		"## Goal",
+		"",
+		"Body content unchanged.",
+		"",
+		"## Log",
+		"",
+		"- 2026-05-13: Created",
+		"",
+	}, "\n")
+
+	t.Run("rewrites header and logs rename", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("write task: %v", err)
+		}
+
+		out := captureStdout(t, func() {
+			cmdEdit([]string{"TB-1", "--title", "Renamed title"})
+		})
+
+		data, err := os.ReadFile(taskPath)
+		if err != nil {
+			t.Fatalf("read task: %v", err)
+		}
+		content := string(data)
+
+		if !strings.HasPrefix(content, "# TB-1: Renamed title\n") {
+			t.Fatalf("expected header rewritten; got first line %q", strings.SplitN(content, "\n", 2)[0])
+		}
+		assertContains(t, content, "Body content unchanged.")
+		assertContains(t, content, "**Module:** cli")
+		assertContains(t, content, ": Edited title=Renamed title")
+		assertContains(t, out, "Updated TB-1: title=Renamed title")
+		if strings.Count(content, "## Log") != 1 {
+			t.Fatalf("log section should appear exactly once:\n%s", content)
+		}
+		if _, err := os.Stat(filepath.Join(boardDir, "BOARD.md")); err != nil {
+			t.Fatalf("BOARD.md should be regenerated: %v", err)
+		}
+	})
+
+	t.Run("unchanged title is a no-op", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("write task: %v", err)
+		}
+		preStat, err := os.Stat(taskPath)
+		if err != nil {
+			t.Fatalf("stat: %v", err)
+		}
+
+		out := captureStdout(t, func() {
+			cmdEdit([]string{"TB-1", "--title", "Original title"})
+		})
+
+		data, err := os.ReadFile(taskPath)
+		if err != nil {
+			t.Fatalf("read task: %v", err)
+		}
+		if string(data) != initial {
+			t.Fatalf("no-op rename should not modify file; got:\n%s", string(data))
+		}
+		assertContains(t, out, "Updated TB-1: no changes")
+		postStat, err := os.Stat(taskPath)
+		if err != nil {
+			t.Fatalf("stat: %v", err)
+		}
+		if !preStat.ModTime().Equal(postStat.ModTime()) {
+			t.Fatalf("no-op rename rewrote the file (mtime changed: %v -> %v)", preStat.ModTime(), postStat.ModTime())
+		}
+	})
+
+	t.Run("title combined with metadata edit produces one log entry", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("write task: %v", err)
+		}
+
+		captureStdout(t, func() {
+			cmdEdit([]string{"TB-1", "--title", "New title", "-p", "P1"})
+		})
+
+		data, err := os.ReadFile(taskPath)
+		if err != nil {
+			t.Fatalf("read task: %v", err)
+		}
+		content := string(data)
+		assertContains(t, content, "# TB-1: New title")
+		assertContains(t, content, "**Priority:** P1")
+		assertContains(t, content, ": Edited priority=P1, title=New title")
+		if strings.Count(content, ": Edited ") != 1 {
+			t.Fatalf("expected one combined edit log entry, got:\n%s", content)
+		}
+	})
+
+}
+
 func TestEditMetadataDoesNotScanBody(t *testing.T) {
 	initial := strings.Join([]string{
 		"# TB-1: Existing Task",

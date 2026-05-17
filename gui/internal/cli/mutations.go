@@ -252,12 +252,14 @@ type EditInput struct {
 	Tags        string // comma-separated; replaces existing tags
 	Agent       string
 	AgentStatus string
+	Title       string // rewrites the H1 header; empty means "leave unchanged"
 }
 
 // HasChanges reports whether any field is set.
 func (in EditInput) HasChanges() bool {
 	return in.Priority != "" || in.Type != "" || in.Size != "" ||
-		in.Module != "" || in.Tags != "" || in.Agent != "" || in.AgentStatus != ""
+		in.Module != "" || in.Tags != "" || in.Agent != "" || in.AgentStatus != "" ||
+		strings.TrimSpace(in.Title) != ""
 }
 
 // Edit runs `tb edit <id> [flags]`. Returns a MutationError on any failure.
@@ -289,6 +291,14 @@ func (c *Client) Edit(ctx context.Context, id string, in EditInput) error {
 	}
 	if in.AgentStatus != "" {
 		args = append(args, "--agent-status", in.AgentStatus)
+	}
+	// Title is forwarded verbatim (whitespace-trimmed); the CLI rejects
+	// empty/whitespace-only --title up-front. Validating here is cheap and
+	// surfaces the error before exec.
+	if trimmed := strings.TrimSpace(in.Title); trimmed != "" {
+		args = append(args, "--title", trimmed)
+	} else if in.Title != "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "edit", Stderr: "title must not be empty or whitespace"}
 	}
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("edit", args, err)

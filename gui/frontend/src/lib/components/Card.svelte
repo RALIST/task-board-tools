@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Events } from '@wailsio/runtime';
-  import type { Task } from '$lib/api';
+  import { renameTask, type Task } from '$lib/api';
   import { suggestGroom } from '$lib/stores/groomSuggestion';
+  import { pushToast } from '$lib/stores/toast';
   import { registerTaskTriageEventHandler, triageForTask } from '$lib/stores/triage';
 
   interface Props {
@@ -11,6 +12,13 @@
 
   let { task, onSelect }: Props = $props();
   let triageReasons = $state<string[]>([]);
+
+  // Inline rename state. The draft is kept separately so cancellation can
+  // restore the original title without round-tripping the parent store.
+  let renaming = $state(false);
+  let renameDraft = $state('');
+  let renameSaving = $state(false);
+  let renameInput = $state<HTMLInputElement | null>(null);
 
   const MAX_VISIBLE_TAGS = 3;
 
@@ -57,9 +65,103 @@
   }
 
   function onCardKeydown(ev: KeyboardEvent) {
+    // Don't intercept keys when the rename editor is active — Enter/Escape
+    // belong to the inline form there.
+    if (renaming) return;
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
     ev.preventDefault();
     onSelect?.(task.id);
+  }
+
+  function beginRename(ev: MouseEvent) {
+    ev.stopPropagation();
+    if (renaming || renameSaving) return;
+    renameDraft = task.title ?? '';
+    renaming = true;
+    // Focus + select after the input is rendered. queueMicrotask runs after
+    // Svelte's DOM update so the bind:this reference is populated.
+    queueMicrotask(() => {
+      renameInput?.focus();
+      renameInput?.select();
+    });
+  }
+
+  // Single clicks on the title are deferred so a real double-click (which
+  // browsers deliver as click→click→dblclick) doesn't open the drawer behind
+  // the rename editor. If a second click arrives within the threshold, we
+  // cancel the open-drawer action and let `ondblclick` handle rename.
+  // 250ms is short enough that the open-drawer feel is barely affected and
+  // long enough to cover typical OS double-click timings.
+  let titleClickTimer: ReturnType<typeof setTimeout> | null = null;
+  function onTitleClick(ev: MouseEvent) {
+    ev.stopPropagation();
+    if (renaming) return;
+    if (titleClickTimer) {
+      clearTimeout(titleClickTimer);
+      titleClickTimer = null;
+      // Second click of a dblclick sequence — do nothing here; dblclick
+      // handler will fire and open the rename editor.
+      return;
+    }
+    titleClickTimer = setTimeout(() => {
+      titleClickTimer = null;
+      if (renaming) return;
+      onSelect?.(task.id);
+    }, 250);
+  }
+
+  function cancelRename() {
+    renaming = false;
+    renameDraft = '';
+  }
+
+  async function commitRename() {
+    if (renameSaving) return;
+    const next = renameDraft.trim();
+    if (next === '') {
+      pushToast('Title cannot be empty', 'info');
+      return;
+    }
+    if (next === (task.title ?? '').trim()) {
+      // No-op rename — close the editor without hitting the CLI.
+      renaming = false;
+      return;
+    }
+    renameSaving = true;
+    try {
+      await renameTask(task.id, next);
+      // Successful save: drop the draft and close. The watcher will refresh
+      // task.title via the parent's board store; no optimistic mutation here.
+      renaming = false;
+      pushToast(`Renamed ${task.id}`, 'success');
+    } catch (e) {
+      // Keep the draft and the input open so the user can fix and retry.
+      pushToast(`Rename failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      renameSaving = false;
+    }
+  }
+
+  function onInputKeydown(ev: KeyboardEvent) {
+    ev.stopPropagation();
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      void commitRename();
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      cancelRename();
+    }
+  }
+
+  function onInputBlur() {
+    // If the user clicks elsewhere we cancel the draft rather than committing
+    // silently. Saves go through Enter or the explicit Save button.
+    if (renameSaving) return;
+    cancelRename();
+  }
+
+  function onTitleDblClick(ev: MouseEvent) {
+    beginRename(ev);
   }
 
 </script>
@@ -96,7 +198,26 @@
     </span>
   </header>
 
-  <p class="ttl">{task.title}</p>
+  {#if renaming}
+    <input
+      class="ttl-input"
+      type="text"
+      bind:value={renameDraft}
+      bind:this={renameInput}
+      onkeydown={onInputKeydown}
+      onclick={(ev) => ev.stopPropagation()}
+      onblur={onInputBlur}
+      disabled={renameSaving}
+      aria-label="Task title" />
+  {:else}
+    <button
+      type="button"
+      class="ttl"
+      onclick={onTitleClick}
+      ondblclick={onTitleDblClick}
+      title="Click to open, double-click to rename"
+      aria-label={`${task.title} — click to open, double-click to rename`}>{task.title}</button>
+  {/if}
 
   <footer class="meta">
     {#if task.module}<span class="mod" title={`module: ${task.module}`}>{task.module}</span>{/if}
@@ -241,7 +362,38 @@
     overflow-wrap: anywhere;
     word-break: break-word;
     min-width: 0;
+    border-radius: 3px;
+    /* Reset native button chrome so the title still looks like card text. */
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
   }
+  .ttl:focus-visible {
+    outline: 1px dashed rgba(74, 141, 248, 0.6);
+    outline-offset: 2px;
+  }
+  .ttl-input {
+    margin: 0 0 6px;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.30);
+    border: 1px solid var(--accent);
+    color: var(--fg);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .ttl-input:disabled { opacity: 0.7; }
 
   .meta {
     display: flex;

@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -118,6 +120,51 @@ func TestEdit_NoChanges(t *testing.T) {
 	var me *MutationError
 	if !errors.As(err, &me) || me.Kind != ErrKindValidation {
 		t.Fatalf("want validation, got %v", err)
+	}
+}
+
+func TestEdit_TitleForwarded(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "args.log")
+	// The stub records all args on each invocation so we can assert that
+	// `--title` was forwarded with the trimmed value.
+	stub := writeStub(t, dir, "tb",
+		`printf "%s\n" "$@" > `+logPath+`; echo "Updated TB-1: title=New Name"`)
+	c, _ := NewClient(Options{BinaryPath: stub})
+
+	if err := c.Edit(context.Background(), "TB-1", EditInput{Title: "  New Name  "}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(got)), "\n")
+	if len(lines) < 4 || lines[0] != "edit" || lines[1] != "TB-1" {
+		t.Fatalf("unexpected args:\n%s", string(got))
+	}
+	// Last two args should be "--title" "New Name".
+	if lines[len(lines)-2] != "--title" || lines[len(lines)-1] != "New Name" {
+		t.Fatalf("expected trailing --title \"New Name\", got:\n%s", string(got))
+	}
+}
+
+func TestEdit_WhitespaceTitleRejected(t *testing.T) {
+	c, _ := NewClient(Options{BinaryPath: writeStub(t, t.TempDir(), "tb", `:`)})
+	err := c.Edit(context.Background(), "TB-1", EditInput{Title: "   "})
+	var me *MutationError
+	if !errors.As(err, &me) || me.Kind != ErrKindValidation {
+		t.Fatalf("want validation, got %v", err)
+	}
+}
+
+func TestEdit_TitleAloneCountsAsChange(t *testing.T) {
+	stub := writeStub(t, t.TempDir(), "tb", `echo "Updated TB-1: title=x"`)
+	c, _ := NewClient(Options{BinaryPath: stub})
+	// HasChanges must consider Title; otherwise EditInput{Title: "x"} would
+	// be rejected with "no changes specified" before exec.
+	if err := c.Edit(context.Background(), "TB-1", EditInput{Title: "x"}); err != nil {
+		t.Fatalf("Edit: %v", err)
 	}
 }
 

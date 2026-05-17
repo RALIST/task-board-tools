@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   bindRemoveAttachments: vi.fn(),
   bindOpenAttachment: vi.fn(),
   bindListAttachments: vi.fn(),
+  bindEditTask: vi.fn(),
 }));
 
 vi.mock('@wailsio/runtime', () => ({
@@ -19,7 +20,7 @@ vi.mock('../../bindings/tools/tb-gui/app/boardservice', () => ({
   AddAttachments: mocks.bindAddAttachments,
   CloseTask: vi.fn(),
   CreateTask: vi.fn(),
-  EditTask: vi.fn(),
+  EditTask: mocks.bindEditTask,
   EditTaskBody: vi.fn(),
   GetTask: vi.fn(),
   ListAttachments: mocks.bindListAttachments,
@@ -56,6 +57,7 @@ const {
   openAttachment,
   listAttachments,
   pickAttachmentFiles,
+  renameTask,
 } = await import('./api');
 
 describe('pickBoardDialog', () => {
@@ -196,5 +198,29 @@ describe('attachment wrappers', () => {
 
     const paths = await pickAttachmentFiles();
     expect(paths).toEqual(['/single/file.txt']);
+  });
+});
+
+describe('renameTask', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('forwards a trimmed title to EditTask', async () => {
+    mocks.bindEditTask.mockResolvedValueOnce(undefined);
+    await renameTask('TB-1', '   New Title   ');
+    expect(mocks.bindEditTask).toHaveBeenCalledTimes(1);
+    expect(mocks.bindEditTask).toHaveBeenCalledWith('TB-1', { title: 'New Title' });
+  });
+
+  it('rejects empty/whitespace-only titles without hitting the binding', async () => {
+    await expect(renameTask('TB-1', '')).rejects.toThrow(/empty/i);
+    await expect(renameTask('TB-1', '   ')).rejects.toThrow(/empty/i);
+    expect(mocks.bindEditTask).not.toHaveBeenCalled();
+  });
+
+  it('propagates binding errors so callers can show a toast', async () => {
+    mocks.bindEditTask.mockRejectedValueOnce(new Error('tb edit: validation: bad input'));
+    await expect(renameTask('TB-1', 'Anything')).rejects.toThrow(/bad input/);
   });
 });

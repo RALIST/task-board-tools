@@ -266,6 +266,10 @@ type EditTaskInput struct {
 	Tags        string `json:"tags"` // comma-separated, replaces existing
 	Agent       string `json:"agent"`
 	AgentStatus string `json:"agentStatus"`
+	// Title rewrites the H1 header (`# <ID>: <title>`). Empty means "leave
+	// unchanged". The CLI rejects whitespace-only values and treats a
+	// no-op rename (new == current) as a silent success.
+	Title string `json:"title"`
 }
 
 // EditTask runs `tb edit <id> [flags…]`. Returns nil on success.
@@ -282,6 +286,7 @@ func (b *BoardService) EditTask(ctx context.Context, id string, in EditTaskInput
 		Tags:        in.Tags,
 		Agent:       in.Agent,
 		AgentStatus: in.AgentStatus,
+		Title:       in.Title,
 	})
 }
 

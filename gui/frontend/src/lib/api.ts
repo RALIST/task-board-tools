@@ -90,6 +90,19 @@ export async function editTask(id: string, fields: EditTaskInput): Promise<void>
   await EditTask(id, fields);
 }
 
+// Rename a task's title via the structured edit path. Whitespace is trimmed
+// client-side so the CLI never sees a value that would trigger its
+// "must not be empty" validation. Callers should detect no-op renames before
+// invoking — passing the unchanged title still resolves successfully (the
+// CLI treats it as a silent no-op), but it's wasted work.
+export async function renameTask(id: string, newTitle: string): Promise<void> {
+  const trimmed = newTitle.trim();
+  if (trimmed === '') {
+    throw new Error('Title cannot be empty');
+  }
+  await EditTask(id, { title: trimmed } as EditTaskInput);
+}
+
 export async function moveTask(id: string, status: 'backlog' | 'in-progress' | 'done'): Promise<void> {
   await MoveTask(id, status);
 }
