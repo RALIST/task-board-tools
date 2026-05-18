@@ -99,27 +99,29 @@ func TestInitExistingBoardRefreshesDocsByDefault(t *testing.T) {
 	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "All operations use the `tb` CLI")
 }
 
-func TestInitExistingBoardPreservesExtraConfigFieldsByDefault(t *testing.T) {
+func TestInitExistingBoardExpandsMinimalConfigWithAnnotatedDefaults(t *testing.T) {
 	root, boardDir := seedInitializedBoardForRefresh(t, "TB")
-	config := strings.Join([]string{
-		"board: board",
-		"prefix: TB",
-		"wip_limit: 5",
-		"scan_extensions: .go,.md",
-		"",
-	}, "\n")
-	writeFileForTest(t, filepath.Join(root, configFileName), config)
 	writeFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md"), "# Stale Conventions\n")
 	writeFileForTest(t, filepath.Join(boardDir, "SKILL.md"), "# Stale Skill\n")
 
-	captureStdout(t, func() {
+	out := captureStdout(t, func() {
 		cmdInit([]string{root})
 	})
 
-	if got := readFileForTest(t, filepath.Join(root, configFileName)); got != config {
-		t.Fatalf(".tb.yaml changed:\n%s", got)
+	assertContains(t, out, "Config updated")
+	assertContains(t, out, ".tb.yaml.bak")
+	if got := readFileForTest(t, filepath.Join(root, configFileName+".bak")); got != "board: board\nprefix: TB\n" {
+		t.Fatalf(".tb.yaml backup = %q", got)
 	}
-	assertPathMissing(t, filepath.Join(root, configFileName+".bak"))
+	updated := readFileForTest(t, filepath.Join(root, configFileName))
+	assertContains(t, updated, "# Board directory relative to this file.")
+	assertContains(t, updated, "board: board")
+	assertContains(t, updated, "# Task ID prefix.")
+	assertContains(t, updated, "prefix: TB")
+	assertContains(t, updated, "# Warn when starting a task above this many in-progress tasks.")
+	assertContains(t, updated, "# wip_limit: 2")
+	assertContains(t, updated, "# File extensions scanned by `tb scan`.")
+	assertContains(t, updated, "# scan_extensions: .go,.ts,.svelte,.js,.tsx,.jsx")
 }
 
 func TestInitExistingBoardBacksUpConfigBeforeChangingExplicitFields(t *testing.T) {
@@ -146,6 +148,30 @@ func TestInitExistingBoardBacksUpConfigBeforeChangingExplicitFields(t *testing.T
 	updated := readFileForTest(t, filepath.Join(root, configFileName))
 	assertContains(t, updated, "prefix: WS")
 	assertContains(t, updated, "wip_limit: 5")
+}
+
+func TestInitExistingBoardKeepsConfiguredOptionalFieldsActive(t *testing.T) {
+	root, boardDir := seedInitializedBoardForRefresh(t, "TB")
+	config := strings.Join([]string{
+		"board: board",
+		"prefix: TB",
+		"wip_limit: 5",
+		"scan_extensions: .go,.md",
+		"",
+	}, "\n")
+	writeFileForTest(t, filepath.Join(root, configFileName), config)
+	writeFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md"), "# Stale Conventions\n")
+	writeFileForTest(t, filepath.Join(boardDir, "SKILL.md"), "# Stale Skill\n")
+
+	captureStdout(t, func() {
+		cmdInit([]string{root})
+	})
+
+	updated := readFileForTest(t, filepath.Join(root, configFileName))
+	assertContains(t, updated, "wip_limit: 5")
+	assertContains(t, updated, "scan_extensions: .go,.md")
+	assertNotContains(t, updated, "# wip_limit: 2")
+	assertNotContains(t, updated, "# scan_extensions: .go,.ts,.svelte,.js,.tsx,.jsx")
 }
 
 func TestInitRefreshDocsPreservesLegacyFileFormBoard(t *testing.T) {

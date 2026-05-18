@@ -15,7 +15,7 @@ Based on the argument, perform one of:
 **`refresh`**:
 
 1. Run `tb init` from an existing project root
-2. Review refreshed `board/CONVENTIONS.md` and `board/SKILL.md`
+2. Review refreshed `.tb.yaml`, `board/CONVENTIONS.md`, and `board/SKILL.md`
 3. Merge any local customizations from the generated `*.bak` files when needed
 
 **`create <title>`**:
@@ -185,7 +185,7 @@ tb create "Quick bug note"                        # minimal — title only
 tb create "Search system" --epic -m editor        # Create an epic
 tb create "Search indexing" --parent 1 -m editor  # Create child of epic
 tb create "Legacy integration probe" --legacy-file # Explicit old <status>/<ID>.md layout
-tb init                                            # Refresh generated project files with .bak backups
+tb init                                            # Refresh generated docs/config with .bak backups
 tb ls -T bug -p P1                                # P1 bugs
 tb ls -t testing                                  # All test-related tasks
 tb ls -t quick-win -T tech-debt                   # Easy tech-debt wins

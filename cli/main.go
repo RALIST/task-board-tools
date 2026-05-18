@@ -99,7 +99,7 @@ Usage:
   tb regenerate                                                          Regenerate BOARD.md
 
 Commands:
-  init              Initialize board structure; existing boards refresh generated project files with .bak backups
+  init              Initialize board structure; existing boards refresh docs and annotated config with .bak backups
   board             Print board status to stdout (same format as BOARD.md)
   create, new       Create a new task
   ls, list          List and filter tasks
@@ -130,9 +130,10 @@ Configuration:
 
 Project refresh:
   Run tb init in an existing project to reconcile generated project files.
-  Existing generated docs are refreshed from the current templates and previous
-  versions are saved as .bak files so local customizations can be merged back
-  manually. --refresh-docs is accepted for older scripts but is no longer required.
+  Existing generated docs and the annotated .tb.yaml config surface are refreshed
+  from the current templates. Previous versions are saved as .bak files so local
+  customizations can be merged back manually. --refresh-docs is accepted for older
+  scripts but is no longer required.
 
 Attachments:
   New attachments are stored in the task directory as <status>/<ID>/<filename>.

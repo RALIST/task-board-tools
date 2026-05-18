@@ -102,6 +102,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-229 | CLI: reconcile .tb.yaml with annotated config template | improvement | cli |
 | TB-228 | CLI: make init refresh existing boards by default | improvement | cli |
 | TB-227 | CLI: refresh generated board docs for existing boards | improvement | cli |
 | TB-225 | Ask user to init board from GUI when he tries to open folder without initialized tb status | feature | gui |
@@ -151,4 +152,3 @@
 | TB-147 | TB-93/CLI: implement startup recovery sweep for stale .promote/.attach staging dirs OR amend doc | tech-debt | cli |
 | TB-146 | TB-93/CLI: attach promotion orphans file-form agent state + logs | bug | cli |
 | TB-145 | Board switch error | bug | gui |
-| TB-144 | Append logs realtime when task is opened | bug | gui |

@@ -17,7 +17,7 @@ func cmdInit(args []string) {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: tb init [path] [--board-path=board] [--prefix=PR] [--refresh-docs]\n\n")
 		fmt.Fprintf(os.Stderr, "Initializes a task board, or reconciles an existing board by refreshing generated project files.\n\n")
-		fmt.Fprintf(os.Stderr, "On existing boards, generated docs are refreshed by default and previous versions are saved as .bak files before overwrite.\n\n")
+		fmt.Fprintf(os.Stderr, "On existing boards, generated docs and the annotated .tb.yaml config surface are refreshed by default. Previous versions are saved as .bak files before overwrite.\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -41,6 +41,7 @@ func cmdInit(args []string) {
 
 	configFile := filepath.Join(root, configFileName)
 
+	var configData []byte
 	configValues := map[string]string{}
 	configExists := false
 	boardPathSet := false
@@ -57,6 +58,7 @@ func cmdInit(args []string) {
 	// On re-init: read existing config as defaults, override with explicitly provided flags.
 	if data, readErr := os.ReadFile(configFile); readErr == nil {
 		configExists = true
+		configData = data
 		existing := parseSimpleYAML(data)
 		for key, value := range existing {
 			configValues[key] = value
@@ -124,12 +126,16 @@ func cmdInit(args []string) {
 		configValues["prefix"] = *prefix
 		configChanged = true
 	}
+	renderedConfig := renderConfigTemplate(configValues)
+	if configExists && !configChanged && string(configData) != string(renderedConfig) {
+		configChanged = true
+	}
 	if !configExists || configChanged {
 		var writeErr error
 		if configExists {
-			configBackup, _, writeErr = writeFileWithBackup(configFile, writeSimpleYAML(configValues))
+			configBackup, _, writeErr = writeFileWithBackup(configFile, renderedConfig)
 		} else {
-			writeErr = writeFileAtomic(configFile, writeSimpleYAML(configValues), 0644)
+			writeErr = writeFileAtomic(configFile, renderedConfig, 0644)
 			configChanged = true
 		}
 		if writeErr != nil {

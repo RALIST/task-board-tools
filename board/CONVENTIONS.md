@@ -149,7 +149,7 @@ Existing boards can refresh generated project files without reinitializing tasks
 tb init
 ```
 
-The command reads `.tb.yaml` for the current board path and prefix, rewrites generated files such as `CONVENTIONS.md` and `SKILL.md`, and saves previous copies as `*.bak` files for manual merge of local customizations. The old `--refresh-docs` flag is accepted for scripts, but plain `tb init` is the normal refresh path.
+The command reads `.tb.yaml` for the current board path and prefix, rewrites generated files such as `CONVENTIONS.md` and `SKILL.md`, expands `.tb.yaml` with the supported config keys, and saves previous copies as `*.bak` files for manual merge of local customizations. The old `--refresh-docs` flag is accepted for scripts, but plain `tb init` is the normal refresh path.
 
 ## CLI Reference
 
@@ -186,7 +186,7 @@ tb create "Fix crash on empty input" -m core -p P1 -s S -t quick-win
 tb create "Search system" --epic -m editor          # Create an epic
 tb create "Search indexing" --parent 1 -m editor    # Create child of epic
 tb create "Legacy integration probe" --legacy-file   # Explicit old <status>/<ID>.md layout
-tb init                                   # Refresh generated project files with .bak backups
+tb init                                   # Refresh generated docs/config with .bak backups
 tb ls -T bug -p P1                       # P1 bugs
 tb ls -t testing                         # All test-related tasks
 tb ls --parent 1                         # Children of an epic
