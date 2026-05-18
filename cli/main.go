@@ -77,9 +77,9 @@ func usage() {
 	fmt.Print(`tb — task board CLI
 
 Usage:
-  tb init [path] [--board-path=board] [--prefix=PR]                     Initialize board
+  tb init [path] [--board-path=board] [--prefix=PR] [--refresh-docs]     Initialize or reconcile a board
   tb board [--json]                                                      Print board status (or JSON snapshot)
-  tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic]
+  tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
   tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID] [-n N]
         [--status backlog|in-progress|done|archive|active|all] [--json]
   tb mv <ID> <status>                                                    Move task (status: backlog|in-progress|done|archive)
@@ -99,7 +99,7 @@ Usage:
   tb regenerate                                                          Regenerate BOARD.md
 
 Commands:
-  init              Initialize board structure (creates .tb.yaml in project root)
+  init              Initialize board structure; existing boards refresh generated project files with .bak backups
   board             Print board status to stdout (same format as BOARD.md)
   create, new       Create a new task
   ls, list          List and filter tasks
@@ -127,6 +127,12 @@ Task IDs use the configured prefix (default: PR). The prefix is optional in comm
 Configuration:
   tb discovers .tb.yaml by walking up from the current directory.
   Fallback: TB_BOARD_DIR environment variable.
+
+Project refresh:
+  Run tb init in an existing project to reconcile generated project files.
+  Existing generated docs are refreshed from the current templates and previous
+  versions are saved as .bak files so local customizations can be merged back
+  manually. --refresh-docs is accepted for older scripts but is no longer required.
 
 Attachments:
   New attachments are stored in the task directory as <status>/<ID>/<filename>.

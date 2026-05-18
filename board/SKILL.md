@@ -1,4 +1,4 @@
-# Board Management
+## Board Management
 
 All operations use the `tb` CLI. Read `board/CONVENTIONS.md` for full rules.
 
@@ -12,6 +12,12 @@ Based on the argument, perform one of:
 2. Display current board state to the user
 3. Highlight any issues (empty in-progress, stale tasks)
 
+**`refresh`**:
+
+1. Run `tb init` from an existing project root
+2. Review refreshed `board/CONVENTIONS.md` and `board/SKILL.md`
+3. Merge any local customizations from the generated `*.bak` files when needed
+
 **`create <title>`**:
 
 1. Run `tb create "Title"` with optional flags:
@@ -23,20 +29,38 @@ Based on the argument, perform one of:
    - `-t tag1,tag2` — tags (see taxonomy in `board/CONVENTIONS.md`)
    - `--parent ID` — parent epic task ID (links child to parent)
    - `--epic` — create as epic (sets type=feature, adds epic tag)
-2. After creation, edit the generated task file to add Acceptance Criteria and any extra detail
-3. **Link related tasks:** Search the board with `tb grep` for tasks in the same module or with overlapping scope. Add a `## Related Tasks` section with bidirectional links
+   - `--legacy-file` — intentionally create old `<status>/<ID>.md` layout instead of folder form
+2. By default, creation writes `<status>/<ID>/TASK.md` with an empty `## Attachments` section
+3. After creation, edit the generated task file to add Acceptance Criteria and any extra detail
+4. **Link related tasks:** Search the board with `tb grep` for tasks in the same module or with overlapping scope. Add a `## Related Tasks` section with bidirectional links
 
-**`start <PR-NNN>`**:
+**`start <TB-NNN>`**:
 
-1. Run `tb start PR-NNN`
+1. Run `tb start TB-NNN`
    - Moves the task to `in-progress/`, auto-logs, auto-regenerates BOARD.md
 2. Set Branch field in the task file to current git branch
 
-**`done <PR-NNN>`**:
+**`done <TB-NNN>`**:
 
 1. Check all acceptance criteria boxes in the task file
 2. Add Log entry with completion summary
-3. Run `tb done PR-NNN`
+3. Run `tb done TB-NNN`
+
+**`show <TB-NNN>`**:
+
+1. Run `tb show TB-NNN` for markdown output
+2. Use `tb show TB-NNN --json` when another tool needs structured metadata plus the raw task body
+
+**`attach <TB-NNN> <path>...`**:
+
+1. Run `tb attach TB-NNN <path>...` to copy files into a task folder
+2. Use `tb attach --rm TB-NNN <attachment-name>...` to remove task attachments
+3. New attachments are stored in the task directory; legacy `attachments/<filename>` entries remain supported for compatibility
+
+**`assign <TB-NNN> <claude|codex>`**:
+
+1. Run `tb assign TB-NNN claude` or `tb assign TB-NNN codex`
+2. Confirm the task metadata shows the intended `Agent` and `AgentStatus: queued`
 
 **`list`**:
 
@@ -51,9 +75,9 @@ Based on the argument, perform one of:
    - `--status b` to limit to backlog
 2. Display matching tasks with matched lines
 
-**`epic <PR-NNN>`**:
+**`epic <TB-NNN>`**:
 
-1. Run `tb epic PR-NNN` to view epic progress and all children
+1. Run `tb epic TB-NNN` to view epic progress and all children
 2. Shows: epic title, status, progress (done/total), and sorted child list
 3. Use before/after work to track epic completion
 
@@ -63,8 +87,8 @@ Based on the argument, perform one of:
 - Use `--parent <ID>` when creating sub-tasks: `tb create "Sub-task" --parent 32`
 - Use `tb epic <ID>` to review epic progress before/after work
 - When grooming or decomposing an epic, always link children with `--parent`
-- If a task was created without `--parent` but should belong to an epic, manually add `**Parent:** PR-NNN` to the task file
-- All ID arguments accept bare numbers (`32`) or prefixed (`PR-32`) — both are equivalent
+- If a task was created without `--parent` but should belong to an epic, manually add `**Parent:** TB-NNN` to the task file
+- All ID arguments accept bare numbers (`32`) or prefixed (`TB-32`) — both are equivalent
 
 ### Rules for agents
 
@@ -79,7 +103,7 @@ Based on the argument, perform one of:
 
 1. Run `tb ls` to see the board
 2. Pick a task or create one with `tb create "Title"`
-3. Start it with `tb start PR-NNN`
+3. Start it with `tb start TB-NNN`
 
 **During work — backlog capture:**
 When you encounter any of these, IMMEDIATELY create a backlog task:
@@ -87,7 +111,7 @@ When you encounter any of these, IMMEDIATELY create a backlog task:
 - Out-of-scope work, deferred features
 - Bugs unrelated to current task
 - Workarounds, temporary solutions, tech debt
-- `TODO`/`FIXME`/`HACK` in code — must reference task ID: `// TODO(PR-NNN): description`
+- `TODO`/`FIXME`/`HACK` in code — must reference task ID: `// TODO(TB-NNN): description`
 
 Quick capture: `tb create "Title" -m module -d "description"`
 Or run `tb scan --apply` to auto-create tasks from untagged TODO/FIXME/HACK comments.
@@ -95,24 +119,29 @@ Or run `tb scan --apply` to auto-create tasks from untagged TODO/FIXME/HACK comm
 **After coding:**
 
 1. Update the task file (check acceptance criteria, add log entry)
-2. Move with `tb done PR-NNN`
-3. Commit changes with task ID in message: `feat: PR-NNN: concise description`
+2. Move with `tb done TB-NNN`
+3. Commit changes with task ID in message: `feat: TB-NNN: concise description`
 
 ### CLI Reference
 
 ```
-tb init [path] [--board-path=board] [--prefix=PR]                     Initialize board
-tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID]  List/filter tasks
-tb mv <PR-NNN> <status>                                               Move task
-tb start <PR-NNN>                                                     Start working
-tb done <PR-NNN>                                                      Mark done
-tb close <PR-NNN>                                                     Delete task
-tb show <PR-NNN>                                                      Print task content
-tb open <PR-NNN>                                                      Open in default editor
-tb epic <PR-NNN>                                                      Show epic progress
-tb triage                                                                Find tasks needing grooming
-tb grep <pattern> [--status all] [-s] [-l]                               Search tasks by regex
+tb init [path] [--board-path=board] [--prefix=TB] [--refresh-docs]     Initialize or reconcile a board
+tb board [--json]                                                      Print board status or JSON snapshot
+tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [--json]
+tb mv <TB-NNN> <status>                                               Move task
+tb start <TB-NNN>                                                     Start working
+tb done <TB-NNN>                                                      Mark done
+tb edit <TB-NNN> [--goal file|-] [--acceptance file|-]                Edit metadata/body sections
+tb attach <TB-NNN> <path>...                                          Copy files into task attachments
+tb attach --rm <TB-NNN> <attachment-name>...                          Remove task attachments
+tb assign <TB-NNN> <claude|codex>                                     Assign a runnable agent and queue pickup
+tb close <TB-NNN>                                                     Archive task
+tb show <TB-NNN> [--json]                                             Print task content or JSON
+tb open <TB-NNN>                                                      Open in default editor
+tb epic <TB-NNN> [--status active|archive|all]                        Show epic progress
+tb triage [--json]                                                       Find tasks needing grooming
+tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l]   Search tasks by regex
 tb scan [--apply] [--path dir]                                           Find untagged TODOs
 tb regenerate                                                            Regenerate BOARD.md
 ```
@@ -122,13 +151,17 @@ tb regenerate                                                            Regener
 | Command | Aliases | Description |
 |---------|---------|-------------|
 | `init` | | Initialize board structure (creates `.tb.yaml` in project root) |
-| `create` | `new` | Create a new task |
+| `board` | | Print board status or JSON snapshot |
+| `create` | `new` | Create a new folder-form task |
 | `ls` | `list` | List and filter tasks |
 | `mv` | `move` | Move task between statuses |
 | `start` | | Move task to in-progress |
 | `done` | | Move task to done |
-| `close` | | Delete task from board |
-| `show` | `cat` | Print task content to stdout |
+| `edit` | | Edit task metadata and Goal/Acceptance Criteria sections |
+| `attach` | | Copy or remove task attachments |
+| `assign` | | Assign claude or codex and queue daemon pickup |
+| `close` | | Archive task |
+| `show` | `cat` | Print task content or JSON |
 | `open` | | Open task file in default editor/app |
 | `epic` | | Show epic task with children and progress |
 | `triage` | | Find tasks needing grooming (placeholder goals, no module, auto-created) |
@@ -140,7 +173,7 @@ tb regenerate                                                            Regener
 
 **Status aliases:** `b`=backlog, `ip`=in-progress, `d`=done
 
-Task IDs use the configured prefix (default: PR). The prefix is optional in commands — `tb start 123` and `tb start PR-123` are equivalent.
+Task IDs use the configured prefix (default: TB). The prefix is optional in commands — `tb start 123` and `tb start TB-123` are equivalent.
 
 **Configuration:** `tb` discovers `.tb.yaml` by walking up from the current directory. Fallback: `TB_BOARD_DIR` and `TB_PREFIX` environment variables.
 
@@ -151,6 +184,8 @@ tb create "Fix crash on empty input" -m core -p P1 -s S -t quick-win
 tb create "Quick bug note"                        # minimal — title only
 tb create "Search system" --epic -m editor        # Create an epic
 tb create "Search indexing" --parent 1 -m editor  # Create child of epic
+tb create "Legacy integration probe" --legacy-file # Explicit old <status>/<ID>.md layout
+tb init                                            # Refresh generated project files with .bak backups
 tb ls -T bug -p P1                                # P1 bugs
 tb ls -t testing                                  # All test-related tasks
 tb ls -t quick-win -T tech-debt                   # Easy tech-debt wins

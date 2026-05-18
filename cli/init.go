@@ -12,10 +12,12 @@ func cmdInit(args []string) {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	boardPath := fs.String("board-path", "board", "relative path from root to board directory")
 	prefix := fs.String("prefix", "PR", "task ID prefix (e.g., WS, PR)")
+	fs.Bool("refresh-docs", false, "compatibility flag: existing boards refresh generated docs by default, with .bak backups")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb init [path] [--board-path=board] [--prefix=PR]\n\n")
-		fmt.Fprintf(os.Stderr, "Initializes a task board. Creates .tb.yaml and the board directory structure.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb init [path] [--board-path=board] [--prefix=PR] [--refresh-docs]\n\n")
+		fmt.Fprintf(os.Stderr, "Initializes a task board, or reconciles an existing board by refreshing generated project files.\n\n")
+		fmt.Fprintf(os.Stderr, "On existing boards, generated docs are refreshed by default and previous versions are saved as .bak files before overwrite.\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -39,26 +41,35 @@ func cmdInit(args []string) {
 
 	configFile := filepath.Join(root, configFileName)
 
+	configValues := map[string]string{}
+	configExists := false
+	boardPathSet := false
+	prefixSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "board-path" {
+			boardPathSet = true
+		}
+		if f.Name == "prefix" {
+			prefixSet = true
+		}
+	})
+
 	// On re-init: read existing config as defaults, override with explicitly provided flags.
 	if data, readErr := os.ReadFile(configFile); readErr == nil {
+		configExists = true
 		existing := parseSimpleYAML(data)
+		for key, value := range existing {
+			configValues[key] = value
+		}
 		// Use existing values as defaults for flags that were not explicitly set.
-		boardPathSet := false
-		prefixSet := false
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "board-path" {
-				boardPathSet = true
-			}
-			if f.Name == "prefix" {
-				prefixSet = true
-			}
-		})
 		if !boardPathSet && existing["board"] != "" {
 			*boardPath = existing["board"]
 		}
 		if !prefixSet && existing["prefix"] != "" {
 			*prefix = existing["prefix"]
 		}
+	} else if !os.IsNotExist(readErr) {
+		fatal("cannot read %s: %v", configFile, readErr)
 	}
 
 	boardDir := filepath.Join(root, *boardPath)
@@ -89,29 +100,54 @@ func cmdInit(args []string) {
 		}
 
 		// Generate CONVENTIONS.md and SKILL.md templates.
-		uppercasePrefix := strings.ToUpper(*prefix)
-		convPath := filepath.Join(boardDir, "CONVENTIONS.md")
-		if err := os.WriteFile(convPath, []byte(conventionsTemplate(uppercasePrefix)), 0644); err != nil {
-			fatal("cannot create CONVENTIONS.md: %v", err)
+		if _, err := refreshGeneratedDocs(boardDir, *prefix, *boardPath); err != nil {
+			fatal("cannot create generated board docs: %v", err)
 		}
-		skillPath := filepath.Join(boardDir, "SKILL.md")
-		if err := os.WriteFile(skillPath, []byte(skillTemplate(uppercasePrefix, *boardPath)), 0644); err != nil {
-			fatal("cannot create SKILL.md: %v", err)
+	}
+
+	var refreshResults []refreshedDoc
+	if alreadyExists {
+		var refreshErr error
+		refreshResults, refreshErr = refreshGeneratedDocs(boardDir, *prefix, *boardPath)
+		if refreshErr != nil {
+			fatal("cannot refresh generated board docs: %v", refreshErr)
 		}
 	}
 
 	// Write .tb.yaml.
-	values := map[string]string{
-		"board":  *boardPath,
-		"prefix": *prefix,
+	configChanged, configBackup := false, ""
+	if configValues["board"] != *boardPath {
+		configValues["board"] = *boardPath
+		configChanged = true
 	}
-	if err := os.WriteFile(configFile, writeSimpleYAML(values), 0644); err != nil {
-		fatal("cannot write %s: %v", configFile, err)
+	if configValues["prefix"] != *prefix {
+		configValues["prefix"] = *prefix
+		configChanged = true
+	}
+	if !configExists || configChanged {
+		var writeErr error
+		if configExists {
+			configBackup, _, writeErr = writeFileWithBackup(configFile, writeSimpleYAML(configValues))
+		} else {
+			writeErr = writeFileAtomic(configFile, writeSimpleYAML(configValues), 0644)
+			configChanged = true
+		}
+		if writeErr != nil {
+			fatal("cannot write %s: %v", configFile, writeErr)
+		}
 	}
 
 	if alreadyExists {
 		fmt.Fprintf(os.Stderr, "Board already exists at %s\n", boardDir)
-		fmt.Printf("Config updated: %s\n", configFile)
+		if configChanged {
+			fmt.Printf("Config updated: %s\n", configFile)
+			if configBackup != "" {
+				fmt.Printf("  backup: %s\n", filepath.Base(configBackup))
+			}
+		} else {
+			fmt.Printf("Config already current: %s\n", configFile)
+		}
+		printRefreshResults(boardDir, refreshResults)
 	} else {
 		fmt.Printf("Initialized board at %s\n", boardDir)
 		fmt.Printf("Config saved to %s\n", configFile)

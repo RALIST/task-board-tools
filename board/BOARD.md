@@ -102,6 +102,8 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-228 | CLI: make init refresh existing boards by default | improvement | cli |
+| TB-227 | CLI: refresh generated board docs for existing boards | improvement | cli |
 | TB-225 | Ask user to init board from GUI when he tries to open folder without initialized tb status | feature | gui |
 | TB-224 | Support task-root attachments | improvement | cli/gui |
 | TB-223 | Audit secondary docs for stale layout/status | improvement | docs |
@@ -150,5 +152,3 @@
 | TB-146 | TB-93/CLI: attach promotion orphans file-form agent state + logs | bug | cli |
 | TB-145 | Board switch error | bug | gui |
 | TB-144 | Append logs realtime when task is opened | bug | gui |
-| TB-129 | Remove ”non-editable” section when edit task’s body | bug | gui |
-| TB-127 | Open ticket full screen | improvement | gui |

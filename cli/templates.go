@@ -19,7 +19,7 @@ board/
   done/                 — Completed (archive, clean periodically)
 `+"```"+`
 
-CLI tool `+"`tb`"+` manages board operations (create, move, list, regenerate).
+CLI tool `+"`tb`"+` manages board operations (create, move, edit, attach, assign, list, JSON views, regenerate).
 
 **Directories are the source of truth.** `+"`BOARD.md`"+` is a generated view — never edit it manually.
 
@@ -32,6 +32,8 @@ Directory = status. Moving a task entry between directories = status change.
 Default path: `+"`<status>/%[1]s-NNN/TASK.md`"+` (e.g., `+"`backlog/%[1]s-001/TASK.md`"+`).
 
 Legacy path: `+"`<status>/%[1]s-NNN.md`"+`. Create legacy files only when you intentionally pass `+"`tb create --legacy-file`"+`; they are kept for compatibility and do not support in-place attachments.
+
+Folder-form tasks store new attachments directly under `+"`<status>/%[1]s-NNN/`"+`. Legacy `+"`attachments/<filename>`"+` entries remain supported for compatibility when older tasks are promoted.
 
 **ID allocation:** Handled automatically by `+"`tb create`"+`. The `+"`"+`.next-id`+"`"+` file is the counter, protected by file locking for concurrent access.
 
@@ -145,24 +147,38 @@ Quick capture: `+"`tb create \"Title\" -m module -d \"description\"`"+`
 
 `+"`BOARD.md`"+` is **auto-generated** by `+"`tb regenerate`"+`. Do not edit it manually.
 
+## Project Refresh
+
+Existing boards can refresh generated project files without reinitializing tasks:
+
+`+"```"+`
+tb init
+`+"```"+`
+
+The command reads `+"`"+`.tb.yaml`+"`"+` for the current board path and prefix, rewrites generated files such as `+"`CONVENTIONS.md`"+` and `+"`SKILL.md`"+`, and saves previous copies as `+"`*.bak`"+` files for manual merge of local customizations. The old `+"`--refresh-docs`"+` flag is accepted for scripts, but plain `+"`tb init`"+` is the normal refresh path.
+
 ## CLI Reference
 
 `+"```"+`
-tb init [path] [--board-path=board] [--prefix=%[1]s]
+tb init [path] [--board-path=board] [--prefix=%[1]s] [--refresh-docs]
+tb board [--json]
 tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status all]
-tb mv <%[1]s-NNN> <status>                              — Move task between statuses
-tb start <%[1]s-NNN>                                    — Move to in-progress
-tb done <%[1]s-NNN>                                     — Move to done
-tb edit <%[1]s-NNN> [--goal file|-] [--acceptance file|-] — Edit metadata/body sections
-tb close <%[1]s-NNN>                                    — Delete task from board
-tb show <%[1]s-NNN>                                     — Print task content
-tb open <%[1]s-NNN>                                     — Open in default editor
-tb epic <%[1]s-NNN>                                     — Show epic progress and children
-tb triage [--json]                                      — Find tasks needing grooming
-tb grep <pattern> [--status all] [-l]                   — Search tasks by regex
-tb scan [--apply] [--path dir]                          — Find untagged TODOs, create tasks
-tb regenerate                                           — Regenerate BOARD.md
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [--json]
+tb mv <%[1]s-NNN> <status>                                                    — Move task between statuses
+tb start <%[1]s-NNN>                                                          — Move to in-progress
+tb done <%[1]s-NNN>                                                           — Move to done
+tb edit <%[1]s-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled] [--title "New title"] [--goal file|-] [--acceptance file|-]
+tb attach <%[1]s-NNN> <path>...                                               — Copy files into task attachments
+tb attach --rm <%[1]s-NNN> <attachment-name>...                               — Remove task attachments
+tb assign <%[1]s-NNN> <claude|codex>                                          — Assign a runnable agent and queue pickup
+tb close <%[1]s-NNN>                                                          — Archive task
+tb show <%[1]s-NNN> [--json]                                                  — Print task content or JSON
+tb open <%[1]s-NNN>                                                           — Open in default editor
+tb epic <%[1]s-NNN> [--status active|archive|all]                             — Show epic progress and children
+tb triage [--json]                                                            — Find tasks needing grooming
+tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l] — Search tasks by regex
+tb scan [--apply] [--path dir]                                                — Find untagged TODOs, create tasks
+tb regenerate                                                                 — Regenerate BOARD.md
 `+"```"+`
 
 **Defaults:** type=bug, priority=P2, size=M.
@@ -176,6 +192,7 @@ tb create "Fix crash on empty input" -m core -p P1 -s S -t quick-win
 tb create "Search system" --epic -m editor          # Create an epic
 tb create "Search indexing" --parent 1 -m editor    # Create child of epic
 tb create "Legacy integration probe" --legacy-file   # Explicit old <status>/<ID>.md layout
+tb init                                   # Refresh generated project files with .bak backups
 tb ls -T bug -p P1                       # P1 bugs
 tb ls -t testing                         # All test-related tasks
 tb ls --parent 1                         # Children of an epic
@@ -205,6 +222,12 @@ Based on the argument, perform one of:
 2. Display current board state to the user
 3. Highlight any issues (empty in-progress, stale tasks)
 
+**`+"`refresh`"+`**:
+
+1. Run `+"`tb init`"+` from an existing project root
+2. Review refreshed `+"`%[2]s/CONVENTIONS.md`"+` and `+"`%[2]s/SKILL.md`"+`
+3. Merge any local customizations from the generated `+"`*.bak`"+` files when needed
+
 **`+"`create <title>`"+`**:
 
 1. Run `+"`tb create \"Title\"`"+` with optional flags:
@@ -232,6 +255,22 @@ Based on the argument, perform one of:
 1. Check all acceptance criteria boxes in the task file
 2. Add Log entry with completion summary
 3. Run `+"`tb done %[1]s-NNN`"+`
+
+**`+"`show <%[1]s-NNN>`"+`**:
+
+1. Run `+"`tb show %[1]s-NNN`"+` for markdown output
+2. Use `+"`tb show %[1]s-NNN --json`"+` when another tool needs structured metadata plus the raw task body
+
+**`+"`attach <%[1]s-NNN> <path>...`"+`**:
+
+1. Run `+"`tb attach %[1]s-NNN <path>...`"+` to copy files into a task folder
+2. Use `+"`tb attach --rm %[1]s-NNN <attachment-name>...`"+` to remove task attachments
+3. New attachments are stored in the task directory; legacy `+"`attachments/<filename>`"+` entries remain supported for compatibility
+
+**`+"`assign <%[1]s-NNN> <claude|codex>`"+`**:
+
+1. Run `+"`tb assign %[1]s-NNN claude`"+` or `+"`tb assign %[1]s-NNN codex`"+`
+2. Confirm the task metadata shows the intended `+"`Agent`"+` and `+"`AgentStatus: queued`"+`
 
 **`+"`list`"+`**:
 
@@ -296,19 +335,23 @@ Or run `+"`tb scan --apply`"+` to auto-create tasks from untagged TODO/FIXME/HAC
 ### CLI Reference
 
 `+"```"+`
-tb init [path] [--board-path=board] [--prefix=%[1]s]                     Initialize board
+tb init [path] [--board-path=board] [--prefix=%[1]s] [--refresh-docs]     Initialize or reconcile a board
+tb board [--json]                                                      Print board status or JSON snapshot
 tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID]  List/filter tasks
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [--json]
 tb mv <%[1]s-NNN> <status>                                               Move task
 tb start <%[1]s-NNN>                                                     Start working
 tb done <%[1]s-NNN>                                                      Mark done
 tb edit <%[1]s-NNN> [--goal file|-] [--acceptance file|-]                Edit metadata/body sections
-tb close <%[1]s-NNN>                                                     Delete task
-tb show <%[1]s-NNN>                                                      Print task content
+tb attach <%[1]s-NNN> <path>...                                          Copy files into task attachments
+tb attach --rm <%[1]s-NNN> <attachment-name>...                          Remove task attachments
+tb assign <%[1]s-NNN> <claude|codex>                                     Assign a runnable agent and queue pickup
+tb close <%[1]s-NNN>                                                     Archive task
+tb show <%[1]s-NNN> [--json]                                             Print task content or JSON
 tb open <%[1]s-NNN>                                                      Open in default editor
-tb epic <%[1]s-NNN>                                                      Show epic progress
+tb epic <%[1]s-NNN> [--status active|archive|all]                        Show epic progress
 tb triage [--json]                                                       Find tasks needing grooming
-tb grep <pattern> [--status all] [-s] [-l]                               Search tasks by regex
+tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l]   Search tasks by regex
 tb scan [--apply] [--path dir]                                           Find untagged TODOs
 tb regenerate                                                            Regenerate BOARD.md
 `+"```"+`
@@ -318,14 +361,17 @@ tb regenerate                                                            Regener
 | Command | Aliases | Description |
 |---------|---------|-------------|
 | `+"`init`"+` | | Initialize board structure (creates `+"`"+`.tb.yaml`+"`"+` in project root) |
+| `+"`board`"+` | | Print board status or JSON snapshot |
 | `+"`create`"+` | `+"`new`"+` | Create a new folder-form task |
 | `+"`ls`"+` | `+"`list`"+` | List and filter tasks |
 | `+"`mv`"+` | `+"`move`"+` | Move task between statuses |
 | `+"`start`"+` | | Move task to in-progress |
 | `+"`done`"+` | | Move task to done |
 | `+"`edit`"+` | | Edit task metadata and Goal/Acceptance Criteria sections |
-| `+"`close`"+` | | Delete task from board |
-| `+"`show`"+` | `+"`cat`"+` | Print task content to stdout |
+| `+"`attach`"+` | | Copy or remove task attachments |
+| `+"`assign`"+` | | Assign claude or codex and queue daemon pickup |
+| `+"`close`"+` | | Archive task |
+| `+"`show`"+` | `+"`cat`"+` | Print task content or JSON |
 | `+"`open`"+` | | Open task file in default editor/app |
 | `+"`epic`"+` | | Show epic task with children and progress |
 | `+"`triage`"+` | | Find tasks needing grooming (placeholder goals, no module, auto-created) |
@@ -349,6 +395,7 @@ tb create "Quick bug note"                        # minimal — title only
 tb create "Search system" --epic -m editor        # Create an epic
 tb create "Search indexing" --parent 1 -m editor  # Create child of epic
 tb create "Legacy integration probe" --legacy-file # Explicit old <status>/<ID>.md layout
+tb init                                            # Refresh generated project files with .bak backups
 tb ls -T bug -p P1                                # P1 bugs
 tb ls -t testing                                  # All test-related tasks
 tb ls -t quick-win -T tech-debt                   # Easy tech-debt wins
