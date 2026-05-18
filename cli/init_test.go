@@ -174,6 +174,28 @@ func TestInitExistingBoardKeepsConfiguredOptionalFieldsActive(t *testing.T) {
 	assertNotContains(t, updated, "# scan_extensions: .go,.ts,.svelte,.js,.tsx,.jsx")
 }
 
+func TestInitExistingBoardDoesNotBackUpIdenticalGeneratedFiles(t *testing.T) {
+	root, boardDir := seedInitializedBoardForRefresh(t, "TB")
+	currentConfig := string(renderConfigTemplate(map[string]string{
+		"board":  "board",
+		"prefix": "TB",
+	}))
+	writeFileForTest(t, filepath.Join(root, configFileName), currentConfig)
+	for _, doc := range generatedBoardDocs("TB", "board") {
+		writeFileForTest(t, filepath.Join(boardDir, doc.name), doc.content)
+	}
+
+	out := captureStdout(t, func() {
+		cmdInit([]string{root})
+	})
+
+	assertContains(t, out, "Config already current")
+	assertContains(t, out, "Board docs already current")
+	assertPathMissing(t, filepath.Join(root, configFileName+".bak"))
+	assertPathMissing(t, filepath.Join(boardDir, "CONVENTIONS.md.bak"))
+	assertPathMissing(t, filepath.Join(boardDir, "SKILL.md.bak"))
+}
+
 func TestInitRefreshDocsPreservesLegacyFileFormBoard(t *testing.T) {
 	root, boardDir := seedInitializedBoardForRefresh(t, "TB")
 	legacyTask := strings.Join([]string{
