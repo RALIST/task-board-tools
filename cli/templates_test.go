@@ -61,3 +61,61 @@ func TestCheckedInConventionsMatchesTemplate(t *testing.T) {
 		t.Fatalf("%s is out of sync with conventionsTemplate(\"TB\")", path)
 	}
 }
+
+func TestSkillTemplateIsPortableAgentSkill(t *testing.T) {
+	content := skillTemplate("TB", "board")
+
+	for _, want := range []string{
+		"---\nname: task-board\n",
+		"description:",
+		"Use when working with a markdown task board through the tb CLI",
+		"# Task Board Workflow",
+		"Compatible with Claude Code and Codex.",
+		"Read `board/CONVENTIONS.md` before changing board state",
+		"Directories are status",
+		"never edit `BOARD.md` by hand",
+		"Pull from `ready` before coding",
+		"Do not move backlog directly to `in-progress`",
+		"Every `done` task needs evidence",
+		"Implementation tasks should cite a commit or review artifact that includes `TB-NNN`",
+		"Spike tasks should link or attach the investigation result",
+		"Use `archive` only to close obsolete, duplicate, superseded, or intentionally dropped tasks",
+		"`needs-user`",
+		"Reason:",
+		"Question/Action:",
+		"Attempted context:",
+		"Unblock condition:",
+		"## Minimal Commands",
+	} {
+		assertContains(t, content, want)
+	}
+
+	for _, forbidden := range []string{
+		"### CLI Reference",
+		"**Examples:**",
+		"Based on the argument, perform one of",
+		"## Board Management",
+		"tb init [path]",
+		"tb board [--json]",
+		"tb attach <TB-NNN> <path>...",
+		"| Command | Aliases | Description |",
+		"Claude-only",
+		"Codex-only",
+		"@board/",
+	} {
+		assertNotContains(t, content, forbidden)
+	}
+}
+
+func TestCheckedInSkillMatchesTemplate(t *testing.T) {
+	path := filepath.Join("..", "board", "SKILL.md")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read checked-in skill: %v", err)
+	}
+
+	want := skillTemplate("TB", "board")
+	if string(got) != want {
+		t.Fatalf("%s is out of sync with skillTemplate(\"TB\", \"board\")", path)
+	}
+}

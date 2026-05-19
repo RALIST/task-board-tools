@@ -80,9 +80,11 @@ func TestInitRefreshDocsUsesExistingConfigAndPreservesFolderBoardState(t *testin
 	assertNotContains(t, conventions, "<status>/TB-NNN/TASK.md")
 
 	skill := readFileForTest(t, filepath.Join(boardDir, "SKILL.md"))
-	assertContains(t, skill, "tb attach <TB-NNN> <path>...")
-	assertContains(t, skill, "tb assign <TB-NNN> <claude|codex>")
-	assertContains(t, skill, "tb show <TB-NNN> [--json]")
+	assertContains(t, skill, "---\nname: task-board\n")
+	assertContains(t, skill, "Compatible with Claude Code and Codex.")
+	assertContains(t, skill, "Every `done` task needs evidence")
+	assertContains(t, skill, "tb show TB-NNN")
+	assertNotContains(t, skill, "### CLI Reference")
 }
 
 func TestInitExistingBoardRefreshesDocsByDefault(t *testing.T) {
@@ -98,7 +100,7 @@ func TestInitExistingBoardRefreshesDocsByDefault(t *testing.T) {
 	assertContains(t, out, "CONVENTIONS.md.bak")
 	assertContains(t, out, "SKILL.md.bak")
 	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "Detailed command syntax belongs in CLI help")
-	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "All operations use the `tb` CLI")
+	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "Use when working with a markdown task board through the tb CLI")
 }
 
 func TestInitExistingBoardExpandsMinimalConfigWithAnnotatedDefaults(t *testing.T) {
@@ -253,7 +255,7 @@ func TestInitRefreshDocsBacksUpCustomizedDocs(t *testing.T) {
 		t.Fatalf("custom skill backup = %q", got)
 	}
 	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "generated board view")
-	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "All operations use the `tb` CLI")
+	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "Use when working with a markdown task board through the tb CLI")
 }
 
 func seedInitializedBoardForRefresh(t *testing.T, prefix string) (string, string) {
