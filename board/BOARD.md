@@ -89,6 +89,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-232 | tb-gui usage tap: chain to user's original statusline instead of replacing it | bug | gui |
 | TB-231 | Address TB-130 adversarial review findings | bug | gui |
 | TB-230 | CLI: avoid backups when init content is unchanged | bug | cli |
 | TB-229 | CLI: reconcile .tb.yaml with annotated config template | improvement | cli |
@@ -138,4 +139,3 @@
 | TB-150 | TB-93/GUI: watcher race during file->folder promotion misses first TASK.md edit | bug | gui |
 | TB-149 | TB-93/GUI: Windows cmd.exe metacharacter injection in OpenAttachment | bug | gui |
 | TB-148 | TB-93/CLI: confirm TB-96 hard-error reverted to warn+self-heal is intentional | tech-debt | cli |
-| TB-147 | TB-93/CLI: implement startup recovery sweep for stale .promote/.attach staging dirs OR amend doc | tech-debt | cli |

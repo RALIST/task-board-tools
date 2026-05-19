@@ -23,6 +23,7 @@ func TestClaudeTap_EndToEnd(t *testing.T) {
 		t.Skip("bash not available")
 	}
 
+	isolateClaudeHome(t, nil)
 	root := t.TempDir()
 	status, err := EnableClaudeUsageTap(root)
 	if err != nil {
