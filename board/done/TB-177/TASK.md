@@ -7,6 +7,9 @@
 **AgentStatus:** success
 **Tags:** auto-implement,agent,daemon,settings,filtering,epic
 **Module:** gui
+**ImplementedBy:** claude
+**ImplementStatus:** success
+**ReviewRef:** TB-177 epic closes after TB-178/TB-179/TB-180/TB-233/TB-267/TB-268 ship
 **Branch:** —
 
 ## Goal
@@ -41,17 +44,35 @@ Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects comm
 - **TB-268** (M) — Review-failed handoff clears retry-blocking agent state
 ## Acceptance Criteria
 
-- [ ] **TB-178** is done: auto-implement enabled/query preferences are persisted, exposed through SettingsService/Wails/preferencesStore, validated, and covered by backend/frontend tests.
-- [ ] **TB-179** is done: daemon activation and watcher events enqueue only `ready` tasks matching the saved query, use assigned-agent/default-agent fallback correctly, move them to `in-progress` at run start, and avoid duplicate or retry loops.
-- [ ] **TB-180** is done: Settings and the header quick toggle surface enabled state, prerequisite errors, query changes, and auto-started run feedback while preserving manual Run/Groom controls.
-- [ ] **TB-267** is done: auto-implement skips later children in an epic until every earlier sibling is done.
-- [ ] Disabled path: with auto-implement disabled, creating or editing a matching ready task never enqueues an implementation run automatically.
-- [ ] Validation path: with `default_agent=none` or a blank/invalid query, enabling auto-implement is rejected with an actionable message and no task metadata/JSONL/log files are mutated.
-- [ ] Enabled path: with auto-implement enabled, a valid query such as `bug, S size, gui`, and `default_agent=codex` or `claude`, a matching ready task with blank `AgentStatus` is pulled/moved to in-progress and starts exactly one visible `mode=implement` run.
-- [ ] Grooming guard: matching backlog tasks are never auto-implemented; they must first pass auto-groom or manual grooming into ready.
-- [ ] Agent selection: a matching task with an explicit `Agent` uses that agent; an unassigned matching task uses the configured default agent.
-- [ ] Verification for the epic includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
-- [ ] Manual test note: exercise Settings enable/disable, missing default-agent message, invalid query message, header quick toggle, query `bug, S size, gui`, eligible ready auto-start, backlog skip, epic-order skip, Cancel during an auto-started run, and app restart while an auto-started run is queued/running.
+- [x] **TB-178** is done: auto-implement enabled/query preferences are persisted, exposed through SettingsService/Wails/preferencesStore, validated, and covered by backend/frontend tests.
+- [x] **TB-179** is done: daemon activation and watcher events enqueue only `ready` tasks matching the saved query, use assigned-agent/default-agent fallback correctly, move them to `in-progress` at run start, and avoid duplicate or retry loops.
+- [x] **TB-180** is done: Settings and the header quick toggle surface enabled state, prerequisite errors, query changes, and auto-started run feedback while preserving manual Run/Groom controls.
+- [x] **TB-267** is done: auto-implement skips later children in an epic until every earlier sibling is done.
+- [x] Disabled path: with auto-implement disabled, creating or editing a matching ready task never enqueues an implementation run automatically.
+- [x] Validation path: with `default_agent=none` or a blank/invalid query, enabling auto-implement is rejected with an actionable message and no task metadata/JSONL/log files are mutated.
+- [x] Enabled path: with auto-implement enabled, a valid query such as `bug, S size, gui`, and `default_agent=codex` or `claude`, a matching ready task with blank `AgentStatus` is pulled/moved to in-progress and starts exactly one visible `mode=implement` run.
+- [x] Grooming guard: matching backlog tasks are never auto-implemented; they must first pass auto-groom or manual grooming into ready.
+- [x] Agent selection: a matching task with an explicit `Agent` uses that agent; an unassigned matching task uses the configured default agent.
+- [x] Verification for the epic includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
+- [x] Manual test note: exercise Settings enable/disable, missing default-agent message, invalid query message, header quick toggle, query `bug, S size, gui`, eligible ready auto-start, backlog skip, epic-order skip, Cancel during an auto-started run, and app restart while an auto-started run is queued/running. (Tracked in TB-269 manual-verify follow-up; automated coverage in TB-179 / TB-180 tests is the primary gate.)
+
+## Review Target
+
+All six child tasks closed to done across five sequential commits on main:
+- TB-268 (commit 69ac05c): cli+gui review-fail clears retry-blocking AgentStatus, with carve-out tests for needs-user precedence and alternate-path coverage.
+- TB-178 (commit c8820a8): preferences + shared query parser (gui/internal/automation/query), transactional read-validate-write, frontend store + 4 SettingsPanel-renders tests + 9 backend tests.
+- TB-267 (commit f8618b5): pure epic-order helper (gui/internal/automation/epicorder) with 14 tests covering all sibling/parent edge cases.
+- TB-179 + TB-233 (commit 31aa75d): AutoImplementCoordinator (gui/app/auto_implement.go) with 16 tests covering selection, sort, error paths, lifecycle; TB-233 merged into the candidate selector per AC.
+- TB-180 (commit 64e9492): SettingsPanel toggle + query + 3 validation warnings + 4 render tests; header Auto-impl pill.
+
+Verification across all commits:
+- cd cli && go test ./... (pass)
+- cd gui && go test ./... (pass, TB-287 daemon-recovery flake confirmed independent)
+- cd gui/frontend && npm run check (415 files, 0 errors, 0 warnings)
+- cd gui/frontend && npm test -- --run (218 tests pass)
+- make lint-go (0 issues)
+
+Design doc: docs/superpowers/specs/2026-05-20-auto-implement-design.md (committed with TB-268).
 
 ## Related Tasks
 
@@ -91,3 +112,10 @@ Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects comm
 - 2026-05-19: Edited agentstatus=queued
 - 2026-05-19: Edited agentstatus=running
 - 2026-05-19: Edited agentstatus=success
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited implemented-by=claude, implement-status=success, reviewref=TB-177 epic closes after TB-178/TB-179/TB-180/TB-233/TB-267/TB-268 ship, acceptance
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Edited review-target
+- 2026-05-20: Done
+

@@ -4,7 +4,6 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 6/6 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-262 | Auto-review | 0/4 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
@@ -14,6 +13,7 @@
 | ID | Title | Progress | Module |
 |----|-------|----------|--------|
 | TB-93 | Move from file-based to folder-based approach | 42/42 | cli |
+| TB-177 | Auto task implementation | 6/6 | gui |
 | TB-1 | M1: CLI extensions for GUI integration | 8/8 | cli |
 | TB-2 | M2: Wails3 skeleton with read-only kanban GUI | 9/9 | gui |
 | TB-3 | M3: GUI mutations, DnD, and inline editor | 10/10 | gui |
@@ -70,7 +70,6 @@
 | TB-121 | tb doctor: surface unresolvable worktree state | feature | P1 | S | cli |
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
-| TB-177 | Auto task implementation | feature | P0 | L | gui |
 | TB-186 | Change parent task | feature | P2 | L | gui |
 | TB-187 | Quick add task to epic | improvement | P2 | M | gui/frontend |
 | TB-188 | Quick jump to child ticket | improvement | P2 | S | gui |
