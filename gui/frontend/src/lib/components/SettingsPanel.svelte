@@ -31,6 +31,7 @@
   let agentTimeoutInput = $state('30');
   let defaultAgentInput = $state<DefaultAgent>('none');
   let cliPathInput = $state('');
+  let periodicRecoveryInput = $state(true);
   let saving = $state(false);
   let opened = $state(false);
   let seededLoaded = $state(false);
@@ -41,6 +42,7 @@
     agentTimeoutMinutes: 30,
     defaultAgent: 'none',
     cliPath: '',
+    periodicRecoveryEnabled: true,
   });
 
   let nextMaxWorkers = $derived(clampNumber(maxWorkersInput, 1, 4, baseline.maxWorkers));
@@ -52,7 +54,8 @@
     nextMaxWorkers !== baseline.maxWorkers ||
       nextAgentTimeout !== baseline.agentTimeoutMinutes ||
       defaultAgentInput !== baseline.defaultAgent ||
-      nextCLIPath !== baseline.cliPath,
+      nextCLIPath !== baseline.cliPath ||
+      periodicRecoveryInput !== baseline.periodicRecoveryEnabled,
   );
 
   $effect(() => {
@@ -145,6 +148,13 @@
           failures.push('CLI path');
         }
       }
+      if (periodicRecoveryInput !== baseline.periodicRecoveryEnabled) {
+        try {
+          await preferencesStore.setPeriodicRecoveryEnabled(periodicRecoveryInput);
+        } catch {
+          failures.push('periodic recovery');
+        }
+      }
 
       const current = get(preferencesStore);
       baseline = toEditable(current);
@@ -180,6 +190,7 @@
     agentTimeoutInput = String(baseline.agentTimeoutMinutes);
     defaultAgentInput = baseline.defaultAgent;
     cliPathInput = baseline.cliPath;
+    periodicRecoveryInput = baseline.periodicRecoveryEnabled;
   }
 
   function toEditable(prefs: PreferencesState): EditablePreferences {
@@ -188,6 +199,7 @@
       agentTimeoutMinutes: prefs.agentTimeoutMinutes,
       defaultAgent: prefs.defaultAgent,
       cliPath: prefs.cliPath,
+      periodicRecoveryEnabled: prefs.periodicRecoveryEnabled,
     };
   }
 
@@ -302,6 +314,14 @@
             after enabling to populate the value.
           </small>
         </div>
+
+        <label class="field checkbox-field">
+          <span>Periodic recovery</span>
+          <input
+            type="checkbox"
+            bind:checked={periodicRecoveryInput} />
+          <small>Reconcile stale running agent rows while the app stays open.</small>
+        </label>
       </section>
 
       <footer>
@@ -402,6 +422,10 @@
   .field select:focus {
     outline: 2px solid rgba(74, 141, 248, 0.45);
     outline-offset: 1px;
+  }
+  .checkbox-field input {
+    width: auto;
+    align-self: flex-start;
   }
   .path-row {
     display: grid;

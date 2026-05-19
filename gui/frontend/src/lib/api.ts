@@ -79,6 +79,8 @@ type SettingsServiceBindings = typeof SettingsService & {
   SetDefaultAgent: (agent: string) => Promise<void>;
   GetCLIPath: () => Promise<string>;
   SetCLIPath: (path: string) => Promise<void>;
+  GetPeriodicRecoveryEnabled: () => Promise<boolean>;
+  SetPeriodicRecoveryEnabled: (enabled: boolean) => Promise<void>;
 };
 
 const settingsService = SettingsService as unknown as SettingsServiceBindings;
@@ -379,6 +381,14 @@ export async function getCLIPath(): Promise<string> {
 
 export async function setCLIPath(path: string): Promise<void> {
   await requireSettingsMethod('SetCLIPath')(path);
+}
+
+export async function getPeriodicRecoveryEnabled(): Promise<boolean> {
+  return await requireSettingsMethod('GetPeriodicRecoveryEnabled')();
+}
+
+export async function setPeriodicRecoveryEnabled(enabled: boolean): Promise<void> {
+  await requireSettingsMethod('SetPeriodicRecoveryEnabled')(enabled);
 }
 
 // Error-message heuristics — the Wails bridge stringifies Go errors, so

@@ -4,9 +4,11 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 0/4 | backlog | gui |
+| TB-177 | Auto task implementation | 0/6 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
+| TB-262 | Auto-review | 0/4 | backlog | gui |
+| TB-267 | Auto-implement: respect epic child order | 0/0 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
 
 ## Finished Epics
@@ -44,7 +46,12 @@
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| — | — | — | — | — | — |
+| TB-247 | Triage TB-205 knip first-pass findings | tech-debt | P2 | S | gui-frontend |
+| TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
+| TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
+| TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | P1 | M | gui |
+| TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
+| TB-261 | Safely clean up orphaned agent processes | improvement | P2 | M | gui |
 
 ## Backlog
 
@@ -63,7 +70,6 @@
 | TB-120 | Per-task MergeTarget override | feature | P1 | S | cli |
 | TB-121 | tb doctor: surface unresolvable worktree state | feature | P1 | S | cli |
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
-| TB-128 | Keep ”Done” column sorted by timestamp, not priority | improvement | P2 | M | gui |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-172 | Auto-groom | feature | P1 | L | gui |
 | TB-173 | GUI: persist auto-groom setting and toggle | feature | P1 | M | gui |
@@ -81,27 +87,36 @@
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
 | TB-233 | Auto-implement priority: rank review-failed ready tasks first | improvement | P2 | S | gui |
-| TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P2 | S | gui |
-| TB-241 | GUI: Resume button enabled for interrupted tasks with no captured session | bug | P2 | S | gui |
-| TB-242 | Agent runner blocks on stdout EOF when child processes inherit pipes | bug | P1 | M | gui |
-| TB-244 | Periodic re-recovery for stale agent runs | improvement | P2 | M | gui |
+| TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P1 | S | gui |
 | TB-246 | Regenerate darwin/Assets.car on working Xcode env | tech-debt | P2 | S | gui |
-| TB-247 | Triage TB-205 knip first-pass findings | tech-debt | P2 | S | gui-frontend |
 | TB-248 | Manual macOS verification of Task Board Tools branding | improvement | P2 | S | gui |
-| TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
-| TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
-| TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | P1 | M | gui |
-| TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
-| TB-253 | GUI Run History shows multiple concurrent RUNNING rows for one task | bug | P1 | M | gui |
-| TB-254 | Stale recovery should write per-mode pair when marking interrupted | tech-debt | P2 | S | gui |
-| TB-255 | TaskDrawer per-mode chip stale while same-mode run in flight | improvement | P2 | S | gui |
+| TB-254 | Stale recovery should write per-mode pairs for recovered terminal runs | tech-debt | P2 | S | gui |
+| TB-255 | TaskDrawer marks stale per-action attribution during same-mode run | improvement | P2 | S | gui |
 | TB-256 | Test TestRunQueuedAgentSync_ResumeRehydratesParentContext should assert per-mode write on daemon replay | tech-debt | P2 | S | gui |
 | TB-259 | Per-task chat panel via claude/codex CLIs | feature | P1 | L | gui |
+| TB-260 | Ability to edit agent prompts | feature | P2 | L | gui |
+| TB-262 | Auto-review | feature | P1 | L | gui |
+| TB-263 | GUI: persist auto-review setting and controls | feature | P1 | M | gui |
+| TB-264 | GUI: enqueue code-review tasks for review-mode daemon runs | feature | P1 | M | gui |
+| TB-265 | GUI: surface auto-review state and decisions | feature | P1 | S | gui |
+| TB-266 | Daemon: reconcile autonomous stage transitions | improvement | P1 | M | gui |
+| TB-267 | Auto-implement: respect epic child order | feature | P1 | M | gui |
+| TB-268 | Review-failed handoff clears retry-blocking agent state | bug | P1 | M | workflow |
+| TB-269 | Docs: define staged autonomous agent workflow | improvement | P1 | S | docs |
+| TB-270 | Align agent prompts with staged kanban workflow | improvement | P1 | S | agent |
+| TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
+| TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
+| TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
+| TB-253 | GUI Run History shows multiple concurrent RUNNING rows for one task | bug | gui |
+| TB-244 | Periodic re-recovery for stale agent runs | improvement | gui |
+| TB-242 | Agent runner blocks on stdout EOF when child processes inherit pipes | bug | gui |
+| TB-241 | GUI: Resume button enabled for interrupted tasks with no captured session | bug | gui |
 | TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | feature | core |
 | TB-238 | Update implement.md agent prompt to set ReviewRef before submit | improvement | workflow |
 | TB-237 | Save diffrent agent actions in diffrent fields | improvement | cli |
@@ -147,8 +162,3 @@
 | TB-190 | Implement autosave instead of save with buttons | improvement | gui |
 | TB-185 | GUI: surface user-attention state and automation guard | feature | gui |
 | TB-184 | Docs: define user-attention handoff protocol | improvement | docs |
-| TB-183 | CLI: add user-attention agent status and note section | feature | cli |
-| TB-182 | Add special labes\tags\status for user attention | feature | agent |
-| TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
-| TB-176 | Track PID of launched agents | bug | gui |
-| TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |

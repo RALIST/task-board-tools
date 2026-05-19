@@ -5,6 +5,8 @@
 **Size:** M
 **Module:** gui
 **Tags:** agent,daemon,recovery,reliability
+**Agent:** codex
+**AgentStatus:** interrupted
 **Branch:** —
 
 ## Goal
@@ -30,4 +32,9 @@ Make recovery surface daemon-side run loss as a distinct, resumable state rather
 - 2026-05-19: Created
 - 2026-05-19: Edited goal
 - 2026-05-19: Edited acceptance
+- 2026-05-19: Edited agent=codex
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited agentstatus=interrupted
+- 2026-05-19: Committed — moved to ready
 

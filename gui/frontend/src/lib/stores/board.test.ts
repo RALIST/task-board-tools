@@ -124,7 +124,7 @@ function task(id: string, title: string, status: Task['status']): Task {
     status,
     filePath: `board/backlog/${id}.md`,
     agent: '',
-    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
+    agentStatus: '', agentResumable: false, groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
   };
 }
 

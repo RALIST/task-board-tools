@@ -29,9 +29,14 @@ import (
 //     reaching into the process group via the activeRun cancel path)
 //   - RunInput.Timeout reached → unattended-timeout path: SIGTERM, 5s grace,
 //     SIGKILL on the pgid; returns ErrTimeout
-//   - cmd.Wait return → RunResult{ExitCode, Err}; Err non-nil only for the
-//     reasons documented on the Runner type (spawn failure, IO, timeout,
-//     ctx cancellation).
+//   - direct parent process wait return → RunResult{ExitCode, Err}; Err
+//     non-nil only for the reasons documented on the Runner type (spawn
+//     failure, IO, timeout, ctx cancellation).
+//   - direct parent process exit is authoritative: descendants that inherit
+//     stdout/stderr get postExitPipeDrainGrace to close the pipes naturally
+//     before the runner closes its read ends and records terminal state.
+const postExitPipeDrainGrace = 1 * time.Second
+
 func runExternal(ctx context.Context, in RunInput, binary string, args []string) (RunResult, error) {
 	if in.ProjectRoot == "" {
 		return RunResult{ExitCode: -1, Err: errors.New("runExternal: empty ProjectRoot")}, errors.New("runExternal: empty ProjectRoot")
@@ -89,37 +94,40 @@ func runExternal(ctx context.Context, in RunInput, binary string, args []string)
 	//   - deadline (only when Timeout > 0) implements the unattended-run
 	//     escalation: SIGTERM → wait 5s → SIGKILL on the pgid.
 	//
-	// They cooperate via a done channel so neither lingers past Wait.
-	done := make(chan struct{})
+	// They cooperate via a processDone channel so neither lingers past the
+	// direct parent process exit.
+	processDone := make(chan struct{})
 	var timedOut atomic_bool
 
 	go func() {
 		select {
 		case <-ctx.Done():
 			_ = cmd.Process.Signal(syscall.SIGTERM)
-		case <-done:
+		case <-processDone:
 		}
 	}()
 
 	if in.Timeout > 0 {
 		go func() {
+			timer := time.NewTimer(in.Timeout)
+			defer timer.Stop()
+
 			select {
-			case <-time.After(in.Timeout):
+			case <-timer.C:
 				timedOut.set(true)
 				_ = cmd.Process.Signal(syscall.SIGTERM)
+
+				killTimer := time.NewTimer(5 * time.Second)
+				defer killTimer.Stop()
 				select {
-				case <-time.After(5 * time.Second):
+				case <-killTimer.C:
 					// pgid==0 means Setpgid didn't take; fall back to
 					// the leader signal only rather than risk killing
 					// the wrong process group.
-					if pgid > 0 {
-						_ = syscall.Kill(-pgid, syscall.SIGKILL)
-					} else {
-						_ = cmd.Process.Signal(syscall.SIGKILL)
-					}
-				case <-done:
+					killProcessGroupOrLeader(pgid, cmd.Process, syscall.SIGKILL)
+				case <-processDone:
 				}
-			case <-done:
+			case <-processDone:
 			}
 		}()
 	}
@@ -143,9 +151,18 @@ func runExternal(ctx context.Context, in RunInput, binary string, args []string)
 		}
 	}()
 
-	streamWG.Wait()
-	waitErr := cmd.Wait()
-	close(done)
+	streamDone := make(chan struct{})
+	go func() {
+		streamWG.Wait()
+		close(streamDone)
+	}()
+
+	waitState, waitErr := cmd.Process.Wait()
+	if waitState != nil {
+		cmd.ProcessState = waitState
+	}
+	close(processDone)
+	waitForStreamsAfterParentExit(streamDone, timedOut.get(), pgid, cmd.Process, stdoutPipe, stderrPipe)
 
 	exitCode := -1
 	if cmd.ProcessState != nil {
@@ -161,17 +178,46 @@ func runExternal(ctx context.Context, in RunInput, binary string, args []string)
 	case streamErr.get() != nil:
 		return RunResult{ExitCode: exitCode, Err: streamErr.get()}, streamErr.get()
 	case waitErr != nil:
-		// Exit-code-only failure (non-zero exit). Surface as RunResult,
-		// NOT as an error — non-zero exit is a failed run, not a Runner
-		// bug. The "err" return value is nil so the caller doesn't think
-		// the Runner itself broke.
-		var exitErr *exec.ExitError
-		if errors.As(waitErr, &exitErr) {
-			return RunResult{ExitCode: exitCode, Err: nil}, nil
-		}
 		return RunResult{ExitCode: exitCode, Err: waitErr}, waitErr
+	case exitCode != 0:
+		// Exit-code-only failure (non-zero exit or signal termination).
+		// Surface as RunResult, NOT as an error — a failed agent run is not
+		// a Runner bug.
+		return RunResult{ExitCode: exitCode, Err: nil}, nil
 	default:
 		return RunResult{ExitCode: exitCode, Err: nil}, nil
+	}
+}
+
+func waitForStreamsAfterParentExit(streamDone <-chan struct{}, timedOut bool, pgid int, process *os.Process, pipes ...io.Closer) {
+	select {
+	case <-streamDone:
+		closePipes(pipes...)
+		return
+	case <-time.After(postExitPipeDrainGrace):
+		if timedOut {
+			killProcessGroupOrLeader(pgid, process, syscall.SIGKILL)
+		}
+		closePipes(pipes...)
+		<-streamDone
+	}
+}
+
+func closePipes(pipes ...io.Closer) {
+	for _, pipe := range pipes {
+		if pipe != nil {
+			_ = pipe.Close()
+		}
+	}
+}
+
+func killProcessGroupOrLeader(pgid int, process *os.Process, sig syscall.Signal) {
+	if pgid > 0 {
+		_ = syscall.Kill(-pgid, sig)
+		return
+	}
+	if process != nil {
+		_ = process.Signal(sig)
 	}
 }
 

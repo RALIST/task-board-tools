@@ -98,6 +98,13 @@ type BoardActivator interface {
 	Deactivate() error
 }
 
+// PeriodicRecoveryController is the optional runtime settings hook exposed by
+// the daemon. SettingsService persists the preference, then calls this hook
+// when present so the running process reflects the new toggle immediately.
+type PeriodicRecoveryController interface {
+	SetPeriodicRecoveryEnabled(enabled bool)
+}
+
 // BoardOpenedHook fires once OpenBoard has committed the new board state
 // (BoardService rebound, watcher switched, daemon activated, board:opened
 // emitted). Production wires it to UsageService.RefreshAgentUsage so the

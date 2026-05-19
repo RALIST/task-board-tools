@@ -82,3 +82,5 @@ below. They are real findings, not false positives.
 ## Log
 
 - 2026-05-19: Created from TB-205 first-pass knip output.
+- 2026-05-19: Committed — moved to ready
+

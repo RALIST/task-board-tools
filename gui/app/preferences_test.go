@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -33,6 +34,9 @@ func TestPreferences_MissingFileReturnsDefaults(t *testing.T) {
 	}
 	if got := s.GetCLIPath(); got != "" {
 		t.Errorf("cli_path: got %q, want empty", got)
+	}
+	if got := s.GetPeriodicRecoveryEnabled(); !got {
+		t.Errorf("periodic_recovery_enabled: got false, want true")
 	}
 }
 
@@ -103,6 +107,61 @@ func TestSetCLIPath_RoundTrip(t *testing.T) {
 	})
 	if got := s2.GetCLIPath(); got != want {
 		t.Errorf("fresh read: got %q, want %q", got, want)
+	}
+}
+
+func TestSetPeriodicRecoveryEnabled_RoundTrip(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := s.SetPeriodicRecoveryEnabled(false); err != nil {
+		t.Fatalf("SetPeriodicRecoveryEnabled: %v", err)
+	}
+	if got := s.GetPeriodicRecoveryEnabled(); got {
+		t.Errorf("after set: got true, want false")
+	}
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetPeriodicRecoveryEnabled(); got {
+		t.Errorf("fresh read: got true, want false")
+	}
+}
+
+type fakePeriodicRecoveryActivator struct {
+	enabledCalls []bool
+}
+
+func (f *fakePeriodicRecoveryActivator) Activate(ctx context.Context, boardDir string) error {
+	return nil
+}
+
+func (f *fakePeriodicRecoveryActivator) Deactivate() error {
+	return nil
+}
+
+func (f *fakePeriodicRecoveryActivator) SetPeriodicRecoveryEnabled(enabled bool) {
+	f.enabledCalls = append(f.enabledCalls, enabled)
+}
+
+func TestSetPeriodicRecoveryEnabled_UpdatesActivatorRuntime(t *testing.T) {
+	activator := &fakePeriodicRecoveryActivator{}
+	dir := t.TempDir()
+	s := NewSettingsService(SettingsOptions{
+		Logger:      slog.Default(),
+		RecentsPath: filepath.Join(dir, "recent.json"),
+		PrefsPath:   filepath.Join(dir, "preferences.json"),
+		Activator:   activator,
+	})
+
+	if err := s.SetPeriodicRecoveryEnabled(false); err != nil {
+		t.Fatalf("SetPeriodicRecoveryEnabled(false): %v", err)
+	}
+	if err := s.SetPeriodicRecoveryEnabled(true); err != nil {
+		t.Fatalf("SetPeriodicRecoveryEnabled(true): %v", err)
+	}
+
+	if got, want := activator.enabledCalls, []bool{false, true}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("runtime toggle calls = %v, want %v", got, want)
 	}
 }
 

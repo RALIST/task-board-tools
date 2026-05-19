@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -213,6 +214,40 @@ func realTbBoardForRunWithStorage(t *testing.T, agentName string, stub *stubRunn
 	return svc, boardDir
 }
 
+func writeAppStubScript(t *testing.T, name, body string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only stub")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	return dir
+}
+
+func prependPATHForTest(t *testing.T, dir string) {
+	t.Helper()
+	orig := os.Getenv("PATH")
+	t.Cleanup(func() { _ = os.Setenv("PATH", orig) })
+	if err := os.Setenv("PATH", dir+string(os.PathListSeparator)+orig); err != nil {
+		t.Fatalf("set PATH: %v", err)
+	}
+}
+
+func killAppPIDFromFile(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	pid := atoi(strings.TrimSpace(string(data)))
+	if pid > 0 {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+}
+
 func agentTaskBodyForTest(id, agentName string) string {
 	body := strings.Replace(sampleTaskBody, "# TB-1: Sample title", "# "+id+": Sample title", 1)
 	return strings.Replace(body, "**Branch:** —", "**Branch:** —\n**Agent:** "+agentName, 1)
@@ -326,6 +361,47 @@ func TestRunAgent_HappyPath_Success(t *testing.T) {
 	taskBytes, _ := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
 	if !strings.Contains(string(taskBytes), "**AgentStatus:** success") {
 		t.Errorf("AgentStatus not success:\n%s", taskBytes)
+	}
+}
+
+func TestRunAgent_ExternalRunnerWithInheritedPipesFinishes(t *testing.T) {
+	childPIDFile := filepath.Join(t.TempDir(), "child.pid")
+	dir := writeAppStubScript(t, "claude", `
+( trap "" HUP; exec sleep 30 ) &
+printf '%s\n' "$!" > `+childPIDFile+`
+echo parent-done
+exit 0
+	`)
+	prependPATHForTest(t, dir)
+	t.Cleanup(func() { killAppPIDFromFile(t, childPIDFile) })
+
+	svc, boardDir := realTbBoardForRun(t, "claude", nil)
+
+	start := time.Now()
+	runID, err := svc.RunAgent(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("RunAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("RunAgent completed after %v; want bounded completion after parent exit", elapsed)
+	}
+
+	events := readEvents(t, boardDir, "TB-1")
+	last := events[len(events)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusSuccess || last.ExitCode != 0 {
+		t.Fatalf("final event: %+v, want finished{success}", last)
+	}
+	taskBytes, _ := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
+	if !strings.Contains(string(taskBytes), "**AgentStatus:** success") {
+		t.Fatalf("AgentStatus not success:\n%s", taskBytes)
+	}
+	logBytes, err := os.ReadFile(agent.LogPath(boardDir, "TB-1", runID))
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(logBytes), "parent-done") {
+		t.Fatalf("log missing parent output:\n%s", logBytes)
 	}
 }
 

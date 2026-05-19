@@ -48,3 +48,5 @@ Provide an explicit, safe cleanup path for orphaned `claude`/`codex` processes u
 ## Log
 
 - 2026-05-19: Created
+- 2026-05-19: Committed — moved to ready
+

@@ -2,8 +2,5 @@ personality = "friendly"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 
-[features]
-hooks = true
-
 [shell_environment_policy]
 inherit = "core"

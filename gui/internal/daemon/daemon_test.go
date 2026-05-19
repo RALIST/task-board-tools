@@ -152,6 +152,52 @@ func (r *fakeRecovery) RecoverStale(ctx context.Context, boardDir string) error 
 	return r.err
 }
 
+type fakeUntrackedRecovery struct {
+	fakeRecovery
+	untrackedCalls atomic.Int32
+}
+
+func (r *fakeUntrackedRecovery) RecoverStaleUntracked(ctx context.Context, boardDir string) error {
+	r.untrackedCalls.Add(1)
+	return r.err
+}
+
+func TestDaemon_SetPeriodicRecoveryEnabledTogglesActiveTicker(t *testing.T) {
+	rec := &fakeUntrackedRecovery{}
+	d := New(Options{
+		Board:                    newFakeBoard(),
+		Agent:                    &fakeAgent{},
+		Recovery:                 rec,
+		MaxWorkers:               1,
+		PeriodicRecoveryInterval: 10 * time.Millisecond,
+		DisablePeriodicRecovery:  true,
+	})
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if got := rec.untrackedCalls.Load(); got != 0 {
+		t.Fatalf("periodic recovery ran while disabled: %d calls", got)
+	}
+
+	d.SetPeriodicRecoveryEnabled(true)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && rec.untrackedCalls.Load() == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := rec.untrackedCalls.Load(); got == 0 {
+		t.Fatalf("periodic recovery did not start after enabling")
+	}
+
+	d.SetPeriodicRecoveryEnabled(false)
+	afterDisable := rec.untrackedCalls.Load()
+	time.Sleep(30 * time.Millisecond)
+	if got := rec.untrackedCalls.Load(); got != afterDisable {
+		t.Fatalf("periodic recovery kept running after disable: before=%d after=%d", afterDisable, got)
+	}
+}
+
 func TestDaemon_Enqueue_BeforeActivate_Errors(t *testing.T) {
 	d := New(Options{Agent: &fakeAgent{}})
 	t.Cleanup(func() { _ = d.Close() })

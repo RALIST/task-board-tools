@@ -35,6 +35,9 @@ type Task struct {
 	FilePath    string `json:"filePath"`
 	Agent       string `json:"agent"`
 	AgentStatus string `json:"agentStatus"`
+	// AgentResumable is true when the latest run has a captured session id
+	// and the task is in the interrupted state that permits Resume.
+	AgentResumable bool `json:"agentResumable"`
 	// TB-237: per-mode attribution. Each pair mirrors the (Agent,
 	// AgentStatus) shape but scoped to one kanban action; the legacy pair
 	// continues to reflect the most recent run.
@@ -80,8 +83,8 @@ type boardWIPSnapshot struct {
 }
 
 // StatusMode selects which directories LoadBoard surfaces. "active" is
-// backlog + in-progress + code-review + done (everything the kanban board
-// shows by default). "all" adds the archive bucket.
+// backlog + ready + in-progress + code-review + done (everything the kanban
+// board shows by default). "all" adds the archive bucket.
 type StatusMode string
 
 const (
@@ -142,16 +145,17 @@ func (b *BoardService) setClient(c *cli.Client) {
 	b.triageGen++
 }
 
-// LoadBoard returns the active task set (backlog + in-progress + code-review +
-// done), pre-bucketed by status. Equivalent to LoadBoardWithMode(ctx, "active").
+// LoadBoard returns the active task set (backlog + ready + in-progress +
+// code-review + done), pre-bucketed by status. Equivalent to
+// LoadBoardWithMode(ctx, "active").
 func (b *BoardService) LoadBoard(ctx context.Context) (BoardSnapshot, error) {
 	return b.LoadBoardWithMode(ctx, string(StatusModeActive))
 }
 
 // LoadBoardWithMode is the archive-aware variant. mode = "active" returns
-// backlog + in-progress + code-review + done; mode = "all" also populates
-// Snapshot.Archive. Any other value is treated as "active" so unknown modes
-// from the frontend degrade safely.
+// backlog + ready + in-progress + code-review + done; mode = "all" also
+// populates Snapshot.Archive. Any other value is treated as "active" so
+// unknown modes from the frontend degrade safely.
 func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (BoardSnapshot, error) {
 	c := b.snapshot()
 	if c == nil {
@@ -180,6 +184,7 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 		WipEnforcement: "warn",
 	}
 	for _, t := range tasks {
+		b.populateAgentResumable(ctx, &t)
 		switch t.Status {
 		case "backlog":
 			snap.Backlog = append(snap.Backlog, t)
@@ -192,6 +197,9 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 		case "done":
 			snap.Done = append(snap.Done, t)
 		case "archive":
+			if statusArg != string(StatusModeAll) {
+				continue
+			}
 			snap.Archive = append(snap.Archive, t)
 		}
 	}
@@ -271,7 +279,34 @@ func (b *BoardService) GetTask(ctx context.Context, id string) (TaskDetail, erro
 		}
 		return TaskDetail{}, err
 	}
+	b.populateAgentResumable(ctx, &detail.Metadata)
 	return detail, nil
+}
+
+func (b *BoardService) populateAgentResumable(ctx context.Context, t *Task) {
+	_ = ctx
+	if t == nil || t.AgentStatus != "interrupted" {
+		if t != nil {
+			t.AgentResumable = false
+		}
+		return
+	}
+
+	b.mu.RLock()
+	boardDir := b.boardDir
+	b.mu.RUnlock()
+	if boardDir == "" {
+		t.AgentResumable = false
+		return
+	}
+
+	_, ok, err := resumableSessionID(boardDir, t.ID)
+	if err != nil {
+		slog.Default().Warn("board: resumable session lookup failed", "task", t.ID, "err", err)
+		t.AgentResumable = false
+		return
+	}
+	t.AgentResumable = ok
 }
 
 // CreateTaskInput mirrors cli.CreateInput on the wire. Lives here (not as a

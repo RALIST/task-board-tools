@@ -46,10 +46,11 @@ var DefaultAgentValues = []string{"none", "claude", "codex"}
 // in snake_case so a future settings UI (M7) can serialise the same
 // shape directly from a hand-edited form.
 type Preferences struct {
-	MaxWorkers          int    `json:"max_workers"`
-	AgentTimeoutMinutes int    `json:"agent_timeout_minutes"`
-	DefaultAgent        string `json:"default_agent"`
-	CLIPath             string `json:"cli_path"`
+	MaxWorkers              int    `json:"max_workers"`
+	AgentTimeoutMinutes     int    `json:"agent_timeout_minutes"`
+	DefaultAgent            string `json:"default_agent"`
+	CLIPath                 string `json:"cli_path"`
+	DisablePeriodicRecovery bool   `json:"disable_periodic_recovery"`
 }
 
 // preferencesPath returns the absolute path the preferences file lives
@@ -139,6 +140,32 @@ func (s *SettingsService) GetCLIPath() string {
 		return ""
 	}
 	return prefs.CLIPath
+}
+
+// GetPeriodicRecoveryEnabled returns whether the daemon should run the
+// steady-state stale-recovery ticker. Missing preferences default to enabled;
+// the persisted field is a disable flag so old files keep the safer behavior.
+func (s *SettingsService) GetPeriodicRecoveryEnabled() bool {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return true
+	}
+	return !prefs.DisablePeriodicRecovery
+}
+
+// SetPeriodicRecoveryEnabled persists the steady-state recovery toggle.
+// Startup-time recovery still runs even when this is disabled.
+func (s *SettingsService) SetPeriodicRecoveryEnabled(enabled bool) error {
+	if err := s.updatePreferences(func(prefs *Preferences) {
+		prefs.DisablePeriodicRecovery = !enabled
+	}); err != nil {
+		return err
+	}
+	if controller, ok := s.activator.(PeriodicRecoveryController); ok {
+		controller.SetPeriodicRecoveryEnabled(enabled)
+	}
+	return nil
 }
 
 func clampMaxWorkers(n int, logger *slog.Logger) int {

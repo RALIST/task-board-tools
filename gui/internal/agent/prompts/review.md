@@ -23,7 +23,7 @@ failing the review (see below).
 - The only writes you should perform are managed board mutations via the `tb`
   CLI — specifically the review-section writers listed below.
 - Do NOT run `tb start`, `tb done`, `tb close`, or `tb mv` for this task.
-- If you have no blocking findings, commit (if not commited yet) and run `tb done {{TASK_ID}}`.
+- If you have no blocking findings, commit (if not committed yet) and run `tb done {{TASK_ID}}`.
 - If you find blocking issues that require rework, use the failure handoff
   below to move the task back to `ready` with a `review-failed` marker.
 

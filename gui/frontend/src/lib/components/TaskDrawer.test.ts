@@ -33,6 +33,7 @@ const apiMocks = vi.hoisted(() => ({
   editTaskBody: vi.fn(),
   assignAgent: vi.fn(),
   runAgent: vi.fn(),
+  resumeAgent: vi.fn(),
   cancelRun: vi.fn(),
   groomTask: vi.fn(),
   closeTask: vi.fn(),
@@ -119,7 +120,7 @@ function makeTaskFixture(overrides: Record<string, unknown> = {}) {
     status: 'backlog',
     filePath: '',
     agent: '',
-    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
+    agentStatus: '', agentResumable: false, groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
     ...overrides,
   };
 }
@@ -140,7 +141,7 @@ function makeDetail(overrides: Partial<TaskDetail['metadata']> = {}): TaskDetail
       status: 'backlog',
       filePath: 'board/backlog/TB-99/TASK.md',
       agent: '',
-      agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
+      agentStatus: '', agentResumable: false, groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
       ...overrides,
     },
     body: '# TB-99: Attachments demo\n\nbody',
@@ -173,6 +174,7 @@ beforeEach(() => {
   apiMocks.editTaskBody.mockReset();
   apiMocks.assignAgent.mockReset();
   apiMocks.runAgent.mockReset();
+  apiMocks.resumeAgent.mockReset();
   apiMocks.cancelRun.mockReset();
   apiMocks.groomTask.mockReset();
   apiMocks.closeTask.mockReset();
@@ -887,6 +889,54 @@ describe('TaskDrawer user-attention UI (TB-182)', () => {
     await flushMicrotasks();
 
     expect(apiMocks.editTask).toHaveBeenCalledWith('TB-99', { agentStatus: 'none' });
+  });
+});
+
+describe('TaskDrawer resume gating (TB-241)', () => {
+  it('disables Resume when interrupted without a captured session', async () => {
+    apiMocks.getTask.mockResolvedValue(makeDetail({ agent: 'claude', agentStatus: 'interrupted', agentResumable: false }));
+    apiMocks.listAttachments.mockResolvedValue([]);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const resume = Array.from(document.querySelectorAll<HTMLButtonElement>('.agent-buttons button'))
+      .find((b) => b.textContent?.trim() === 'Resume');
+    expect(resume).toBeDefined();
+    expect(resume?.disabled).toBe(true);
+    expect(resume?.title ?? '').toMatch(/no captured session/i);
+    resume?.click();
+    await tick();
+
+    expect(apiMocks.resumeAgent).not.toHaveBeenCalled();
+  });
+
+  it('enables Resume when interrupted with a captured session', async () => {
+    apiMocks.getTask.mockResolvedValue(makeDetail({ agent: 'claude', agentStatus: 'interrupted', agentResumable: true }));
+    apiMocks.listAttachments.mockResolvedValue([]);
+    apiMocks.resumeAgent.mockResolvedValue('r_resume');
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const resume = Array.from(document.querySelectorAll<HTMLButtonElement>('.agent-buttons button'))
+      .find((b) => b.textContent?.trim() === 'Resume');
+    expect(resume).toBeDefined();
+    expect(resume?.disabled).toBe(false);
+    resume?.click();
+    await tick();
+
+    expect(apiMocks.resumeAgent).toHaveBeenCalledWith('TB-99');
   });
 });
 

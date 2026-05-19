@@ -5,6 +5,8 @@
 **Size:** S
 **Module:** gui
 **Tags:** agent,resume,session,ux
+**Agent:** codex
+**AgentStatus:** interrupted
 **Branch:** —
 
 ## Goal
@@ -29,4 +31,9 @@ Surface the Resume action whenever the latest run has a captured `session_id`, r
 - 2026-05-19: Created
 - 2026-05-19: Edited goal
 - 2026-05-19: Edited acceptance
+- 2026-05-19: Edited agent=codex
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited agentstatus=interrupted
+- 2026-05-19: Committed — moved to ready
 

@@ -244,6 +244,28 @@ func TestResolveArtifactPaths_FolderFormInCodeReview(t *testing.T) {
 	}
 }
 
+func TestResolveArtifactPaths_FolderFormInReady(t *testing.T) {
+	// Ready is an active status too: recovered review failures and canonical
+	// pull-based work can leave folder-form tasks there with task-local agent
+	// state that must move with the task folder.
+	dir := newBoardDir(t)
+	writeFolderFormTask(t, dir, "ready", "TB-8")
+
+	paths, err := ResolveArtifactPaths(dir, "TB-8")
+	if err != nil {
+		t.Fatalf("ResolveArtifactPaths: %v", err)
+	}
+	if paths.Layout != ArtifactLayoutFolder {
+		t.Fatalf("layout: got %s, want %s", paths.Layout, ArtifactLayoutFolder)
+	}
+	if want := filepath.Join(dir, "ready", "TB-8", ".agent-state.jsonl"); paths.StatePath != want {
+		t.Fatalf("state path: got %s, want %s", paths.StatePath, want)
+	}
+	if want := filepath.Join(dir, "ready", "TB-8", ".agent-logs", "r_ready.log"); paths.LogPath("r_ready") != want {
+		t.Fatalf("log path: got %s, want %s", paths.LogPath("r_ready"), want)
+	}
+}
+
 func TestResolveArtifactPaths_DualFormPrefersFolderLayout(t *testing.T) {
 	dir := newBoardDir(t)
 	writeFileFormTask(t, dir, "backlog", "TB-1")

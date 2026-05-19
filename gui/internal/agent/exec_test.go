@@ -78,7 +78,7 @@ func TestRunExternal_NonZeroExit(t *testing.T) {
 	dir := makeStubScript(t, "fakebin", `
 echo about-to-fail
 exit 7
-`)
+	`)
 	withPATH(t, dir)
 
 	var out bytes.Buffer
@@ -91,6 +91,51 @@ exit 7
 	}
 	if res.ExitCode != 7 {
 		t.Errorf("exit code: %d, want 7", res.ExitCode)
+	}
+}
+
+func TestRunExternal_ReturnsWhenChildInheritsOutputPipes(t *testing.T) {
+	childPIDFile := filepath.Join(t.TempDir(), "child.pid")
+	dir := makeStubScript(t, "fakebin", `
+( trap "" HUP; exec sleep 30 ) &
+printf '%s\n' "$!" > `+childPIDFile+`
+echo parent-done
+exit 0
+	`)
+	withPATH(t, dir)
+	t.Cleanup(func() { killPIDFromFile(t, childPIDFile) })
+
+	var out bytes.Buffer
+	type runResult struct {
+		res RunResult
+		err error
+	}
+	resCh := make(chan runResult, 1)
+	start := time.Now()
+	go func() {
+		res, err := runExternal(context.Background(), RunInput{
+			ProjectRoot: t.TempDir(),
+			Stdout:      &out,
+		}, "fakebin", nil)
+		resCh <- runResult{res: res, err: err}
+	}()
+
+	select {
+	case got := <-resCh:
+		if got.err != nil {
+			t.Fatalf("runExternal: %v", got.err)
+		}
+		if got.res.ExitCode != 0 {
+			t.Fatalf("exit code: got %d, want 0", got.res.ExitCode)
+		}
+		if !strings.Contains(out.String(), "parent-done") {
+			t.Fatalf("stdout missing parent output: %q", out.String())
+		}
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Fatalf("runExternal returned after %v; want bounded completion after parent exit", elapsed)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runExternal blocked waiting for stdout/stderr EOF from inherited child pipes")
 	}
 }
 
@@ -335,7 +380,7 @@ echo ok
 		t.Fatalf("argv file: %v", err)
 	}
 	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	want := []string{"-p", "do the thing", "--output-format", "stream-json", "--verbose"}
+	want := []string{"-p", "do the thing", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"}
 	if len(args) != len(want) {
 		t.Fatalf("argv length: got %d want %d (%#v)", len(args), len(want), args)
 	}
@@ -376,7 +421,7 @@ echo ok
 		t.Fatalf("argv file: %v", err)
 	}
 	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	want := []string{"-p", "continue", "--output-format", "stream-json", "--verbose", "-r", uuid}
+	want := []string{"-p", "continue", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "-r", uuid}
 	if len(args) != len(want) {
 		t.Fatalf("argv length: got %d want %d (%#v)", len(args), len(want), args)
 	}
@@ -421,7 +466,7 @@ echo ok
 		t.Fatalf("argv file: %v", err)
 	}
 	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	want := []string{"-p", "do the thing", "--output-format", "stream-json", "--verbose", "--session-id", uuid}
+	want := []string{"-p", "do the thing", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--session-id", uuid}
 	if len(args) != len(want) {
 		t.Fatalf("argv length: got %d want %d (%#v)", len(args), len(want), args)
 	}
@@ -518,6 +563,18 @@ func atoi(s string) int {
 		n = n*10 + int(r-'0')
 	}
 	return n
+}
+
+func killPIDFromFile(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	pid := atoi(strings.TrimSpace(string(data)))
+	if pid > 0 {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
 }
 
 type flushWriter struct {

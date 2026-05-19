@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"tools/tb-gui/internal/agent"
 	"tools/tb-gui/internal/cli"
 )
 
@@ -80,6 +81,46 @@ JSON`)
 	}
 }
 
+func TestLoadBoard_PreservesDoneCompletionOrderFromCLI(t *testing.T) {
+	stub := makeStub(t, `
+if [ "$1" = "board" ]; then
+  echo '{}'
+  exit 0
+fi
+cat <<JSON
+[
+  {"id":"TB-10","title":"Backlog P0","status":"backlog","priority":"P0","tags":[]},
+  {"id":"TB-20","title":"Backlog P2","status":"backlog","priority":"P2","tags":[]},
+  {"id":"TB-40","title":"In Progress P0","status":"in-progress","priority":"P0","tags":[]},
+  {"id":"TB-50","title":"In Progress P2","status":"in-progress","priority":"P2","tags":[]},
+  {"id":"TB-31","title":"Newer done P2","status":"done","priority":"P2","completedAt":"2026-05-12","tags":[]},
+  {"id":"TB-30","title":"Older done P0","status":"done","priority":"P0","completedAt":"2026-05-01","tags":[]},
+  {"id":"TB-99","title":"Archived closed","status":"archive","priority":"P0","completedAt":"2026-05-13","tags":[]}
+]
+JSON
+`)
+
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	snap, err := svc.LoadBoard(context.Background())
+	if err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+	if got := taskIDsFromAppTasks(snap.Backlog); strings.Join(got, ",") != "TB-10,TB-20" {
+		t.Fatalf("backlog order = %v, want [TB-10 TB-20]", got)
+	}
+	if got := taskIDsFromAppTasks(snap.InProgress); strings.Join(got, ",") != "TB-40,TB-50" {
+		t.Fatalf("in-progress order = %v, want [TB-40 TB-50]", got)
+	}
+	if got := taskIDsFromAppTasks(snap.Done); strings.Join(got, ",") != "TB-31,TB-30" {
+		t.Fatalf("done order = %v, want newer completion before older higher priority", got)
+	}
+	if len(snap.Archive) != 0 {
+		t.Fatalf("active snapshot should not expose archive tasks: %+v", snap.Archive)
+	}
+}
+
 func TestLoadBoard_EmptyArray(t *testing.T) {
 	stub := makeStub(t, `echo "[]"`)
 	svc := NewBoardService()
@@ -124,6 +165,116 @@ JSON`)
 	}
 	if d.Metadata.ID != "TB-1" || d.Metadata.Title != "Hello" || d.Body != "# Body" {
 		t.Fatalf("decode mismatch: %+v", d)
+	}
+}
+
+func TestGetTask_AgentResumableReflectsLatestSession(t *testing.T) {
+	cases := []struct {
+		name            string
+		folderForm      bool
+		agentStatus     string
+		writeSession    bool
+		wantResumable   bool
+		wantStateSuffix string
+	}{
+		{
+			name:            "file form interrupted with captured session",
+			agentStatus:     "interrupted",
+			writeSession:    true,
+			wantResumable:   true,
+			wantStateSuffix: ".agent-state/TB-1.jsonl",
+		},
+		{
+			name:            "file form interrupted without captured session",
+			agentStatus:     "interrupted",
+			wantResumable:   false,
+			wantStateSuffix: ".agent-state/TB-1.jsonl",
+		},
+		{
+			name:            "folder form interrupted with captured session",
+			folderForm:      true,
+			agentStatus:     "interrupted",
+			writeSession:    true,
+			wantResumable:   true,
+			wantStateSuffix: "backlog/TB-1/.agent-state.jsonl",
+		},
+		{
+			name:            "folder form interrupted without captured session",
+			folderForm:      true,
+			agentStatus:     "interrupted",
+			wantResumable:   false,
+			wantStateSuffix: "backlog/TB-1/.agent-state.jsonl",
+		},
+		{
+			name:            "non interrupted status never resumable",
+			agentStatus:     "success",
+			writeSession:    true,
+			wantResumable:   false,
+			wantStateSuffix: ".agent-state/TB-1.jsonl",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, boardDir := realTbBoardForRunWithStorage(t, "claude", nil, nil, tc.folderForm)
+			c := svc.board.snapshot()
+			if tc.writeSession {
+				appendGetTaskSessionEvent(t, boardDir)
+			}
+			if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: tc.agentStatus}); err != nil {
+				t.Fatalf("edit AgentStatus: %v", err)
+			}
+
+			detail, err := svc.board.GetTask(context.Background(), "TB-1")
+			if err != nil {
+				t.Fatalf("GetTask: %v", err)
+			}
+			if detail.Metadata.AgentResumable != tc.wantResumable {
+				t.Fatalf("AgentResumable = %v, want %v", detail.Metadata.AgentResumable, tc.wantResumable)
+			}
+
+			statePath := agent.StatePath(boardDir, "TB-1")
+			if !strings.HasSuffix(filepath.ToSlash(statePath), tc.wantStateSuffix) {
+				t.Fatalf("StatePath = %s, want suffix %s", filepath.ToSlash(statePath), tc.wantStateSuffix)
+			}
+		})
+	}
+}
+
+func appendGetTaskSessionEvent(t *testing.T, boardDir string) {
+	t.Helper()
+	events := []agent.Event{
+		{
+			TS:     "2026-05-19T10:00:00Z",
+			RunID:  "r_get_task",
+			TaskID: "TB-1",
+			Event:  agent.EvQueued,
+			Agent:  "claude",
+			Mode:   agent.ModeImplement.String(),
+		},
+		{
+			TS:     "2026-05-19T10:00:01Z",
+			RunID:  "r_get_task",
+			TaskID: "TB-1",
+			Event:  agent.EvStarted,
+			Agent:  "claude",
+			Mode:   agent.ModeImplement.String(),
+			PID:    12345,
+		},
+		{
+			TS:        "2026-05-19T10:00:02Z",
+			RunID:     "r_get_task",
+			TaskID:    "TB-1",
+			Event:     agent.EvSession,
+			Agent:     "claude",
+			Mode:      agent.ModeImplement.String(),
+			SessionID: "session-get-task",
+		},
+	}
+	for _, ev := range events {
+		if err := agent.AppendEvent(boardDir, "TB-1", ev); err != nil {
+			t.Fatalf("append event: %v", err)
+		}
 	}
 }
 
@@ -352,6 +503,14 @@ func assertTriageCalls(t *testing.T, path string, want int) {
 	if got := strings.Count(string(raw), "triage\n"); got != want {
 		t.Fatalf("triage calls: got %d want %d; log=%q", got, want, raw)
 	}
+}
+
+func taskIDsFromAppTasks(tasks []Task) []string {
+	ids := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		ids = append(ids, task.ID)
+	}
+	return ids
 }
 
 func TestCreateTask_HappyPath(t *testing.T) {

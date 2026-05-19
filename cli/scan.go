@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// defaultScanExtensions returns the default file extensions to scan for TODO comments.
+// defaultScanExtensions returns the default file extensions to scan for TODO(TB-274) comments.
 func defaultScanExtensions() map[string]bool {
 	return map[string]bool{
 		".go": true, ".ts": true, ".svelte": true, ".js": true, ".tsx": true, ".jsx": true,
@@ -142,7 +142,7 @@ func cmdScan(args []string) {
 	fmt.Printf("\nCreated %d task(s) and updated source comments.\n", len(refs))
 }
 
-// scanForTodos walks the directory tree and finds untagged TODO/FIXME/HACK/WORKAROUND comments.
+// scanForTodos walks the directory tree and finds untagged TODO/FIXME/HACK/WORKAROUND(TB-279) comments.
 func scanForTodos(searchRoot, projectRoot string) []todoHit {
 	var hits []todoHit
 
@@ -173,7 +173,7 @@ func scanForTodos(searchRoot, projectRoot string) []todoHit {
 	return hits
 }
 
-// scanFile reads a single file and returns untagged TODO hits.
+// scanFile reads a single file and returns untagged TODO(TB-280) hits.
 func scanFile(path, projectRoot string) []todoHit {
 	f, err := os.Open(path)
 	if err != nil {
@@ -274,7 +274,7 @@ func buildScanTaskContent(id int, h todoHit, date string) string {
 	return b.String()
 }
 
-// updateSourceFile replaces TODO markers in a file with WS-NNN tagged versions.
+// updateSourceFile replaces TODO(TB-281) markers in a file with WS-NNN tagged versions.
 func updateSourceFile(path string, tasks []todoTaskRef) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -292,12 +292,12 @@ func updateSourceFile(path string, tasks []todoTaskRef) error {
 		line := lines[lineIdx]
 		taskID := fmt.Sprintf("%s-%d", cfg.Prefix, t.id)
 
-		// Replace "TODO:" with "TODO(PREFIX-123):", "FIXME:" with "FIXME(PREFIX-123):", etc.
-		// Also handle "TODO —", "TODO -", "TODO :" variants.
+		// Replace "TODO(TB-282):" with "TODO(TB-282):", "FIXME:" with "FIXME(PREFIX-123):", etc.
+		// Also handle "TODO(TB-283) —", "TODO(TB-283) -", "TODO(TB-283) :" variants.
 		old := t.hit.Marker
 		replacement := fmt.Sprintf("%s(%s)", old, taskID)
 
-		// Handle existing parenthetical: TODO(someone) → TODO(WS-123)
+		// Handle existing parenthetical: TODO(TB-284) → TODO(TB-284)
 		parenPattern := regexp.MustCompile(regexp.QuoteMeta(old) + `(\([^)]*\))?`)
 		lines[lineIdx] = parenPattern.ReplaceAllString(line, replacement)
 	}

@@ -40,6 +40,11 @@ const shutdownGrace = 5 * time.Second
 // dropping. 256 is enough for any reasonable board.
 const queueBufferDefault = 256
 
+// periodicRecoveryIntervalDefault is the steady-state stale recovery cadence.
+// Startup recovery still runs immediately on Activate; this ticker covers
+// runs that become stale while the GUI process stays alive.
+const periodicRecoveryIntervalDefault = 60 * time.Second
+
 // AgentTask is the minimum surface from a Board task the daemon needs
 // to decide whether to enqueue. Defined here (not imported from
 // gui/app.Task) so tests can build fake board snapshots without pulling
@@ -87,6 +92,14 @@ type Recovery interface {
 	RecoverStale(ctx context.Context, boardDir string) error
 }
 
+// UntrackedRecovery is implemented by recovery services that can skip
+// task/run pairs already owned by this daemon instance's AgentService.active
+// map. The periodic tick uses this narrower path so it never races a live
+// stream managed by the current process.
+type UntrackedRecovery interface {
+	RecoverStaleUntracked(ctx context.Context, boardDir string) error
+}
+
 // Options bundles construction-time configuration. Zero MaxWorkers is
 // coerced to MaxWorkersDefault in New so callers can pass a fresh
 // struct without remembering to set it.
@@ -98,22 +111,33 @@ type Options struct {
 	MaxWorkers int
 	// QueueBuffer overrides the work-channel capacity. Zero = default.
 	QueueBuffer int
+	// PeriodicRecoveryInterval controls the steady-state recovery cadence.
+	// Zero = 60s. DisablePeriodicRecovery turns the ticker off while leaving
+	// activation-time recovery intact.
+	PeriodicRecoveryInterval time.Duration
+	DisablePeriodicRecovery  bool
 }
 
 // Daemon coordinates the worker pool, active-set dedup, and lifecycle
 // callbacks. Construction is cheap and side-effect-free; activation
 // (Activate) does the file IO.
 type Daemon struct {
-	board       Board
-	agent       Agent
-	recovery    Recovery
-	logger      *slog.Logger
-	maxWorkers  int
-	queue       chan string
-	rootCtx     context.Context
-	rootCancel  context.CancelFunc
-	workersWG   sync.WaitGroup
-	closeOnce   sync.Once
+	board      Board
+	agent      Agent
+	recovery   Recovery
+	logger     *slog.Logger
+	maxWorkers int
+	queue      chan string
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
+	workersWG  sync.WaitGroup
+	closeOnce  sync.Once
+
+	periodicRecoveryInterval time.Duration
+	disablePeriodicRecovery  bool
+	periodicMu               sync.Mutex
+	periodicCancel           context.CancelFunc
+	periodicDone             <-chan struct{}
 
 	// activeMu guards active. A task ID is in active while it is
 	// either sitting in the queue OR being executed by a worker.
@@ -149,18 +173,24 @@ func New(opts Options) *Daemon {
 	if qb < 1 {
 		qb = queueBufferDefault
 	}
+	recoveryInterval := opts.PeriodicRecoveryInterval
+	if recoveryInterval <= 0 {
+		recoveryInterval = periodicRecoveryIntervalDefault
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{
-		board:      opts.Board,
-		agent:      opts.Agent,
-		recovery:   opts.Recovery,
-		logger:     logger,
-		maxWorkers: mw,
-		queue:      make(chan string, qb),
-		rootCtx:    ctx,
-		rootCancel: cancel,
-		active:     make(map[string]struct{}),
+		board:                    opts.Board,
+		agent:                    opts.Agent,
+		recovery:                 opts.Recovery,
+		logger:                   logger,
+		maxWorkers:               mw,
+		queue:                    make(chan string, qb),
+		rootCtx:                  ctx,
+		rootCancel:               cancel,
+		active:                   make(map[string]struct{}),
+		periodicRecoveryInterval: recoveryInterval,
+		disablePeriodicRecovery:  opts.DisablePeriodicRecovery,
 	}
 
 	for i := 0; i < mw; i++ {
@@ -174,6 +204,28 @@ func New(opts Options) *Daemon {
 // MaxWorkers reports the configured semaphore capacity. Useful for
 // telemetry and tests.
 func (d *Daemon) MaxWorkers() int { return d.maxWorkers }
+
+// SetPeriodicRecoveryEnabled toggles the steady-state stale-recovery ticker at
+// runtime. Startup recovery still runs during Activate regardless of this
+// setting.
+func (d *Daemon) SetPeriodicRecoveryEnabled(enabled bool) {
+	d.periodicMu.Lock()
+	d.disablePeriodicRecovery = !enabled
+	d.periodicMu.Unlock()
+
+	if !enabled {
+		d.stopPeriodicRecovery()
+		return
+	}
+
+	d.boardMu.Lock()
+	boardDir := d.boardDir
+	activated := d.activated
+	d.boardMu.Unlock()
+	if activated {
+		d.startPeriodicRecovery(boardDir)
+	}
+}
 
 // BoardDir returns the active board directory, or "" if not yet
 // activated. Test-only and metrics use.
@@ -223,6 +275,7 @@ func (d *Daemon) Activate(ctx context.Context, boardDir string) error {
 		// will pick up tasks on the next mutation.
 		d.logger.Warn("daemon: startup scan failed; continuing", "err", err)
 	}
+	d.startPeriodicRecovery(boardDir)
 	return nil
 }
 
@@ -231,6 +284,8 @@ func (d *Daemon) Activate(ctx context.Context, boardDir string) error {
 // root context — Close does that. Workers stay parked until Close or
 // a new Activate.
 func (d *Daemon) Deactivate() error {
+	d.stopPeriodicRecovery()
+
 	d.boardMu.Lock()
 	if !d.activated {
 		d.boardMu.Unlock()
@@ -246,6 +301,70 @@ func (d *Daemon) Deactivate() error {
 	d.active = make(map[string]struct{})
 	d.activeMu.Unlock()
 	return nil
+}
+
+func (d *Daemon) startPeriodicRecovery(boardDir string) {
+	if d.recovery == nil {
+		return
+	}
+	recovery, ok := d.recovery.(UntrackedRecovery)
+	if !ok {
+		d.logger.Warn("daemon: periodic recovery disabled; recovery service lacks untracked recovery")
+		return
+	}
+
+	d.periodicMu.Lock()
+	if d.disablePeriodicRecovery || d.periodicCancel != nil {
+		d.periodicMu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(d.rootCtx)
+	done := make(chan struct{})
+	d.periodicCancel = cancel
+	d.periodicDone = done
+	interval := d.periodicRecoveryInterval
+	d.periodicMu.Unlock()
+
+	go func() {
+		defer close(done)
+		d.periodicRecoveryLoop(ctx, boardDir, interval, recovery)
+	}()
+}
+
+func (d *Daemon) stopPeriodicRecovery() {
+	d.periodicMu.Lock()
+	cancel := d.periodicCancel
+	done := d.periodicDone
+	d.periodicCancel = nil
+	d.periodicDone = nil
+	d.periodicMu.Unlock()
+
+	if cancel == nil {
+		return
+	}
+	cancel()
+	if done != nil {
+		<-done
+	}
+}
+
+func (d *Daemon) periodicRecoveryLoop(ctx context.Context, boardDir string, interval time.Duration, recovery UntrackedRecovery) {
+	if interval <= 0 {
+		interval = periodicRecoveryIntervalDefault
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := recovery.RecoverStaleUntracked(ctx, boardDir); err != nil {
+				d.logger.Warn("daemon: periodic stale recovery failed; continuing", "err", err)
+			}
+		}
+	}
 }
 
 // Close cancels the daemon's root context (propagating to any worker's

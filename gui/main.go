@@ -61,11 +61,12 @@ func main() {
 	maxWorkers := settingsForPrefs.GetMaxWorkers()
 	recovery := tbapp.NewRecoveryService(boardService, agentService, daemon.PidAliveForRecovery, logger)
 	d := daemon.New(daemon.Options{
-		Board:      &boardAdapter{b: boardService},
-		Agent:      &agentAdapter{s: agentService},
-		Recovery:   recovery,
-		Logger:     logger,
-		MaxWorkers: maxWorkers,
+		Board:                   &boardAdapter{b: boardService},
+		Agent:                   &agentAdapter{s: agentService},
+		Recovery:                recovery,
+		Logger:                  logger,
+		MaxWorkers:              maxWorkers,
+		DisablePeriodicRecovery: !settingsForPrefs.GetPeriodicRecoveryEnabled(),
 	})
 
 	// Watcher emits to both the Wails app and the daemon sink (TB-58).

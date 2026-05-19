@@ -330,6 +330,7 @@
   // Resume is available — the selected run might be an older one the
   // user is browsing while the latest interrupted run sits at the top.
   let taskAgentStatus = $derived(detail?.metadata.agentStatus ?? '');
+  let taskAgentResumable = $derived(detail?.metadata.agentResumable ?? false);
   // Stale-run override: if the JSONL run history reports a run as still
   // `running`/`queued` but the task's AgentStatus has been moved to a
   // terminal value, the run-store is stale (a `finished` JSONL write
@@ -361,7 +362,10 @@
   let canSubmitReview = $derived(detail?.metadata.status === 'in-progress');
   let canRunReview = $derived(detail?.metadata.status === 'code-review');
   let needsUser = $derived(taskAgentStatus === 'needs-user');
-  let canResume = $derived(taskAgentStatus === 'interrupted' && !runBusy);
+  let canResume = $derived(taskAgentStatus === 'interrupted' && taskAgentResumable && !runBusy);
+  let resumeDisabledTitle = $derived(!taskAgentResumable
+    ? 'No captured session for this interrupted run - use Run to start fresh.'
+    : (runBusy ? 'Another run is in progress for this task' : 'Continue the previous agent session'));
   // TB-182: parse the ## User Attention section out of the task body so the
   // drawer can surface the ask near the agent controls. Returns the raw
   // section body (Markdown) or null when the section isn't present.
@@ -504,7 +508,7 @@
   }
 
   async function onResumeClick() {
-    if (!detail) return;
+    if (!detail || !canResume) return;
     const id = detail.metadata.id;
     resumeStarting = true;
     try {
@@ -1646,7 +1650,7 @@
                     disabled={!canResume}
                     title={canResume
                       ? 'Continue the previous agent session'
-                      : 'Another run is in progress for this task'}
+                      : resumeDisabledTitle}
                     onclick={onResumeClick}>
                     {resumeStarting ? 'Resuming…' : 'Resume'}
                   </button>

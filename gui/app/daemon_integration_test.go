@@ -68,6 +68,10 @@ func daemonFolderIntegrationFixture(t *testing.T, runner agent.Runner) (*daemon.
 }
 
 func daemonIntegrationFixtureWithStorage(t *testing.T, runner agent.Runner, folderForm bool) (*daemon.Daemon, *AgentService, string, *cli.Client) {
+	return daemonIntegrationFixtureWithStorageAndOptions(t, runner, folderForm, nil)
+}
+
+func daemonIntegrationFixtureWithStorageAndOptions(t *testing.T, runner agent.Runner, folderForm bool, configure func(*daemon.Options)) (*daemon.Daemon, *AgentService, string, *cli.Client) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX-only board flock")
@@ -117,12 +121,16 @@ func daemonIntegrationFixtureWithStorage(t *testing.T, runner agent.Runner, fold
 
 	rec := NewRecoveryService(board, svc, func(int, string) bool { return false }, slog.Default())
 
-	d := daemon.New(daemon.Options{
+	opts := daemon.Options{
 		Board:      &boardAdapter{b: board},
 		Agent:      &daemonAgentAdapter{s: svc},
 		Recovery:   rec,
 		MaxWorkers: 1,
-	})
+	}
+	if configure != nil {
+		configure(&opts)
+	}
+	d := daemon.New(opts)
 	return d, svc, boardDir, c
 }
 
@@ -283,6 +291,70 @@ func TestDaemon_CLIQueuesFolderTaskUsesTaskLocalArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(boardDir, ".agent-logs", "TB-1")); !os.IsNotExist(err) {
 		t.Fatalf("folder daemon run should not create board-root logs, err=%v", err)
+	}
+}
+
+func TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart(t *testing.T) {
+	runner := &successRunner{}
+	d, svc, boardDir, c := daemonIntegrationFixtureWithStorageAndOptions(t, runner, false, func(opts *daemon.Options) {
+		opts.PeriodicRecoveryInterval = 20 * time.Millisecond
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := d.Activate(ctx, boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:     time.Now().UTC().Format(time.RFC3339),
+		RunID:  "r_periodic",
+		TaskID: "TB-1",
+		Event:  agent.EvQueued,
+		Agent:  "claude",
+		Mode:   agent.ModeImplement.String(),
+	}); err != nil {
+		t.Fatalf("append queued: %v", err)
+	}
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:     time.Now().UTC().Format(time.RFC3339),
+		RunID:  "r_periodic",
+		TaskID: "TB-1",
+		Event:  agent.EvStarted,
+		Agent:  "claude",
+		Mode:   agent.ModeImplement.String(),
+		PID:    99999,
+	}); err != nil {
+		t.Fatalf("append started: %v", err)
+	}
+	if err := c.Edit(ctx, "TB-1", cli.EditInput{AgentStatus: "running"}); err != nil {
+		t.Fatalf("edit running: %v", err)
+	}
+
+	waitForCondition(t, 3*time.Second, func() bool {
+		out, err := c.Run(context.Background(), "show", "TB-1")
+		return err == nil && strings.Contains(string(out), "**AgentStatus:** failed")
+	})
+
+	events := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	last := events[len(events)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
+		t.Fatalf("last event: %+v, want finished{failed}", last)
+	}
+	if last.RunID != "r_periodic" {
+		t.Fatalf("finished run id: got %q, want r_periodic", last.RunID)
+	}
+
+	foundFinishedEmit := false
+	for _, ev := range svc.emitter.(*recordingEmitter).events {
+		if ev.Name == "agent:run-finished" {
+			foundFinishedEmit = true
+			break
+		}
+	}
+	if !foundFinishedEmit {
+		t.Fatalf("periodic recovery did not emit agent:run-finished")
 	}
 }
 

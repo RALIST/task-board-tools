@@ -4,10 +4,12 @@ import {
   getCLIPath,
   getDefaultAgent,
   getMaxWorkers,
+  getPeriodicRecoveryEnabled,
   setAgentTimeoutMinutes as apiSetAgentTimeoutMinutes,
   setCLIPath as apiSetCLIPath,
   setDefaultAgent as apiSetDefaultAgent,
   setMaxWorkers as apiSetMaxWorkers,
+  setPeriodicRecoveryEnabled as apiSetPeriodicRecoveryEnabled,
 } from '$lib/api';
 import { pushToast } from './toast';
 
@@ -18,6 +20,7 @@ export interface PreferencesState {
   agentTimeoutMinutes: number;
   defaultAgent: DefaultAgent;
   cliPath: string;
+  periodicRecoveryEnabled: boolean;
   loaded: boolean;
 }
 
@@ -26,6 +29,7 @@ const DEFAULT_STATE: PreferencesState = {
   agentTimeoutMinutes: 30,
   defaultAgent: 'none',
   cliPath: '',
+  periodicRecoveryEnabled: true,
   loaded: false,
 };
 
@@ -40,11 +44,12 @@ export async function loadPreferences(): Promise<void> {
 
   loadPromise = (async () => {
     try {
-      const [maxWorkers, agentTimeoutMinutes, rawDefaultAgent, cliPath] = await Promise.all([
+      const [maxWorkers, agentTimeoutMinutes, rawDefaultAgent, cliPath, periodicRecoveryEnabled] = await Promise.all([
         getMaxWorkers(),
         getAgentTimeoutMinutes(),
         getDefaultAgent(),
         getCLIPath(),
+        getPeriodicRecoveryEnabled(),
       ]);
 
       preferences.set({
@@ -57,6 +62,7 @@ export async function loadPreferences(): Promise<void> {
         ),
         defaultAgent: normalizeDefaultAgent(rawDefaultAgent),
         cliPath: cliPath ?? '',
+        periodicRecoveryEnabled: periodicRecoveryEnabled !== false,
         loaded: true,
       });
     } catch (err) {
@@ -92,6 +98,12 @@ export async function setCLIPath(value: string): Promise<void> {
   await optimisticWrite('cliPath', next, 'CLI path', () => apiSetCLIPath(next));
 }
 
+export async function setPeriodicRecoveryEnabled(value: boolean): Promise<void> {
+  await optimisticWrite('periodicRecoveryEnabled', value, 'periodic recovery', () =>
+    apiSetPeriodicRecoveryEnabled(value),
+  );
+}
+
 export const preferencesStore = {
   subscribe: preferences.subscribe,
   load: loadPreferences,
@@ -99,6 +111,7 @@ export const preferencesStore = {
   setAgentTimeoutMinutes,
   setDefaultAgent,
   setCLIPath,
+  setPeriodicRecoveryEnabled,
 };
 
 export function _resetPreferencesStoreForTesting(): void {

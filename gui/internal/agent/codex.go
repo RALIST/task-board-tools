@@ -50,9 +50,9 @@ func (r *CodexRunner) Run(ctx context.Context, in RunInput) (RunResult, error) {
 	}
 	var args []string
 	if in.Mode == ModeResume && in.SessionID != "" {
-		args = []string{"exec", "--json", "resume", in.SessionID, in.Prompt}
+		args = []string{"exec", "--yolo", "--json", "resume", in.SessionID, in.Prompt}
 	} else {
-		args = []string{"exec", "--json", in.Prompt}
+		args = []string{"exec", "--yolo", "--json", in.Prompt}
 	}
 	res, _ := runExternal(ctx, in, "codex", args)
 	return res, res.Err

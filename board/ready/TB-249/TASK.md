@@ -31,3 +31,5 @@ Clear the CLI-side golangci-lint findings discovered during TB-206 so the projec
 
 - 2026-05-19: Created
 - 2026-05-19: Edited acceptance
+- 2026-05-19: Committed — moved to ready
+

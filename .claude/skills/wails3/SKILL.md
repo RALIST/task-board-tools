@@ -1,12 +1,12 @@
 ---
 name: "wails3"
-description: "Wails v3 documentation and Writer Studio conventions"
+description: "Wails v3 documentation and convenitions. Use when you need speicific info about wails internals, how to work with windows, events, menus, dialogs, etc."
 ---
 
 # Wails 3
 
-This skill covers the Wails v3 contract Writer Studio relies on. Detailed reference docs live at
-`~/projects/books/wails/docs/src/content/docs/`. Source code: `~/projects/books/wails/v3/`.
+This skill covers the Wails v3 contract app relies on. Detailed reference docs live at
+`~/projects/wails/docs/src/content/docs/`. Source code: `~/projects/wails/v3/`.
 
 ## What Wails 3 actually contributes
 
@@ -23,8 +23,7 @@ Everything else (windows, menus, dialogs, drag-drop, file associations) is a fea
 
 ## Service contract — the whole thing
 
-A Wails service is a Go struct registered with `application.NewService(...)`. Public methods on the struct become async
-callable functions in JS.
+A Wails service is a Go struct registered with `application.NewService(...)`. Public methods on the struct become async callable functions in JS.
 
 ```go
 type BookController struct {

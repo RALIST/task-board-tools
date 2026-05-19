@@ -55,7 +55,7 @@ func recoveryFixtureWithTasks(t *testing.T, tasks []recoveryTaskFixture) (*Recov
 
 	root := t.TempDir()
 	boardDir := filepath.Join(root, "board")
-	for _, d := range []string{"backlog", "in-progress", "code-review", "done", "archive"} {
+	for _, d := range []string{"backlog", "ready", "in-progress", "code-review", "done", "archive"} {
 		if err := os.MkdirAll(filepath.Join(boardDir, d), 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -715,6 +715,91 @@ func TestRecoverStale_DeadPIDNoSessionID_MarksFailedUnchanged(t *testing.T) {
 	out, _ := c.Run(context.Background(), "show", "TB-1")
 	if !strings.Contains(string(out), "**AgentStatus:** failed") {
 		t.Fatalf("AgentStatus not failed:\n%s", out)
+	}
+}
+
+func TestRecoverStale_TerminalizesOlderStartedOnlyRunsBeforeListRuns(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_old_session", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeReview.String()},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_old_session", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", Mode: agent.ModeReview.String(), PID: 11111},
+		{TS: "2026-05-19T10:00:02Z", RunID: "r_old_session", TaskID: "TB-1", Event: agent.EvSession, SessionID: "11111111-2222-4333-8444-555555555555", PID: 11111},
+		{TS: "2026-05-19T10:10:00Z", RunID: "r_new_no_session", TaskID: "TB-1", Event: agent.EvQueued, Agent: "codex", Mode: agent.ModeReview.String()},
+		{TS: "2026-05-19T10:10:01Z", RunID: "r_new_no_session", TaskID: "TB-1", Event: agent.EvStarted, Agent: "codex", Mode: agent.ModeReview.String(), PID: 22222},
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "codex", events)
+	rec.liveFn = func(int, string) bool { return false }
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+
+	runs, err := rec.agent.ListRuns(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	statuses := map[string]string{}
+	for _, run := range runs {
+		statuses[run.RunID] = run.Status
+	}
+	if statuses["r_old_session"] != string(agent.StatusInterrupted) {
+		t.Fatalf("old run status = %q, want interrupted (all runs: %+v)", statuses["r_old_session"], runs)
+	}
+	if statuses["r_new_no_session"] != string(agent.StatusFailed) {
+		t.Fatalf("new run status = %q, want failed (all runs: %+v)", statuses["r_new_no_session"], runs)
+	}
+	for _, run := range runs {
+		if run.Status == "running" || run.Status == "queued" {
+			t.Fatalf("stale run still surfaced as active: %+v", run)
+		}
+	}
+
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** failed") {
+		t.Fatalf("latest run should drive task AgentStatus=failed:\n%s", out)
+	}
+}
+
+func TestRecoverStale_ReadyFolderInterruptedUsesTaskLocalState(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_ready", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_ready", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 12345},
+		{TS: "2026-05-19T10:00:02Z", RunID: "r_ready", TaskID: "TB-1", Event: agent.EvSession, SessionID: "11111111-2222-4333-8444-555555555555", PID: 12345},
+	}
+	rec, _, boardDir, c := recoveryFixtureWithTasks(t, []recoveryTaskFixture{{
+		id:          "TB-1",
+		agentField:  "claude",
+		agentStatus: "running",
+		form:        "folder",
+		statusDir:   "ready",
+		events:      events,
+	}})
+	rec.liveFn = func(int, string) bool { return false }
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+
+	readyState := filepath.Join(boardDir, "ready", "TB-1", ".agent-state.jsonl")
+	if got := agent.StatePath(boardDir, "TB-1"); got != readyState {
+		t.Fatalf("StatePath = %s, want %s", got, readyState)
+	}
+	final := readJSONL(t, readyState)
+	last := final[len(final)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusInterrupted {
+		t.Fatalf("last event: %+v, want finished{interrupted}", last)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, ".agent-state", "TB-1.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("ready folder task should not create board-root state, err=%v", err)
+	}
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** interrupted") {
+		t.Fatalf("AgentStatus not interrupted:\n%s", out)
 	}
 }
 

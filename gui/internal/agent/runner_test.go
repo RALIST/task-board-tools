@@ -21,9 +21,14 @@ func TestPromptReview_LocksReviewContract(t *testing.T) {
 	if strings.TrimSpace(PromptReview) == "" {
 		t.Fatal("PromptReview is empty")
 	}
-	for _, tok := range []string{"{{TASK_ID}}", "{{TASK_TITLE}}", "{{TASK_BODY}}"} {
+	for _, tok := range []string{"{{TASK_ID}}"} {
 		if !strings.Contains(PromptReview, tok) {
 			t.Errorf("PromptReview missing placeholder %s", tok)
+		}
+	}
+	for _, tok := range []string{"{{TASK_TITLE}}", "{{TASK_BODY}}"} {
+		if strings.Contains(PromptReview, tok) {
+			t.Errorf("PromptReview should not duplicate task context placeholder %s; review runs read live task data via tb show", tok)
 		}
 	}
 	// TB-198: review-mode runs MUST be read-only against implementation

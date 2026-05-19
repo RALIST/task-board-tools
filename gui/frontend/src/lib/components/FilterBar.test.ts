@@ -22,7 +22,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     status: 'backlog',
     filePath: '',
     agent: '',
-    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
+    agentStatus: '', agentResumable: false, groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
     ...overrides,
   };
 }

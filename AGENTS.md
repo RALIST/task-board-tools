@@ -4,13 +4,31 @@
 
 This repo builds two tools over the same markdown board format. `cli/` contains the `tb` Go CLI (`module tools/tb`) as a single `package main`; tests live beside the command files. `gui/` contains the Wails3 desktop app (`module tools/tb-gui`): exported services are in `gui/app/`, non-exported helpers in `gui/internal/`, and the Svelte 5 frontend in `gui/frontend/src/`. Wails build config and platform assets live under `gui/build/`; frontend static assets live in `gui/frontend/static/`. `docs/` is the product and architecture source of truth. `board/` is this repo's own task board; do not hand-edit generated `board/BOARD.md`.
 
-## Workflow
+## Where to start
 
-- Always read `board/CONVENTIONS.md` and `board/SKILL.md` for the task board workflow. 
+Read in this order:
+ **Update this files as work progresses.**
+ 
+1. `docs/PROJECT.md` — product, audience, scenarios, glossary.
+2. `docs/ARCHITECTURE.md` — components, on-disk format, locking rules, agent state, daemon.
+3. `docs/FEATURES.md` — feature roadmap with acceptance criteria.
+4. `docs/IMPLEMENTATION.md` — current milestone status + risk register.
+5. `README.md`
+
+Don't rely on this file for details — those docs are the source of truth. We have to keep them up-to-date.
+
+
+## Rules
+
+- Always read `@board/CONVENTIONS.md` and `@board/SKILL.md` for the task board workflow and follow the conventions and guidelines. 
 - Use subganets when possible to speedup work and reduce context switching.
 - Create new tasks for any bug/follow-up work that you identify while working on an existing task. This helps keep track of all the work that needs to be done and ensures that nothing falls through the cracks.
 - Rebuild and relink cli binary after changes in /cli/; the `tb` binary is not tracked by git and must be built locally.
-- 
+- always run code review session after each meaningful unit of work through subagent to maintain code quality
+- alwayd create follow up tickets for any work that is identified while working on an existing task to ensure that it gets tracked and completed
+- commit your work with clear, descriptive messages that reference the relevant task IDs (e.g., `TB-26 atomic next-id writes`), and avoid staging unrelated changes to keep commits focused and reviewable.
+- keep docs up to date
+
 ## Architecture invariants (do not break)
 
 - **Markdown is the source of truth.** Task `.md` files in status directories are canonical. `BOARD.md` is generated; never edit it.

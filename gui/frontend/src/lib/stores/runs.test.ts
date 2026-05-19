@@ -108,6 +108,35 @@ describe('runsStore', () => {
     expect(final.exitCode).toBe(0);
   });
 
+  it('terminal recovery events clear multiple running rows for one task', () => {
+    type Handler = (e: { data: unknown[] }) => void;
+    const handlers: Record<string, Handler> = {};
+    registerAgentEventHandlers((name, h) => {
+      handlers[name] = h;
+      return () => delete handlers[name];
+    });
+
+    handlers['agent:run-started']({
+      data: [{ run_id: 'r_old', task_id: 'TB-253', agent: 'codex', mode: 'review' }],
+    });
+    handlers['agent:run-started']({
+      data: [{ run_id: 'r_new', task_id: 'TB-253', agent: 'claude', mode: 'review' }],
+    });
+    expect(runsByTask('TB-253').map((r) => r.status)).toEqual(['running', 'running']);
+
+    handlers['agent:run-finished']({
+      data: [{ run_id: 'r_old', task_id: 'TB-253', status: 'interrupted', exit_code: -1 }],
+    });
+    handlers['agent:run-finished']({
+      data: [{ run_id: 'r_new', task_id: 'TB-253', status: 'failed', exit_code: -1 }],
+    });
+
+    const statuses = runsByTask('TB-253').map((r) => r.status);
+    expect(statuses).toContain('interrupted');
+    expect(statuses).toContain('failed');
+    expect(statuses).not.toContain('running');
+  });
+
   it('setRunsForTask does not regress a more-advanced status from a live event (TB-219)', () => {
     // Simulate the race: agent:run-started has already fired (store has
     // status=running) when an older listRuns snapshot resolves and reports

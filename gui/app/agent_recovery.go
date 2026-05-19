@@ -25,20 +25,26 @@ type pidLivenessFunc func(pid int, expectedAgent string) bool
 
 // RecoveryService implements daemon.Recovery on top of AgentService. It
 // resolves the task's JSONL run history for each AgentStatus=running task,
-// checks whether the most recent run has a finished event, and reconciles
-// the task markdown via `tb edit --agent-status …`. File-form tasks use the
+// terminalizes any unfinished dead runs, and reconciles task markdown from
+// the latest run via `tb edit --agent-status …`. File-form tasks use the
 // legacy board-root agent state; folder-form tasks use task-local state.
 //
-// The two reconciliation outcomes:
+// The reconciliation outcomes:
 //
 //   - JSONL has finished{status: cancelled} for the latest run → set
 //     AgentStatus=cancelled (TB-61 carve-out — never overwrite a
 //     user-initiated cancel).
-//   - JSONL has no finished event AND the started PID is dead per
-//     pidAlive → append synthetic finished{failed, reason: "stale
-//     after restart"} and set AgentStatus=failed.
+//   - JSONL has no finished event, the started PID is dead per pidAlive,
+//     and a session was captured → append synthetic finished{interrupted}
+//     so the latest run can be resumed.
+//   - JSONL has no finished event, the started PID is dead per pidAlive,
+//     and no session was captured → append synthetic finished{failed}.
 //   - JSONL has no finished event AND the PID is alive → leave the
 //     task alone. M5 does not re-attach to live runs.
+//
+// Only the latest run writes task-level AgentStatus. Older dead unfinished
+// runs are still terminalized in JSONL so ListRuns cannot show multiple
+// RUNNING rows for the same task.
 type RecoveryService struct {
 	board  *BoardService
 	agent  *AgentService
@@ -81,6 +87,18 @@ var _ daemon.Recovery = (*RecoveryService)(nil)
 // Iterates every AgentStatus=running task and applies the reconciliation
 // rules above.
 func (r *RecoveryService) RecoverStale(ctx context.Context, boardDir string) error {
+	return r.recoverStale(ctx, boardDir, false)
+}
+
+// RecoverStaleUntracked is the steady-state recovery path used by the daemon's
+// periodic tick. It applies the same reconciliation rules as RecoverStale, but
+// skips the exact task/run pair when AgentService.active says the current GUI
+// process owns it.
+func (r *RecoveryService) RecoverStaleUntracked(ctx context.Context, boardDir string) error {
+	return r.recoverStale(ctx, boardDir, true)
+}
+
+func (r *RecoveryService) recoverStale(ctx context.Context, boardDir string, skipTracked bool) error {
 	if r.board == nil {
 		return errors.New("recovery: no board service")
 	}
@@ -114,7 +132,7 @@ func (r *RecoveryService) RecoverStale(ctx context.Context, boardDir string) err
 	}
 
 	for _, t := range candidates {
-		if err := r.recoverOne(ctx, c, boardDir, t); err != nil {
+		if err := r.recoverOne(ctx, c, boardDir, t, skipTracked); err != nil {
 			r.logger.Warn("recovery: task failed; continuing", "task", t.ID, "err", err)
 		}
 	}
@@ -123,81 +141,136 @@ func (r *RecoveryService) RecoverStale(ctx context.Context, boardDir string) err
 
 // recoverOne reconciles a single task. The outer loop never aborts on
 // per-task failures — one stale task should not block the others.
-func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDir string, t Task) error {
-	latest, ok, err := readLatestRun(boardDir, t.ID)
+func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDir string, t Task, skipTracked bool) error {
+	runs, err := readRunViews(boardDir, t.ID)
 	if err != nil {
 		return fmt.Errorf("read JSONL: %w", err)
 	}
-	if !ok {
+	if len(runs) == 0 {
+		if skipTracked && r.agent != nil && r.agent.HasActiveRun(t.ID) {
+			r.logger.Info("recovery: skipping active task with no JSONL",
+				"task", t.ID)
+			return nil
+		}
 		r.logger.Warn("recovery: AgentStatus=running but no JSONL run; flipping to failed",
 			"task", t.ID)
 		return r.markFailed(ctx, c, boardDir, t, "", "running without JSONL")
 	}
 
-	// TB-61 carve-out: latest event for the latest run is finished{cancelled}.
-	// Reconcile to cancelled, never failed.
-	if latest.LastFinished != nil && latest.LastFinished.Status == agent.StatusCancelled {
-		r.logger.Info("recovery: cancelled JSONL carve-out", "task", t.ID, "run", latest.RunID)
-		if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: "cancelled"}); err != nil {
-			return fmt.Errorf("edit cancelled: %w", err)
+	latestIndex := len(runs) - 1
+	for i, run := range runs {
+		isLatest := i == latestIndex
+
+		if skipTracked && r.agent != nil && r.agent.hasActiveRunID(t.ID, run.RunID) {
+			r.logger.Info("recovery: skipping daemon-owned active run",
+				"task", t.ID, "run", run.RunID)
+			continue
 		}
-		r.emitFinished(latest.RunID, t.ID, string(agent.StatusCancelled), latest.LastFinished.ExitCode, latest.LastFinished.Reason)
+
+		// TB-61 carve-out: latest event for the latest run is finished{cancelled}.
+		// Reconcile to cancelled, never failed. Older finished rows are already
+		// terminal and do not drive task-level AgentStatus.
+		if run.LastFinished != nil && run.LastFinished.Status == agent.StatusCancelled {
+			if isLatest {
+				r.logger.Info("recovery: cancelled JSONL carve-out", "task", t.ID, "run", run.RunID)
+				if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: "cancelled"}); err != nil {
+					return fmt.Errorf("edit cancelled: %w", err)
+				}
+				r.emitFinished(run.RunID, t.ID, string(agent.StatusCancelled), run.LastFinished.ExitCode, run.LastFinished.Reason)
+			}
+			continue
+		}
+
+		// JSONL finished naturally (success/failed) but the .md never got
+		// updated — sync task status only from the latest run.
+		if run.LastFinished != nil {
+			if isLatest {
+				status := string(run.LastFinished.Status)
+				r.logger.Info("recovery: JSONL finished but AgentStatus stale; syncing",
+					"task", t.ID, "run", run.RunID, "status", status)
+				if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: status}); err != nil {
+					return fmt.Errorf("edit %s: %w", status, err)
+				}
+				r.emitFinished(run.RunID, t.ID, status, run.LastFinished.ExitCode, run.LastFinished.Reason)
+			}
+			continue
+		}
+
+		// No finished record. Decide via pidAlive whether the process is
+		// still going.
+		expectedAgent := run.AgentName
+		if expectedAgent == "" {
+			// As a last resort fall back to the task's .md Agent field.
+			expectedAgent = t.Agent
+		}
+
+		if run.PID > 0 && r.liveFn(run.PID, expectedAgent) {
+			r.logger.Info("recovery: live PID detected; skipping",
+				"task", t.ID, "run", run.RunID, "pid", run.PID, "agent", expectedAgent)
+			// TB-176: install a stub activeRun so the GUI's Cancel button can
+			// signal the orphaned process group. The monitor below will close
+			// the stub's Done channel when the PID exits, so killActiveRun's
+			// wait unblocks regardless of whether cancel or natural exit wins.
+			stub := newRecoveredStubRun(r.logger, run.RunID, t.ID, expectedAgent, run.Mode, run.PID)
+			if r.agent != nil {
+				r.agent.adoptRecoveredRun(t.ID, stub)
+			}
+			r.registerRecoveredRunMonitor(c, boardDir, t, run.RunID, run.PID, expectedAgent)
+			continue
+		}
+
+		// TB-137: dead PID + captured SessionID → `interrupted`, not
+		// `failed`. Older stale rows are terminalized in JSONL so ListRuns no
+		// longer shows multiple RUNNING badges, but only the latest run drives
+		// task-level AgentStatus.
+		if run.SessionID != "" {
+			r.logger.Info("recovery: stale running with session; marking interrupted",
+				"task", t.ID, "run", run.RunID, "pid", run.PID,
+				"agent", expectedAgent, "session", run.SessionID)
+			if isLatest {
+				if err := r.markInterrupted(ctx, c, boardDir, t, run.RunID, run.SessionID, "interrupted by daemon restart"); err != nil {
+					return err
+				}
+			} else if err := r.appendRecoveredFinished(boardDir, t.ID, run.RunID, agent.StatusInterrupted, -1, "interrupted by daemon restart", run.SessionID); err != nil {
+				return err
+			}
+			continue
+		}
+
+		r.logger.Info("recovery: stale running; marking failed",
+			"task", t.ID, "run", run.RunID, "pid", run.PID, "agent", expectedAgent)
+		if isLatest {
+			if err := r.markFailed(ctx, c, boardDir, t, run.RunID, "stale after restart"); err != nil {
+				return err
+			}
+		} else if err := r.appendRecoveredFinished(boardDir, t.ID, run.RunID, agent.StatusFailed, -1, "stale after restart", ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *RecoveryService) appendRecoveredFinished(boardDir, taskID, runID string, status agent.Status, exitCode int, reason, sessionID string) error {
+	if runID == "" {
+		runID = agent.GenerateRunID()
+	}
+	if err := agent.AppendEvent(boardDir, taskID, agent.Event{
+		TS:       time.Now().UTC().Format(time.RFC3339),
+		RunID:    runID,
+		TaskID:   taskID,
+		Event:    agent.EvFinished,
+		Status:   status,
+		ExitCode: exitCode,
+		Reason:   reason,
+	}); err != nil {
+		return fmt.Errorf("append finished: %w", err)
+	}
+	if sessionID != "" {
+		r.emitFinishedWithSession(runID, taskID, string(status), exitCode, reason, sessionID)
 		return nil
 	}
-
-	// JSONL finished naturally (success/failed) but the .md never got
-	// updated — sync the status.
-	if latest.LastFinished != nil {
-		status := string(latest.LastFinished.Status)
-		r.logger.Info("recovery: JSONL finished but AgentStatus stale; syncing",
-			"task", t.ID, "run", latest.RunID, "status", status)
-		if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: status}); err != nil {
-			return fmt.Errorf("edit %s: %w", status, err)
-		}
-		r.emitFinished(latest.RunID, t.ID, status, latest.LastFinished.ExitCode, latest.LastFinished.Reason)
-		return nil
-	}
-
-	// No finished record. Decide via pidAlive whether the process is
-	// still going.
-	expectedAgent := latest.AgentName
-	if expectedAgent == "" {
-		// As a last resort fall back to the task's .md Agent field.
-		expectedAgent = t.Agent
-	}
-
-	if latest.PID > 0 && r.liveFn(latest.PID, expectedAgent) {
-		r.logger.Info("recovery: live PID detected; skipping",
-			"task", t.ID, "run", latest.RunID, "pid", latest.PID, "agent", expectedAgent)
-		// TB-176: install a stub activeRun so the GUI's Cancel button can
-		// signal the orphaned process group. The monitor below will close
-		// the stub's Done channel when the PID exits, so killActiveRun's
-		// wait unblocks regardless of whether cancel or natural exit wins.
-		stub := newRecoveredStubRun(r.logger, latest.RunID, t.ID, expectedAgent, latest.Mode, latest.PID)
-		if r.agent != nil {
-			r.agent.adoptRecoveredRun(t.ID, stub)
-		}
-		r.registerRecoveredRunMonitor(c, boardDir, t, latest.RunID, latest.PID, expectedAgent)
-		return nil
-	}
-
-	// TB-137: dead PID + captured SessionID → `interrupted`, not
-	// `failed`. The user can choose to Resume from the agent CLI's own
-	// session log; falling through to `failed` would discard that
-	// option. Without a SessionID resume isn't possible so the existing
-	// `failed` branch (and reason) stays unchanged. The cancelled
-	// carve-out above already short-circuits before we reach this
-	// branch — a user-cancelled run with a SessionID stays `cancelled`.
-	if latest.SessionID != "" {
-		r.logger.Info("recovery: stale running with session; marking interrupted",
-			"task", t.ID, "run", latest.RunID, "pid", latest.PID,
-			"agent", expectedAgent, "session", latest.SessionID)
-		return r.markInterrupted(ctx, c, boardDir, t, latest.RunID, latest.SessionID, "interrupted by daemon restart")
-	}
-
-	r.logger.Info("recovery: stale running; marking failed",
-		"task", t.ID, "run", latest.RunID, "pid", latest.PID, "agent", expectedAgent)
-	return r.markFailed(ctx, c, boardDir, t, latest.RunID, "stale after restart")
+	r.emitFinished(runID, taskID, string(status), exitCode, reason)
+	return nil
 }
 
 // markInterrupted appends synthetic finished{interrupted} JSONL for
@@ -534,13 +607,24 @@ type finishedEvent struct {
 // onwards also `agent` — see TB-54); the `finished` event (if any) is
 // the terminal record.
 func readLatestRun(boardDir, taskID string) (runRecoveryView, bool, error) {
+	runs, err := readRunViews(boardDir, taskID)
+	if err != nil {
+		return runRecoveryView{}, false, err
+	}
+	if len(runs) == 0 {
+		return runRecoveryView{}, false, nil
+	}
+	return runs[len(runs)-1], true, nil
+}
+
+func readRunViews(boardDir, taskID string) ([]runRecoveryView, error) {
 	path := agent.StatePath(boardDir, taskID)
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return runRecoveryView{}, false, nil
+			return nil, nil
 		}
-		return runRecoveryView{}, false, err
+		return nil, err
 	}
 	defer f.Close()
 
@@ -605,10 +689,13 @@ func readLatestRun(boardDir, taskID string) (runRecoveryView, bool, error) {
 	}
 
 	if len(order) == 0 {
-		return runRecoveryView{}, false, nil
+		return nil, nil
 	}
-	latest := views[order[len(order)-1]]
-	return *latest, true, nil
+	out := make([]runRecoveryView, 0, len(order))
+	for _, runID := range order {
+		out = append(out, *views[runID])
+	}
+	return out, nil
 }
 
 // ResumeCandidate is the resolved execution context for resuming an

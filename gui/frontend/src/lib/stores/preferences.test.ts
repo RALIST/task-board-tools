@@ -9,6 +9,8 @@ const getDefaultAgent = vi.fn<() => Promise<string>>();
 const setDefaultAgent = vi.fn<(agent: string) => Promise<void>>();
 const getCLIPath = vi.fn<() => Promise<string>>();
 const setCLIPath = vi.fn<(path: string) => Promise<void>>();
+const getPeriodicRecoveryEnabled = vi.fn<() => Promise<boolean>>();
+const setPeriodicRecoveryEnabled = vi.fn<(enabled: boolean) => Promise<void>>();
 const pushToast = vi.fn();
 
 vi.mock('$lib/api', () => ({
@@ -20,6 +22,8 @@ vi.mock('$lib/api', () => ({
   setDefaultAgent: (agent: string) => setDefaultAgent(agent),
   getCLIPath: () => getCLIPath(),
   setCLIPath: (path: string) => setCLIPath(path),
+  getPeriodicRecoveryEnabled: () => getPeriodicRecoveryEnabled(),
+  setPeriodicRecoveryEnabled: (enabled: boolean) => setPeriodicRecoveryEnabled(enabled),
 }));
 
 vi.mock('./toast', () => ({
@@ -34,6 +38,7 @@ const {
   setCLIPath: storeSetCLIPath,
   setDefaultAgent: storeSetDefaultAgent,
   setMaxWorkers: storeSetMaxWorkers,
+  setPeriodicRecoveryEnabled: storeSetPeriodicRecoveryEnabled,
 } = await import('./preferences');
 
 describe('preferencesStore', () => {
@@ -44,10 +49,12 @@ describe('preferencesStore', () => {
     getAgentTimeoutMinutes.mockResolvedValue(30);
     getDefaultAgent.mockResolvedValue('none');
     getCLIPath.mockResolvedValue('');
+    getPeriodicRecoveryEnabled.mockResolvedValue(true);
     setMaxWorkers.mockResolvedValue();
     setAgentTimeoutMinutes.mockResolvedValue();
     setDefaultAgent.mockResolvedValue();
     setCLIPath.mockResolvedValue();
+    setPeriodicRecoveryEnabled.mockResolvedValue();
   });
 
   it('hydrates preferences and marks the store loaded', async () => {
@@ -55,6 +62,7 @@ describe('preferencesStore', () => {
     getAgentTimeoutMinutes.mockResolvedValue(45);
     getDefaultAgent.mockResolvedValue('codex');
     getCLIPath.mockResolvedValue('/usr/local/bin/tb');
+    getPeriodicRecoveryEnabled.mockResolvedValue(false);
 
     await loadPreferences();
 
@@ -63,6 +71,7 @@ describe('preferencesStore', () => {
       agentTimeoutMinutes: 45,
       defaultAgent: 'codex',
       cliPath: '/usr/local/bin/tb',
+      periodicRecoveryEnabled: false,
       loaded: true,
     });
   });
@@ -75,6 +84,7 @@ describe('preferencesStore', () => {
     expect(getAgentTimeoutMinutes).toHaveBeenCalledTimes(1);
     expect(getDefaultAgent).toHaveBeenCalledTimes(1);
     expect(getCLIPath).toHaveBeenCalledTimes(1);
+    expect(getPeriodicRecoveryEnabled).toHaveBeenCalledTimes(1);
   });
 
   it('round-trips all set methods through the api', async () => {
@@ -84,16 +94,19 @@ describe('preferencesStore', () => {
     await storeSetAgentTimeoutMinutes(60);
     await storeSetDefaultAgent('claude');
     await storeSetCLIPath('/opt/bin/tb');
+    await storeSetPeriodicRecoveryEnabled(false);
 
     expect(setMaxWorkers).toHaveBeenCalledWith(4);
     expect(setAgentTimeoutMinutes).toHaveBeenCalledWith(60);
     expect(setDefaultAgent).toHaveBeenCalledWith('claude');
     expect(setCLIPath).toHaveBeenCalledWith('/opt/bin/tb');
+    expect(setPeriodicRecoveryEnabled).toHaveBeenCalledWith(false);
     expect(get(preferencesStore)).toMatchObject({
       maxWorkers: 4,
       agentTimeoutMinutes: 60,
       defaultAgent: 'claude',
       cliPath: '/opt/bin/tb',
+      periodicRecoveryEnabled: false,
     });
   });
 

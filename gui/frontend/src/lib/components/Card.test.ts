@@ -31,7 +31,7 @@ vi.mock('$lib/stores/groomSuggestion', () => ({
 // bridge. Importing the real module would pull in the generated bindings
 // (which try to talk to the runtime); spying on `renameTask` keeps the
 // component isolated.
-const apiMocks = vi.hoisted(() => ({ renameTask: vi.fn() }));
+const apiMocks = vi.hoisted(() => ({ renameTask: vi.fn(), resumeAgent: vi.fn() }));
 vi.mock('$lib/api', () => apiMocks);
 
 const toastMock = vi.hoisted(() => ({ pushToast: vi.fn() }));
@@ -85,7 +85,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: 'backlog',
     filePath: 'board/backlog/TB-126/TASK.md',
     agent: '',
-    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
+    agentStatus: '', agentResumable: false, groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
     ...overrides,
   } as Task;
 }
@@ -95,6 +95,7 @@ let component: ReturnType<typeof mount> | null = null;
 beforeEach(() => {
   document.body.innerHTML = '';
   apiMocks.renameTask.mockReset();
+  apiMocks.resumeAgent.mockReset();
   toastMock.pushToast.mockReset();
   boardStore.reset();
 });
@@ -447,5 +448,41 @@ describe('Card.svelte needs-user indicator (TB-182)', () => {
     });
     await tick();
     expect(document.querySelector('.card .needs-user-indicator')).toBeNull();
+  });
+});
+
+describe('Card.svelte resume gating (TB-241)', () => {
+  it('disables Resume when the task has no captured session', async () => {
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-241', agent: 'claude', agentStatus: 'interrupted', agentResumable: false }) },
+    });
+    await tick();
+
+    const resume = document.querySelector<HTMLButtonElement>('.card .resume-indicator');
+    expect(resume).not.toBeNull();
+    expect(resume?.disabled).toBe(true);
+    expect(resume?.title ?? '').toMatch(/no captured session/i);
+    resume?.click();
+    await tick();
+
+    expect(apiMocks.resumeAgent).not.toHaveBeenCalled();
+  });
+
+  it('calls ResumeAgent when interrupted and resumable', async () => {
+    apiMocks.resumeAgent.mockResolvedValue('r_resume');
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-241', agent: 'claude', agentStatus: 'interrupted', agentResumable: true }) },
+    });
+    await tick();
+
+    const resume = document.querySelector<HTMLButtonElement>('.card .resume-indicator');
+    expect(resume).not.toBeNull();
+    expect(resume?.disabled).toBe(false);
+    resume?.click();
+    await tick();
+
+    expect(apiMocks.resumeAgent).toHaveBeenCalledWith('TB-241');
   });
 });
