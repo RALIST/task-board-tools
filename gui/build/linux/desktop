@@ -1,7 +1,7 @@
 [Desktop Entry]
 Version=1.0
-Name=tb-gui
-Comment=Task Board Tools GUI
+Name=Task Board Tools
+Comment=Task Board Tools GUI — kanban over markdown tasks
 # The Exec line includes %u to pass the URL to the application
 Exec=/usr/local/bin/tb-gui %u
 Terminal=false

@@ -6,7 +6,7 @@ version: '3'
 # This information is used to generate the build assets.
 info:
   companyName: "task-board-tools"
-  productName: "tb-gui"
+  productName: "Task Board Tools"
   productIdentifier: "com.taskboard.tbgui"
   description: "Task Board Tools GUI — kanban over markdown tasks"
   copyright: "© 2026 task-board-tools"

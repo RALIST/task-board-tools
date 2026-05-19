@@ -14,7 +14,7 @@
     </Installer>
     <PackageInformation
         PackageName="tb-gui"
-        PackageDisplayName="tb-gui"
+        PackageDisplayName="Task Board Tools"
         PublisherName="CN=task-board-tools"
         PublisherDisplayName="task-board-tools"
         Version="0.1.0.0"
@@ -27,7 +27,7 @@
             <Application
                 Id="com.taskboard.tbgui"
                 Description="Task Board Tools GUI"
-                DisplayName="tb-gui"
+                DisplayName="Task Board Tools"
                 ExecutableName="tb-gui"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,7 +41,7 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>tb-gui</DisplayName>
+            <DisplayName>Task Board Tools</DisplayName>
             <PublisherDisplayName>task-board-tools</PublisherDisplayName>
             <Description>Task Board Tools GUI</Description>
             <Logo>Assets\AppIcon.png</Logo>

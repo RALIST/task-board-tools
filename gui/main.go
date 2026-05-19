@@ -98,7 +98,7 @@ func main() {
 	})
 
 	app := application.New(application.Options{
-		Name:        "tb-gui",
+		Name:        "Task Board Tools",
 		Description: "Task Board Tools GUI — kanban over markdown tasks",
 		LogLevel:    slog.LevelInfo,
 		Services: []application.Service{
@@ -140,7 +140,7 @@ func main() {
 	app.Menu.Set(shellController.ApplicationMenu())
 
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "tb-gui",
+		Title: "Task Board Tools",
 		Width: 1280, Height: 800,
 		MinWidth: 720, MinHeight: 480,
 		EnableFileDrop: true,

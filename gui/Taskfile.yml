@@ -9,7 +9,12 @@ includes:
   android: ./build/android/Taskfile.yml
 
 vars:
+  # APP_NAME is the *binary* / project identifier — appears in file paths,
+  # Linux package name, Windows .exe name, etc. The user-facing display
+  # name (window title, app menu, Dock label, installer label) is
+  # "Task Board Tools" and lives in gui/build/config.yml's productName.
   APP_NAME: "tb-gui"
+  PRODUCT_NAME: "Task Board Tools"
   BIN_DIR: "bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 

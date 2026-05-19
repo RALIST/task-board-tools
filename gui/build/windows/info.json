@@ -6,10 +6,10 @@
 		"0000": {
 			"ProductVersion": "0.1.0",
 			"CompanyName": "task-board-tools",
-			"FileDescription": "Task Board Tools GUI",
+			"FileDescription": "Task Board Tools GUI — kanban over markdown tasks",
 			"LegalCopyright": "© 2026 task-board-tools",
-			"ProductName": "tb-gui",
-			"Comments": "This is a comment"
+			"ProductName": "Task Board Tools",
+			"Comments": "Wails3 + SvelteKit desktop companion for the tb CLI"
 		}
 	}
 }
