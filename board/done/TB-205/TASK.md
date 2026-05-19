@@ -4,7 +4,7 @@
 **Priority:** P2
 **Size:** M
 **Agent:** claude
-**AgentStatus:** running
+**AgentStatus:** success
 **Module:** tooling
 **Tags:** lint,frontend,quality,dead-code,epic
 **ReviewRef:** TB-205-frontend-lint
@@ -98,6 +98,23 @@ reviewer notes:
     TB-178/241/243/244/245/249/250 task files) is intentionally NOT in
     this commit and is not part of this review.
 
+## Review Findings
+
+- **Blocking — `eslint.config.js:91-94` disables `svelte/require-each-key` with a factually wrong rationale.** The comment claims a "Svelte 5 reactivity edge: a few existing components use `$effect` shorthand patterns that the rule flags" and asserts `npm run check` is authoritative. Both claims are wrong: (1) `svelte/require-each-key` is about `{#each}` block identity (DOM reconciliation), entirely unrelated to `$effect`; (2) `svelte-check` (what `npm run check` runs) does not flag unkeyed each blocks — this rule is the only signal. Verified by grep: FilterBar.svelte (the file the comment seems to reference) contains zero `{#each}` blocks. With the rule disabled, the setup currently masks 4 real cases that the lint setup was meant to surface: `Card.svelte:348` `{#each visibleTags as tag}`, `CreateTaskDialog.svelte:206` `{#each epics as e}`, `FilterDropdown.svelte:206` `{#each filteredOptions as opt}`, `TaskDrawer.svelte:1712` `{#each effectiveRuns as r}`. The codebase elsewhere already keys consistently (9 keyed `{#each}` call sites — `Toast.svelte`, `Card.svelte:318`, `ActiveFilters.svelte`, `TaskDrawer.svelte:1432` & `:1697`, `Column.svelte:85` & `:99`, `AgentUsageHeader.svelte`, `routes/+page.svelte:345`), so the 4 unkeyed sites are omissions, not intentional. The `effectiveRuns` case is the most consequential — runs are highly dynamic and have stable `runId` keys; positional reconciliation can mis-bind `class:active`, ARIA state, and per-row content across reshuffles. Directly contradicts AC "Enabled rules/checks are intentionally high-signal". Minimum fix: rewrite the comment honestly ("deferred to TB-247; see Card.svelte:348, CreateTaskDialog.svelte:206, FilterDropdown.svelte:206, TaskDrawer.svelte:1712"). Better: downgrade to `warn` so the findings stay visible until TB-247 fixes them. Best: re-enable as `error` and extend TB-247 to include the 4 keyed-each conversions (each is a ~10-character change).
+
+- **Blocking — `README.md` not updated, but the AC for "Contributor/agent-facing docs that list frontend verification commands are updated" requires it.** `README.md` does list the frontend verification commands (`npm run check`, `npm test`) but the TB-205 commit (4439c7f) did not include README.md in its scope. The uncommitted working tree already contains the correct hunk (`+npm run lint`, `+npm run deadcode` under the **GUI frontend** block), which the prior reviewer's notes carved out as "unrelated" — but those two lines are squarely TB-205's responsibility. The intermixed Go-lint hunk (`make lint-go` block) belongs to TB-206 and should be split out, but the frontend two-liner must land with TB-205. AGENTS.md and CLAUDE.md updates are good and already in 4439c7f.
+
+- (nit) `npm run deadcode` exits non-zero (exit 1) on the documented baseline state because knip returns 1 whenever any findings exist, and the 13 baseline findings are intentionally deferred to TB-247. `AGENTS.md` now tells agents to run `npm run deadcode` "for changes touching exports or `package.json`"; an agent seeing exit 1 on a clean tree may misread it as a regression they introduced. Suggest adding a sentence to `AGENTS.md` clarifying that "exit 1 with the 13 baseline findings is expected until TB-247 clears the baseline; compare your finding list against the baseline rather than relying on the exit code."
+
+- (nit) The deferral comment in `FilterBar.svelte:22-27` is exemplary — it names the rule, explains the deferral, links TB-247, and notes there is no behavior change. Use the same shape when rewriting the `svelte/require-each-key` comment in `eslint.config.js`.
+
+- Positive — the rest of the setup is solid. Verified locally:
+  - `cd gui/frontend && npm run lint` → exit 0
+  - `cd gui/frontend && npm run check` → 411 files, 0 errors, 0 warnings
+  - `cd gui/frontend && npm test` → 17 files, 190 tests pass
+  - `cd gui/frontend && npm run deadcode` → 13 findings matching the verbatim baseline in this task and in TB-247
+  ESLint config scope (src + root configs only, `bindings/**` + `.svelte-kit/**` + `dist/**` ignored), knip config scope (`src/**/*.{ts,svelte}` only, Wails bindings excluded), the `_`-prefix unused-vars convention, the `no-explicit-any` relaxation at Wails boundaries, the test-file relaxations, and the documented `ignoreExportsUsedInFile: true` are all defensible and well-commented. TB-247 captures the 13 knip findings with per-item triage direction.
+
 ## Related Tasks
 
 - **TB-206** — Setup golangci-lint for project and initial run it (sibling: Go-only lint setup)
@@ -131,4 +148,22 @@ reviewer notes:
 - 2026-05-19: Edited review-target
 - 2026-05-19: Edited review-target
 - 2026-05-19: Submitted to code-review
+- 2026-05-19: Edited agentstatus=failed
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited review-findings
+- 2026-05-19: Edited agentstatus=failed
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Failed code review — moved to ready with review-failed marker
+- 2026-05-19: Edited agentstatus=interrupted
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Submitted to code-review
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Moved to done
+- 2026-05-19: Edited agentstatus=failed
+- 2026-05-19: Edited agentstatus=success
+- 2026-05-19: Edited tags=lint,frontend,quality,dead-code,epic
 
