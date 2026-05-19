@@ -1061,6 +1061,219 @@ func TestResumeAgent_ClaudeHappyPath(t *testing.T) {
 	}
 }
 
+func TestResumeAgent_CodexHappyPath(t *testing.T) {
+	stub := &stubRunner{name: "codex", stdoutLines: []string{"resumed"}, exitCode: 0}
+	svc, _, boardDir, candidate := resumeFixture(t, "codex", stub)
+
+	runID, err := svc.ResumeAgent(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("ResumeAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	in := stub.input()
+	if in.Mode != agent.ModeResume {
+		t.Errorf("RunInput.Mode = %q, want %q", in.Mode, agent.ModeResume)
+	}
+	if in.SessionID != candidate.SessionID {
+		t.Errorf("RunInput.SessionID = %q, want %q (parent's id)", in.SessionID, candidate.SessionID)
+	}
+	if in.ProjectRoot != candidate.Cwd {
+		t.Errorf("RunInput.ProjectRoot = %q, want %q", in.ProjectRoot, candidate.Cwd)
+	}
+	if in.Prompt != agent.PromptResume {
+		t.Errorf("RunInput.Prompt did not match PromptResume")
+	}
+
+	events := readEvents(t, boardDir, "TB-1")
+	var queued *agent.Event
+	for i := range events {
+		if events[i].RunID == runID && events[i].Event == agent.EvQueued {
+			queued = &events[i]
+			break
+		}
+	}
+	if queued == nil {
+		t.Fatalf("no queued event for resumed Codex run")
+	}
+	if queued.ResumedFrom != candidate.SessionID || queued.ResumedFromRun != candidate.RunID {
+		t.Errorf("queued resume linkage: from=%q run=%q; want %q / %q",
+			queued.ResumedFrom, queued.ResumedFromRun, candidate.SessionID, candidate.RunID)
+	}
+}
+
+// TestResumeCycle_KillRecoverResume drives the full TB-130 acceptance
+// flow in one test: a fake-runner mid-flight kill (synthesised by
+// leaving the JSONL stream open at `session`) -> RecoverStale flips the
+// task to interrupted -> ResumeAgent spawns a fresh run with the
+// expected resume args, cwd, env, and queued-event linkage. Both
+// fake-runner contracts from the TB-130 acceptance criteria are
+// exercised: killing with a session present -> interrupted; resume
+// receives -r <uuid>, the persisted Cwd, the TB_ env, and the resume
+// prompt body.
+func TestResumeCycle_KillRecoverResume(t *testing.T) {
+	stub := &stubRunner{name: "claude", stdoutLines: []string{"continued"}, exitCode: 0}
+	svc, _ := realTbBoardForRun(t, "claude", stub)
+	c := svc.board.snapshot()
+	boardDir, err := svc.board.resolveBoardDir(context.Background())
+	if err != nil {
+		t.Fatalf("resolveBoardDir: %v", err)
+	}
+
+	// --- Simulated kill mid-flight ---
+	// Synthesise the JSONL the original daemon would have left behind
+	// before crashing: queued + started + session, NO finished. Mark
+	// the task .md AgentStatus=running to mimic what `tb edit` wrote
+	// during the original run.
+	parentRunID := "r_parent"
+	sessionID := "11111111-2222-4333-8444-555555555555"
+	parentCwd := boardDir // realistic default when worktrees.enabled=false
+	parentEnv := map[string]string{"TB_BOARD_PATH": boardDir}
+	events := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T10:00:01Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 4242},
+		{TS: "2026-05-14T10:00:02Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvSession,
+			SessionID: sessionID, PID: 4242, Cwd: parentCwd, RunEnv: parentEnv,
+		},
+	}
+	for _, ev := range events {
+		if err := agent.AppendEvent(boardDir, "TB-1", ev); err != nil {
+			t.Fatalf("AppendEvent: %v", err)
+		}
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "running"}); err != nil {
+		t.Fatalf("seed running: %v", err)
+	}
+
+	// --- Recovery flips to interrupted ---
+	rec := NewRecoveryService(svc.board, svc, func(int, string) bool { return false }, nil)
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** interrupted") {
+		t.Fatalf("AgentStatus did not become interrupted:\n%s", out)
+	}
+
+	// --- ResumeAgent spawns a fresh run with the resume context ---
+	newRunID, err := svc.ResumeAgent(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("ResumeAgent: %v", err)
+	}
+	if newRunID == parentRunID {
+		t.Fatalf("resumed run id must differ from parent; got %q", newRunID)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	in := stub.input()
+	if in.Mode != agent.ModeResume {
+		t.Errorf("resumed RunInput.Mode = %q, want %q", in.Mode, agent.ModeResume)
+	}
+	if in.SessionID != sessionID {
+		t.Errorf("resumed RunInput.SessionID = %q, want parent's %q", in.SessionID, sessionID)
+	}
+	if in.ProjectRoot != parentCwd {
+		t.Errorf("resumed RunInput.ProjectRoot = %q, want parent's Cwd %q", in.ProjectRoot, parentCwd)
+	}
+	if in.Prompt != agent.PromptResume {
+		t.Errorf("resumed RunInput.Prompt did not match PromptResume")
+	}
+	var sawBoardPath bool
+	for _, kv := range in.Env {
+		if kv == "TB_BOARD_PATH="+boardDir {
+			sawBoardPath = true
+			break
+		}
+	}
+	if !sawBoardPath {
+		t.Errorf("resumed env missing TB_BOARD_PATH=%s; got %v", boardDir, in.Env)
+	}
+
+	// The resumed run's queued event must carry both linkage fields.
+	all := readEvents(t, boardDir, "TB-1")
+	var queued *agent.Event
+	for i := range all {
+		if all[i].RunID == newRunID && all[i].Event == agent.EvQueued {
+			queued = &all[i]
+			break
+		}
+	}
+	if queued == nil {
+		t.Fatalf("no queued event for resumed run %s", newRunID)
+	}
+	if queued.ResumedFrom != sessionID {
+		t.Errorf("queued.ResumedFrom = %q, want %q", queued.ResumedFrom, sessionID)
+	}
+	if queued.ResumedFromRun != parentRunID {
+		t.Errorf("queued.ResumedFromRun = %q, want %q", queued.ResumedFromRun, parentRunID)
+	}
+	if queued.Mode != agent.ModeResume.String() {
+		t.Errorf("queued.Mode = %q, want %q", queued.Mode, agent.ModeResume)
+	}
+
+	// And the resumed run produced a finished{success} record — i.e.
+	// the runGoroutine pipeline ran to completion under the resume
+	// args, not just got rejected by validation.
+	var finished *agent.Event
+	for i := range all {
+		if all[i].RunID == newRunID && all[i].Event == agent.EvFinished {
+			finished = &all[i]
+			break
+		}
+	}
+	if finished == nil || finished.Status != agent.StatusSuccess {
+		t.Fatalf("resumed run did not reach finished{success}: %+v", finished)
+	}
+}
+
+// TestResumeCycle_KillBeforeSessionStaysFailed locks the negative
+// contract: when the mid-flight kill happens BEFORE a session id was
+// captured, recovery falls through to `failed` (resume isn't possible
+// without a session id, so widening to `interrupted` would just hide
+// the dead end). This is the regression gate that prevents future
+// refactors from making every dead-PID run resumable.
+func TestResumeCycle_KillBeforeSessionStaysFailed(t *testing.T) {
+	stub := &stubRunner{name: "claude", exitCode: 0}
+	svc, _ := realTbBoardForRun(t, "claude", stub)
+	c := svc.board.snapshot()
+	boardDir, err := svc.board.resolveBoardDir(context.Background())
+	if err != nil {
+		t.Fatalf("resolveBoardDir: %v", err)
+	}
+
+	// queued + started, NO session event (kill landed too early).
+	events := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: "r_nofs", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T10:00:01Z", RunID: "r_nofs", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 4242},
+	}
+	for _, ev := range events {
+		if err := agent.AppendEvent(boardDir, "TB-1", ev); err != nil {
+			t.Fatalf("AppendEvent: %v", err)
+		}
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "running"}); err != nil {
+		t.Fatalf("seed running: %v", err)
+	}
+
+	rec := NewRecoveryService(svc.board, svc, func(int, string) bool { return false }, nil)
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+
+	out, _ := c.Run(context.Background(), "show", "TB-1")
+	if !strings.Contains(string(out), "**AgentStatus:** failed") {
+		t.Fatalf("AgentStatus must be failed (no SessionID to resume):\n%s", out)
+	}
+
+	// ResumeAgent must reject with ErrCannotResume.
+	if _, err := svc.ResumeAgent(context.Background(), "TB-1"); !errors.Is(err, ErrCannotResume) {
+		t.Fatalf("ResumeAgent on failed task: got %v, want ErrCannotResume", err)
+	}
+}
+
 // silence unused
 var _ io.Writer = (*lineSink)(nil)
 

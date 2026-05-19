@@ -6,7 +6,7 @@
 |----|-------|----------|--------|--------|
 | TB-177 | Auto task implementation | 0/3 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
-| TB-130 | Agent session resume + interrupted-run recovery | 10/12 | backlog | gui |
+| TB-130 | Agent session resume + interrupted-run recovery | 11/12 | backlog | gui |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
 | TB-182 | Add special labes\tags\status for user attention | 0/3 | backlog | agent |
 | TB-194 | Code-review column | 0/6 | backlog | workflow |
@@ -51,7 +51,6 @@
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-128 | Keep ”Done” column sorted by timestamp, not priority | improvement | P2 | M | gui |
 | TB-130 | Agent session resume + interrupted-run recovery | feature | P1 | XL | gui |
-| TB-141 | Fake-runner integration test: kill->interrupted->resume cycle | feature | P1 | M | gui |
 | TB-142 | Docs sweep: ARCHITECTURE.md + CLAUDE.md + FEATURES.md for resume | improvement | P1 | S | docs |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-172 | Auto-groom | feature | P1 | L | gui |
