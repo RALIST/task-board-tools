@@ -77,17 +77,26 @@ func (t *codexJsonTranslator) maybeFireSessionID(ev map[string]any) {
 	if t.sessionFired || t.onSessionID == nil {
 		return
 	}
-	// Top-level session_id first; some shapes nest it under payload.
-	if sid, ok := uuidStringField(ev, "session_id"); ok {
-		t.sessionFired = true
-		t.onSessionID(sid)
-		return
-	}
-	if payload, ok := ev["payload"].(map[string]any); ok {
-		if sid, ok := uuidStringField(payload, "session_id"); ok {
+	// Verified against codex-cli 0.130.0: `codex exec --json` emits
+	// {"type":"thread.started","thread_id":"<uuid>"} as the first event;
+	// the value is what `codex exec resume <uuid>` accepts. Older /
+	// alternate shapes (`session_id` at top level or one level into
+	// `payload`) stay supported as defensive fallbacks so a future
+	// schema bump still has a chance of working without a code change.
+	for _, key := range []string{"thread_id", "session_id"} {
+		if sid, ok := uuidStringField(ev, key); ok {
 			t.sessionFired = true
 			t.onSessionID(sid)
 			return
+		}
+	}
+	if payload, ok := ev["payload"].(map[string]any); ok {
+		for _, key := range []string{"thread_id", "session_id"} {
+			if sid, ok := uuidStringField(payload, key); ok {
+				t.sessionFired = true
+				t.onSessionID(sid)
+				return
+			}
 		}
 	}
 }
@@ -137,6 +146,83 @@ func formatCodexEvent(ev map[string]any) []string {
 	payload, _ := ev["payload"].(map[string]any)
 
 	switch typ {
+	case "thread.started":
+		// codex-cli 0.130.0 verified shape.
+		lines := []string{"codex", "--------"}
+		if v, _ := stringField(ev, "thread_id"); v != "" {
+			lines = append(lines, "session id: "+v)
+		}
+		if v, _ := stringField(payload, "model"); v != "" {
+			lines = append(lines, "model: "+v)
+		}
+		lines = append(lines, "--------")
+		return lines
+
+	case "turn.started":
+		return []string{"turn"}
+
+	case "turn.completed":
+		// usage carries {input_tokens, output_tokens, ...}; render compact.
+		if usage, ok := ev["usage"].(map[string]any); ok {
+			in, _ := usage["input_tokens"].(float64)
+			outT, _ := usage["output_tokens"].(float64)
+			reasoning, _ := usage["reasoning_output_tokens"].(float64)
+			return []string{"--------", "turn complete",
+				fmt.Sprintf("tokens: in=%.0f out=%.0f reasoning=%.0f", in, outT, reasoning),
+			}
+		}
+		return []string{"--------", "turn complete"}
+
+	case "item.completed":
+		// {"item":{"id":..,"type":"agent_message","text":"..."}}
+		item, ok := ev["item"].(map[string]any)
+		if !ok {
+			return nil
+		}
+		itemType, _ := item["type"].(string)
+		switch itemType {
+		case "agent_message", "assistant_message":
+			text, _ := item["text"].(string)
+			if text == "" {
+				return nil
+			}
+			out := []string{"codex"}
+			out = append(out, strings.Split(strings.TrimRight(text, "\n"), "\n")...)
+			out = append(out, "")
+			return out
+		case "function_call", "tool_call":
+			name, _ := item["name"].(string)
+			header := "exec " + name
+			if id, _ := stringField(item, "id"); id != "" {
+				header += " (" + shortenID(id) + ")"
+			}
+			out := []string{header}
+			if cmd, _ := stringField(item, "command"); cmd != "" {
+				out = append(out, "$ "+cmd)
+			}
+			out = append(out, "")
+			return out
+		case "function_call_output", "tool_result":
+			out := []string{"result"}
+			if outText, _ := stringField(item, "output"); outText != "" {
+				out = append(out, truncateLines(outText, codexMaxToolOutputLines)...)
+			}
+			out = append(out, "")
+			return out
+		case "reasoning", "agent_reasoning":
+			text, _ := item["text"].(string)
+			if text == "" {
+				return nil
+			}
+			out := []string{"reasoning"}
+			out = append(out, strings.Split(strings.TrimRight(text, "\n"), "\n")...)
+			out = append(out, "")
+			return out
+		}
+		// Unknown item shape — breadcrumb so the log still records it.
+		b, _ := json.Marshal(item)
+		return []string{"[item:" + itemType + "] " + string(b)}
+
 	case "session_meta", "session.created":
 		lines := []string{"codex", "--------"}
 		if v, _ := stringField(ev, "model"); v != "" {

@@ -115,6 +115,43 @@ func TestCodexJsonTranslator_UnknownTypeBreadcrumb(t *testing.T) {
 	}
 }
 
+// TestCodexJsonTranslator_RealCodex0130SchemaCapturesThreadID locks
+// the schema verified against codex-cli 0.130.0 (`codex exec --json
+// "say hi"` output, captured 2026-05-19). The thread.started event
+// carries thread_id (NOT session_id) — the translator must extract it
+// so the resume flow can feed it back via `codex exec resume <uuid>`.
+func TestCodexJsonTranslator_RealCodex0130SchemaCapturesThreadID(t *testing.T) {
+	var seen []string
+	out := &stubWriter{}
+	tr := newCodexJsonTranslator(out, func(sid string) { seen = append(seen, sid) }).(*codexJsonTranslator)
+
+	// Real lines from codex-cli 0.130.0.
+	fixture := []string{
+		`{"type":"thread.started","thread_id":"019e3f96-8149-7ef0-a669-75570bca53e8"}`,
+		`{"type":"turn.started"}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":27783,"cached_input_tokens":3456,"output_tokens":48,"reasoning_output_tokens":41}}`,
+	}
+	for _, line := range fixture {
+		writeCodexLine(t, tr, line)
+	}
+
+	if len(seen) != 1 {
+		t.Fatalf("OnSessionID fired %d times, want 1: %v", len(seen), seen)
+	}
+	if seen[0] != "019e3f96-8149-7ef0-a669-75570bca53e8" {
+		t.Fatalf("captured thread id = %q, want the canonical UUID from the fixture", seen[0])
+	}
+
+	rendered := out.String()
+	if !strings.Contains(rendered, "session id: 019e3f96-8149-7ef0-a669-75570bca53e8") {
+		t.Errorf("thread.started should render the session id line:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "done") {
+		t.Errorf("agent_message item text should reach the log:\n%s", rendered)
+	}
+}
+
 func TestCodexJsonTranslator_OnSessionIDWritesEmptyLineNotPanic(t *testing.T) {
 	out := &stubWriter{}
 	tr := newCodexJsonTranslator(out, nil).(*codexJsonTranslator)
