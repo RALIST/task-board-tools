@@ -5,6 +5,9 @@
 **Size:** S
 **Module:** gui
 **Tags:** auto-implement,ux,frontend
+**ImplementedBy:** claude
+**ImplementStatus:** success
+**ReviewRef:** TB-180 ships in next commit
 **Branch:** —
 **Parent:** TB-177
 
@@ -25,6 +28,13 @@ Surface auto-implement state, validation feedback, and a compact quick toggle wh
 - Settings remains the canonical edit surface for the query, default-agent prerequisite, and persisted enabled state.
 - The header quick toggle must only mirror and update the persisted setting; it must not own separate local state or bypass validation.
 - Manual Run and Groom actions remain available and understandable when auto-implement is disabled, invalid, or currently running another task.
+
+## Review Target
+
+- gui/frontend/src/lib/components/SettingsPanel.svelte: auto-implement toggle + query input + three inline warnings (needs-default-agent / needs-query / parser-error). The parser-error path goes through a 250ms-debounced `preferencesStore.validateAutoImplementQuery` proxy with a token guard against out-of-order responses. Query write is ordered before the enable write in `save()` so the backend validator sees the freshly typed query.
+- gui/frontend/src/routes/+page.svelte: header "Auto-impl" pill mirroring the existing "Auto-groom" pill. Shares the .auto-groom-toggle CSS so the compact layout doesn't overflow. When prereqs are missing AND the toggle is currently off, clicking opens Settings instead of trying to enable (the backend would reject anyway).
+- gui/frontend/src/lib/components/SettingsPanel.test.ts (new, 4 tests): asserts the three inline warnings render under the right conditions and clear once prereqs are met.
+- Manual Run / Groom controls remain unchanged.
 
 ## Related Tasks
 
@@ -60,4 +70,10 @@ Surface auto-implement state, validation feedback, and a compact quick toggle wh
 - 2026-05-19: Moved to code-review
 - 2026-05-19: Moved to in-progress
 - 2026-05-19: Moved to backlog
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited implemented-by=claude, implement-status=success, reviewref=TB-180 ships in next commit
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Edited review-target
+- 2026-05-20: Done
 

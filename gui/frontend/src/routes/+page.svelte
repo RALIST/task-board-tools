@@ -86,6 +86,37 @@
     }
   }
 
+  // Auto-implement quick-toggle (TB-180). Settings is the canonical edit
+  // surface for the query and the default-agent prerequisite; this
+  // pill only mirrors / flips the persisted enabled state. When the
+  // task is missing prerequisites (no default agent, blank query) we
+  // disable the pill and surface a tooltip pointing the user to Settings.
+  let autoImplementEnabled = $derived($preferencesStore.autoImplementEnabled);
+  let autoImplementMissingPrereqs = $derived(
+    $preferencesStore.defaultAgent === 'none' || $preferencesStore.autoImplementQuery.trim() === '',
+  );
+  let autoImplementToggleBusy = $state(false);
+
+  async function toggleAutoImplement() {
+    if (autoImplementToggleBusy) return;
+    // If prerequisites are missing and the toggle is currently OFF,
+    // open Settings instead of trying to flip — the backend would
+    // reject the enable anyway. When ON, allow the user to disable
+    // without redirecting them.
+    if (autoImplementMissingPrereqs && !autoImplementEnabled) {
+      settingsOpen = true;
+      return;
+    }
+    autoImplementToggleBusy = true;
+    try {
+      await preferencesStore.setAutoImplementEnabled(!autoImplementEnabled);
+    } catch {
+      // optimisticWrite + backend validation surface their own toast.
+    } finally {
+      autoImplementToggleBusy = false;
+    }
+  }
+
   onMount(async () => {
     document.documentElement.classList.toggle('platform-mac', System.IsMac());
     void preferencesStore.load().catch(() => {});
@@ -372,6 +403,23 @@
         onclick={toggleAutoGroom}>
         <span class="dot" aria-hidden="true"></span>
         Auto-groom: {autoGroomEnabled ? 'on' : 'off'}
+      </button>
+      <button
+        type="button"
+        class="auto-groom-toggle auto-implement-toggle"
+        class:on={autoImplementEnabled}
+        class:needs-default={autoImplementMissingPrereqs && !autoImplementEnabled}
+        aria-pressed={autoImplementEnabled}
+        disabled={autoImplementToggleBusy}
+        data-testid="auto-implement-pill"
+        title={autoImplementMissingPrereqs && !autoImplementEnabled
+          ? 'Auto-implement needs a default agent and a filter. Click to open Settings.'
+          : autoImplementEnabled
+            ? 'Auto-implement is on. Click to disable.'
+            : 'Auto-implement is off. Click to enable.'}
+        onclick={toggleAutoImplement}>
+        <span class="dot" aria-hidden="true"></span>
+        Auto-impl: {autoImplementEnabled ? 'on' : 'off'}
       </button>
       <button class="pick" onclick={() => (settingsOpen = true)}>Settings</button>
       <button class="pick" onclick={pickAndOpen}>Open board…</button>

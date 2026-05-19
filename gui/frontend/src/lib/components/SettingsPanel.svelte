@@ -34,6 +34,12 @@
   let periodicRecoveryInput = $state(true);
   let autoGroomInput = $state(false);
   let autoGroomSettleInput = $state('5');
+  let autoImplementInput = $state(false);
+  let autoImplementQueryInput = $state('');
+  let autoImplementQueryError = $state('');
+  // Plain `let` (not $state) so the increment-in-effect doesn't
+  // self-trigger the effect via Svelte's reactive dependency tracking.
+  let autoImplementQueryValidateToken = 0;
   let saving = $state(false);
   let opened = $state(false);
   let seededLoaded = $state(false);
@@ -59,6 +65,7 @@
   let nextAutoGroomSettle = $derived(
     clampNumber(autoGroomSettleInput, 0, 60, baseline.autoGroomSettleMinutes),
   );
+  let nextAutoImplementQuery = $derived(autoImplementQueryInput.trim());
   let dirty = $derived(
     nextMaxWorkers !== baseline.maxWorkers ||
       nextAgentTimeout !== baseline.agentTimeoutMinutes ||
@@ -66,11 +73,39 @@
       nextCLIPath !== baseline.cliPath ||
       periodicRecoveryInput !== baseline.periodicRecoveryEnabled ||
       autoGroomInput !== baseline.autoGroomEnabled ||
-      nextAutoGroomSettle !== baseline.autoGroomSettleMinutes,
+      nextAutoGroomSettle !== baseline.autoGroomSettleMinutes ||
+      autoImplementInput !== baseline.autoImplementEnabled ||
+      nextAutoImplementQuery !== baseline.autoImplementQuery,
   );
   let autoGroomNeedsDefaultAgent = $derived(
     autoGroomInput && defaultAgentInput === 'none',
   );
+  let autoImplementNeedsDefaultAgent = $derived(
+    autoImplementInput && defaultAgentInput === 'none',
+  );
+  let autoImplementNeedsQuery = $derived(
+    autoImplementInput && nextAutoImplementQuery === '',
+  );
+
+  // Debounced parser validation through the backend. Triggered on each
+  // query input change; result lands in autoImplementQueryError. The
+  // request token guards against out-of-order responses (a fresh edit
+  // landing after a stale validation resolves).
+  $effect(() => {
+    const query = nextAutoImplementQuery;
+    if (query === '') {
+      autoImplementQueryError = '';
+      return;
+    }
+    autoImplementQueryValidateToken += 1;
+    const token = autoImplementQueryValidateToken;
+    const handle = setTimeout(async () => {
+      const err = await preferencesStore.validateAutoImplementQuery(query);
+      if (token !== autoImplementQueryValidateToken) return;
+      autoImplementQueryError = err ?? '';
+    }, 250);
+    return () => clearTimeout(handle);
+  });
 
   $effect(() => {
     const prefs = $preferencesStore;
@@ -184,6 +219,24 @@
           failures.push('auto-groom settle window');
         }
       }
+      // Auto-implement: persist the query first (a freshly typed query
+      // must be on disk before the enable validator reads it), then the
+      // enable toggle. Validation errors land in `failures` so the
+      // toast still surfaces them and the baseline doesn't drift.
+      if (nextAutoImplementQuery !== baseline.autoImplementQuery) {
+        try {
+          await preferencesStore.setAutoImplementQuery(nextAutoImplementQuery);
+        } catch {
+          failures.push('auto-implement query');
+        }
+      }
+      if (autoImplementInput !== baseline.autoImplementEnabled) {
+        try {
+          await preferencesStore.setAutoImplementEnabled(autoImplementInput);
+        } catch {
+          failures.push('auto-implement');
+        }
+      }
 
       const current = get(preferencesStore);
       baseline = toEditable(current);
@@ -222,6 +275,9 @@
     periodicRecoveryInput = baseline.periodicRecoveryEnabled;
     autoGroomInput = baseline.autoGroomEnabled;
     autoGroomSettleInput = String(baseline.autoGroomSettleMinutes);
+    autoImplementInput = baseline.autoImplementEnabled;
+    autoImplementQueryInput = baseline.autoImplementQuery;
+    autoImplementQueryError = '';
   }
 
   function toEditable(prefs: PreferencesState): EditablePreferences {
@@ -392,6 +448,49 @@
         {#if autoGroomNeedsDefaultAgent}
           <p class="inline-warning" role="alert">
             Set a default agent before automation can run.
+          </p>
+        {/if}
+
+        <label class="field checkbox-field">
+          <span>Enable auto implement</span>
+          <input
+            type="checkbox"
+            data-testid="auto-implement-toggle"
+            bind:checked={autoImplementInput} />
+          <small>
+            When on, the GUI pulls matching <code>ready</code> tasks into in-progress and
+            starts implementation runs. Requires a default agent and a non-empty filter.
+          </small>
+        </label>
+
+        <label class="field" class:disabled-field={!autoImplementInput}>
+          <span>Auto-implement filter</span>
+          <input
+            type="text"
+            spellcheck="false"
+            placeholder="bug, S size, gui"
+            data-testid="auto-implement-query"
+            disabled={!autoImplementInput}
+            bind:value={autoImplementQueryInput} />
+          <small>
+            Comma-separated terms: type, priority (P0–P3), size, module, tag:name,
+            agent:claude, parent:TB-N. Bare words match the task title or module.
+          </small>
+        </label>
+
+        {#if autoImplementNeedsDefaultAgent}
+          <p class="inline-warning" role="alert">
+            Set a default agent before auto-implement can run.
+          </p>
+        {/if}
+        {#if autoImplementNeedsQuery}
+          <p class="inline-warning" role="alert">
+            Auto-implement needs a non-empty filter to know which tasks to pick.
+          </p>
+        {/if}
+        {#if autoImplementQueryError && !autoImplementNeedsQuery}
+          <p class="inline-warning" role="alert">
+            Filter is invalid: {autoImplementQueryError}
           </p>
         {/if}
       </section>
