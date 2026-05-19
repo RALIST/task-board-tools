@@ -6,7 +6,7 @@
 |----|-------|----------|--------|--------|
 | TB-177 | Auto task implementation | 0/3 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
-| TB-130 | Agent session resume + interrupted-run recovery | 5/12 | backlog | gui |
+| TB-130 | Agent session resume + interrupted-run recovery | 6/12 | backlog | gui |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
 | TB-182 | Add special labes\tags\status for user attention | 0/3 | backlog | agent |
 | TB-194 | Code-review column | 0/6 | backlog | workflow |
@@ -51,7 +51,6 @@
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-128 | Keep ”Done” column sorted by timestamp, not priority | improvement | P2 | M | gui |
 | TB-130 | Agent session resume + interrupted-run recovery | feature | P1 | XL | gui |
-| TB-136 | Codex session capture via --json OnSessionID callback | feature | P1 | M | gui |
 | TB-137 | Recovery: dead-PID + SessionID -> interrupted (markInterrupted) | feature | P1 | M | gui |
 | TB-138 | Resume backend Claude: ResumeDecorator + -r flag + cwd/env replay | feature | P1 | M | gui |
 | TB-139 | Resume backend Codex: codex exec --json resume <uuid> wiring | feature | P1 | M | gui |

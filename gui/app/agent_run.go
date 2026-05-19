@@ -422,6 +422,35 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 		Timeout: timeout,
 		Stdout:  stdoutSink,
 		Stderr:  stderrSink,
+		// TB-136: codex --json emits the session id mid-stream. The
+		// translator (codex_stream.go) parses it out and invokes this
+		// callback exactly once per run on the stream-reader goroutine
+		// — record the id on activeRun and write the matching session
+		// JSONL event. For Claude this stays nil; pre-allocation
+		// (TB-135) and the post-`started` write in OnStarted already
+		// cover that path.
+		OnSessionID: func(sessionID string) {
+			if sessionID == "" {
+				return
+			}
+			ar.mu.Lock()
+			ar.SessionID = sessionID
+			pid := ar.Pid
+			ar.mu.Unlock()
+			if err := agent.AppendEvent(boardDir, ar.TaskID, agent.Event{
+				TS:        time.Now().UTC().Format(time.RFC3339),
+				RunID:     ar.RunID,
+				TaskID:    ar.TaskID,
+				Event:     agent.EvSession,
+				SessionID: sessionID,
+				PID:       pid,
+				Cwd:       projectRoot,
+				RunEnv:    agent.FilterTBEnv(runEnv),
+			}); err != nil {
+				slog.Warn("agent: append session (OnSessionID) failed",
+					"task", ar.TaskID, "run", ar.RunID, "err", err)
+			}
+		},
 		OnStarted: func(pid, pgid int) {
 			// Hold ar.mu across the cancelled-check and the pid/pgid
 			// write so a racing CancelRun observes a consistent activeRun

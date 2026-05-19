@@ -23,15 +23,20 @@ import (
 // the test asked for. The OnStarted callback is invoked synchronously so we
 // hit the same code paths the real runners do.
 type stubRunner struct {
-	name        string
-	stdoutLines []string
-	stderrLines []string
-	exitCode    int
-	runErr      error
-	startedOnce bool
-	startedDone chan struct{}
-	lastInput   agent.RunInput
-	mu          sync.Mutex
+	name           string
+	stdoutLines    []string
+	stderrLines    []string
+	exitCode       int
+	runErr         error
+	startedOnce    bool
+	startedDone    chan struct{}
+	// fireSessionID, if non-empty, is delivered to in.OnSessionID after
+	// OnStarted but before stdout streaming. Simulates the Codex
+	// translator's mid-stream session-id capture without depending on
+	// real codex --json output.
+	fireSessionID string
+	lastInput     agent.RunInput
+	mu            sync.Mutex
 }
 
 func (s *stubRunner) Name() string { return s.name }
@@ -48,6 +53,9 @@ func (s *stubRunner) Run(ctx context.Context, in agent.RunInput) (agent.RunResul
 		if s.startedDone != nil {
 			close(s.startedDone)
 		}
+	}
+	if s.fireSessionID != "" && in.OnSessionID != nil {
+		in.OnSessionID(s.fireSessionID)
 	}
 	for _, ln := range s.stdoutLines {
 		_, _ = in.Stdout.Write([]byte(ln + "\n"))
@@ -544,6 +552,59 @@ func TestRunAgent_CodexDoesNotPreAllocateSessionID(t *testing.T) {
 
 	if got := stub.input().SessionID; got != "" {
 		t.Fatalf("Codex run got pre-allocated SessionID %q; should be empty", got)
+	}
+}
+
+// TestRunAgent_CodexOnSessionIDCallbackWritesSessionEvent is the TB-136
+// contract: when the Codex translator hands a session id up via
+// RunInput.OnSessionID, runGoroutine records it on activeRun and writes
+// a matching `session` JSONL event with the live PID.
+func TestRunAgent_CodexOnSessionIDCallbackWritesSessionEvent(t *testing.T) {
+	stub := &stubRunner{
+		name:          "codex",
+		stdoutLines:   []string{"first", "second"},
+		exitCode:      0,
+		fireSessionID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+	}
+	svc, boardDir := realTbBoardForRun(t, "codex", stub)
+
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("RunAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	events := readEvents(t, boardDir, "TB-1")
+	var sessionEv *agent.Event
+	for i := range events {
+		if events[i].Event == agent.EvSession {
+			sessionEv = &events[i]
+			break
+		}
+	}
+	if sessionEv == nil {
+		t.Fatalf("no session event in JSONL: %+v", events)
+	}
+	if sessionEv.SessionID != stub.fireSessionID {
+		t.Fatalf("session event id %q != fireSessionID %q", sessionEv.SessionID, stub.fireSessionID)
+	}
+	if sessionEv.PID == 0 {
+		t.Fatalf("session event PID was zero — OnStarted should have populated ar.Pid before OnSessionID")
+	}
+
+	// The session event must appear AFTER started (recovery's PID
+	// liveness check depends on `started` landing first).
+	var startedIdx, sessionIdx int = -1, -1
+	for i, ev := range events {
+		if ev.Event == agent.EvStarted {
+			startedIdx = i
+		}
+		if ev.Event == agent.EvSession {
+			sessionIdx = i
+			break
+		}
+	}
+	if startedIdx == -1 || sessionIdx == -1 || sessionIdx < startedIdx {
+		t.Fatalf("session must follow started; startedIdx=%d sessionIdx=%d events=%+v", startedIdx, sessionIdx, events)
 	}
 }
 
