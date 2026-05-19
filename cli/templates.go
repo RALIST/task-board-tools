@@ -6,144 +6,89 @@ import "fmt"
 func conventionsTemplate(prefix string) string {
 	return fmt.Sprintf(`# Board Conventions
 
-## Structure
+This file describes how to work with this board as a kanban system. It is intentionally a policy guide, not a command manual. Detailed command syntax belongs in CLI help and in the board skill file.
 
-`+"```"+`
-board/
-  BOARD.md              — Generated kanban view (DO NOT edit manually)
-  CONVENTIONS.md        — This file
-  SKILL.md              — AI agent instructions for using the board
-  .next-id              — Counter for next %[1]s-NNN ID
-  backlog/              — Raw intake; un-groomed ideas live here
-  ready/                — Committed and pullable; WIP-limited; pulled into in-progress in priority order
-  in-progress/          — Currently being worked on (WIP-limited)
-  code-review/          — Implementation work awaiting reviewer signoff
-  done/                 — Completed (archive, clean periodically)
-  archive/              — Closed; hidden from BOARD.md unless explicitly inspected
-`+"```"+`
+## Kanban Flow
 
-Canonical kanban flow:
+The board flows in one direction:
 
 `+"```"+`
 backlog → ready → in-progress → code-review → done → archive
 `+"```"+`
 
-`+"`backlog`"+` is the open intake queue. Promote a task to `+"`ready`"+` with `+"`tb ready <ID>`"+` once it has a priority and a real goal (the same gate `+"`tb triage`"+` uses). `+"`tb pull`"+` then pulls the highest-priority oldest ready task into `+"`in-progress`"+`. `+"`tb start <ID>`"+` is the explicit push variant — it still works from any column, but warns when called on a backlog task because it skips the commitment column.
+Each column has a job:
 
-CLI tool `+"`tb`"+` manages board operations (create, move, edit, attach, assign, list, JSON views, regenerate).
+- `+"`backlog`"+` is intake. Ideas can be rough here, but they should not be treated as committed work.
+- `+"`ready`"+` is the commitment point. A task is ready only when it has a priority, a clear goal, and enough acceptance criteria for someone else to finish it.
+- `+"`in-progress`"+` is active work. Keep it small; do not hoard tasks.
+- `+"`code-review`"+` is work that claims to be done and needs reviewer signoff.
+- `+"`done`"+` is accepted work. The task should explain what changed and how it was verified.
+- `+"`archive`"+` is for obsolete, superseded, duplicate, or long-closed work that should leave the active board.
 
-**Directories are the source of truth.** `+"`BOARD.md`"+` is a generated view — never edit it manually.
+Tasks flow forward. A failed review returns to `+"`ready`"+` with a clear rework note because the task is still groomed; it just needs another implementation pass.
 
-Directory = status. Moving a task entry between directories = status change.
+## Source Of Truth
 
-**CRITICAL: A task file must exist in exactly ONE directory.** When moving a task, always use `+"`tb mv`"+`/`+"`tb start`"+`/`+"`tb done`"+` which handle the move atomically. Never copy task files.
+Directories are the source of truth. A task entry exists in one status only, and its status is the directory it lives in. Moving work by copying files breaks the board; move the task entry instead.
 
-## Task File Format
+`+"`BOARD.md`"+` is a generated board view. Do not edit it by hand. If it disagrees with task entries, trust the task entries and regenerate the view through the board tooling.
 
-Default path: `+"`<status>/%[1]s-NNN/TASK.md`"+` (e.g., `+"`backlog/%[1]s-001/TASK.md`"+`).
+Use the managed board tools for structured changes such as creating, moving, editing metadata, assigning agents, managing attachments, closing tasks, and rebuilding generated views. Direct file edits are acceptable for human-readable task body improvements, but preserve the metadata block and the one-task-one-status rule.
 
-Legacy path: `+"`<status>/%[1]s-NNN.md`"+`. Create legacy files only when you intentionally pass `+"`tb create --legacy-file`"+`; they are kept for compatibility and do not support in-place attachments.
+Task IDs use the `+"`%[1]s-NNN`"+` shape. The numeric allocator is owned by the board tooling; do not invent IDs manually.
 
-Folder-form tasks store new attachments directly under `+"`<status>/%[1]s-NNN/`"+`. Legacy `+"`attachments/<filename>`"+` entries remain supported for compatibility when older tasks are promoted.
+## Task Quality
 
-**ID allocation:** Handled automatically by `+"`tb create`"+`. The `+"`"+`.next-id`+"`"+` file is the counter, protected by file locking for concurrent access.
+A good task is small enough to finish, specific enough to review, and explicit about success. Before a task leaves `+"`backlog`"+`, it should have:
 
-`+"```"+`markdown
-# %[1]s-NNN: Short title
+- A concise title.
+- A type: `+"`feature`"+`, `+"`bug`"+`, `+"`tech-debt`"+`, `+"`improvement`"+`, or `+"`spike`"+`.
+- A priority: `+"`P0`"+` for urgent work, `+"`P1`"+` for next-up work, `+"`P2`"+` for normal backlog.
+- A size: `+"`S`"+`, `+"`M`"+`, `+"`L`"+`, or `+"`XL`"+`; split `+"`XL`"+` tasks before implementation when possible.
+- A real goal that describes the outcome, not only the activity.
+- Acceptance criteria that can be checked by a reviewer.
+- Relevant module, tags, parent epic, and related-task links when they help routing.
 
-**Type:** feature | bug | tech-debt | improvement | spike
-**Priority:** P0 | P1 | P2
-**Size:** S | M | L | XL
-**Module:** module-name (optional)
-**Tags:** comma-separated tags (optional)
-**Branch:** feat/branch-name (set when work starts)
-**ReviewRef:** branch/PR/commit/worktree (required to move into code-review)
-**Parent:** %[1]s-NNN (optional — links to parent epic)
+Use `+"`spike`"+` for research whose output is a decision, summary, or follow-up task list. Do not let spikes quietly become implementation tasks without updating their goal and acceptance criteria.
 
-## Goal
+## Working Agreements
 
-One-sentence objective.
+Before starting work, pull from `+"`ready`"+` unless the user explicitly chooses a specific task. If `+"`ready`"+` is empty, groom intake first instead of treating raw backlog as committed work.
 
-## Context
+Respect WIP limits when they are configured. A WIP warning is a signal to finish, review, or unblock existing work before adding more.
 
-Why this task exists. Link to the task or session where it was discovered.
+Set or update the branch/reference fields when they help reviewers find the implementation. Work submitted to `+"`code-review`"+` should include enough review reference information to inspect the actual change.
 
-## Acceptance Criteria
+Keep the `+"`Log`"+` useful. Record meaningful transitions, blockers, verification results, review outcomes, and final summaries. Avoid noisy diary entries that do not help the next reader.
 
-- [ ] Criterion 1
-- [ ] Criterion 2
+Check acceptance criteria before marking work done. If a criterion no longer applies, edit it or explain why it changed rather than silently ignoring it.
 
-## User Attention
+## Backlog Capture
 
-*(optional — present only when an autonomous agent paused for user input)*
+Create a new backlog task when you find work that is real but outside the current scope:
 
-- Reason: short category — unclear requirement, external blocker, conflict, failed verification, stale task.
-- Question/Action: the specific ask the user must answer or do.
-- Attempted context: what the agent already tried, read, or ruled out.
-- Unblock condition: exactly what answer/state lets the run resume.
+- Bugs unrelated to the task in hand.
+- Follow-up improvements or polish.
+- Temporary workarounds.
+- Missing tests or coverage gaps.
+- Dead code, cleanup, performance, or security concerns.
+- Source comments that identify future work.
 
-## Attachments
+Keep capture lightweight: title, module if known, priority guess, and enough context for someone to understand why the task exists. Link it from the current task when the relationship matters.
 
 ## Related Tasks
 
-- **%[1]s-XXX** — Title (relationship: prerequisite | blocked by | shares infrastructure | complementary | depends on)
+Use `+"`Related Tasks`"+` to preserve context across split work. Good relationship labels include `+"`prerequisite`"+`, `+"`blocked by`"+`, `+"`shares infrastructure`"+`, `+"`complementary`"+`, and `+"`depends on`"+`.
 
-## Log
+When decomposing an epic, connect children to the parent and keep sibling ordering meaningful. If one child must happen before another, make that dependency explicit instead of relying on memory.
 
-- YYYY-MM-DD: Created
-- YYYY-MM-DD: Started — moved to in-progress
-- YYYY-MM-DD: Done — [summary of what was done]
-`+"```"+`
+## Review Loop
 
-### Task types
+`+"`code-review`"+` is a claim that implementation is complete enough to inspect. A review should focus on behavior, regressions, missing tests, data loss, security, and contract drift.
 
-| Type          | When to use                                 | Examples                                             |
-| ------------- | ------------------------------------------- | ---------------------------------------------------- |
-| `+"`feature`"+`     | New capability                              | Implement search, add export format                  |
-| `+"`bug`"+`         | Broken behavior found during work           | Crash on empty input, wrong calculation              |
-| `+"`tech-debt`"+`   | Shortcuts, workarounds, temporary solutions | Hardcoded limit, missing error handling, copied code |
-| `+"`improvement`"+` | Enhancement to existing functionality       | Better UX, faster lookup                             |
-| `+"`spike`"+`       | Research or investigation needed            | Evaluate approaches, benchmark alternatives          |
+If review passes, move the task to `+"`done`"+` with a concise completion note. If review fails, return it to `+"`ready`"+`, preserve the findings, and make the next required action obvious.
 
-## Rules
-
-### Before coding
-
-1. Run `+"`tb ls --status ready`"+` for the committed queue (fall back to `+"`--status all`"+` for the whole board).
-2. If `+"`ready`"+` is empty, groom a backlog task and commit it: `+"`tb edit`"+` to fix any gaps, then `+"`tb ready %[1]s-NNN`"+`.
-3. Pull the next task with `+"`tb pull`"+` (auto-picks highest-priority oldest) or `+"`tb pull %[1]s-NNN`"+` to override. `+"`tb start %[1]s-NNN`"+` still works push-style but warns when called on a backlog task.
-4. Set the `+"`Branch`"+` field once you start writing code.
-
-**Never push backlog → in-progress directly.** Promote through `+"`ready`"+` (or accept that `+"`tb start <ID>`"+` on a backlog task will warn).
-
-### During work
-
-- Add notes to the task's Log section as you make progress
-- If blocked, note it in the Log
-
-### After work
-
-- Check all acceptance criteria boxes
-- Run `+"`tb done %[1]s-NNN`"+`
-- Add final Log entry with summary
-
-### Backlog capture
-
-Create backlog tasks when you encounter:
-
-- Out-of-scope work or deferred features
-- Bugs unrelated to current task
-- Workarounds or temporary solutions
-- `+"`TODO`"+`/`+"`FIXME`"+`/`+"`HACK`"+` in code — reference task ID: `+"`// TODO(%[1]s-NNN): description`"+`
-- Performance concerns or improvement ideas
-
-Quick capture: `+"`tb create \"Title\" -m module -d \"description\"`"+`
-
-### Board hygiene
-
-- P0 = drop everything. P1 = next up. P2 = when convenient
-- Size guide: S = <1h, M = 1-4h, L = 4-8h, XL = multi-session
-- Tags: comma-separated. Filter with `+"`tb ls -t tag`"+`
+Do not use `+"`archive`"+` as a shortcut for unfinished work. Archive is for work that should leave the active system, not for work that is merely inconvenient.
 
 ### Agent lifecycle (AgentStatus)
 
@@ -156,13 +101,16 @@ Quick capture: `+"`tb create \"Title\" -m module -d \"description\"`"+`
 | `+"`failed`"+` | Last run finished with a non-zero exit code or runtime error. |
 | `+"`cancelled`"+` | User-initiated cancel. |
 | `+"`interrupted`"+` | Recovery-initiated; daemon crashed mid-run with a captured session id. |
-| `+"`needs-user`"+` | Agent stopped because user input is required (see `+"`## User Attention`"+` section). Automation skips these tasks; clear with `+"`tb edit <ID> --agent-status none`"+`. |
+| `+"`needs-user`"+` | Agent stopped because user input is required. Automation should skip the task until a human clears it. |
 
-Autonomous agents that cannot continue safely use the `+"`needs-user`"+` handoff:
+Autonomous agents that cannot continue safely use the `+"`needs-user`"+` handoff. The task should include a `+"`User Attention`"+` section with:
 
-1. `+"`tb edit <ID> --user-attention -`"+` (heredoc) with reason, question/action, attempted context, and unblock condition.
-2. `+"`tb edit <ID> --agent-status needs-user`"+`.
-3. Stop the run cleanly — do not mark the task done, failed, or cancelled.
+- Reason: short category such as unclear requirement, external blocker, conflict, failed verification, or stale task.
+- Question/Action: the specific ask the user must answer or do.
+- Attempted context: what the agent already tried, read, or ruled out.
+- Unblock condition: exactly what answer or state lets the run resume.
+
+After making a `+"`needs-user`"+` handoff, stop cleanly. Do not mark the task done, failed, or cancelled just to end the run.
 
 ### Tag taxonomy
 
@@ -184,68 +132,6 @@ Autonomous agents that cannot continue safely use the `+"`needs-user`"+` handoff
 | `+"`quick-win`"+` | S-size tech-debt/improvement/bug |
 | `+"`epic`"+` | Parent/umbrella tasks with sub-tasks |
 | `+"`needs-split`"+` | XL tasks that should be broken down |
-
-## BOARD.md
-
-`+"`BOARD.md`"+` is **auto-generated** by `+"`tb regenerate`"+`. Do not edit it manually.
-
-## Project Refresh
-
-Existing boards can refresh generated project files without reinitializing tasks:
-
-`+"```"+`
-tb init
-`+"```"+`
-
-The command reads `+"`"+`.tb.yaml`+"`"+` for the current board path and prefix, rewrites generated files such as `+"`CONVENTIONS.md`"+` and `+"`SKILL.md`"+`, expands `+"`"+`.tb.yaml`+"`"+` with the supported config keys, and saves previous copies as `+"`*.bak`"+` files for manual merge of local customizations. The old `+"`--refresh-docs`"+` flag is accepted for scripts, but plain `+"`tb init`"+` is the normal refresh path.
-
-## CLI Reference
-
-`+"```"+`
-tb init [path] [--board-path=board] [--prefix=%[1]s] [--refresh-docs]
-tb board [--json]
-tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|ready|in-progress|code-review|done|archive|active|all] [--json]
-tb mv <%[1]s-NNN> <status>                                                    — Move task between statuses
-tb ready <%[1]s-NNN>                                                          — Promote backlog → ready (kanban commitment; triage-gated)
-tb pull [<%[1]s-NNN>]                                                         — Pull the highest-priority oldest ready task into in-progress
-tb start <%[1]s-NNN>                                                          — Move to in-progress (push-style; warns when source is backlog)
-tb done <%[1]s-NNN>                                                           — Move to done
-tb edit <%[1]s-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
-tb attach <%[1]s-NNN> <path>...                                               — Copy files into task attachments
-tb attach --rm <%[1]s-NNN> <attachment-name>...                               — Remove task attachments
-tb assign <%[1]s-NNN> <claude|codex>                                          — Assign a runnable agent and queue pickup
-tb close <%[1]s-NNN>                                                          — Archive task
-tb show <%[1]s-NNN> [--json]                                                  — Print task content or JSON
-tb open <%[1]s-NNN>                                                           — Open in default editor
-tb epic <%[1]s-NNN> [--status active|archive|all]                             — Show epic progress and children
-tb triage [--json]                                                            — Find tasks needing grooming
-tb grep <pattern> [--status backlog|ready|in-progress|code-review|done|archive|active|all] [-s] [-l] — Search tasks by regex
-tb scan [--apply] [--path dir]                                                — Find untagged TODOs, create tasks
-tb regenerate                                                                 — Regenerate BOARD.md
-`+"```"+`
-
-**Defaults:** type=bug, priority=P2, size=M.
-
-**Status aliases:** `+"`b`"+`=backlog, `+"`r`"+`=ready, `+"`ip`"+`/`+"`wip`"+`=in-progress, `+"`cr`"+`/`+"`review`"+`=code-review, `+"`d`"+`=done
-
-**Examples:**
-
-`+"```"+`
-tb create "Fix crash on empty input" -m core -p P1 -s S -t quick-win
-tb create "Search system" --epic -m editor          # Create an epic
-tb create "Search indexing" --parent 1 -m editor    # Create child of epic
-tb create "Legacy integration probe" --legacy-file   # Explicit old <status>/<ID>.md layout
-tb init                                   # Refresh generated docs/config with .bak backups
-tb ls -T bug -p P1                       # P1 bugs
-tb ls -t testing                         # All test-related tasks
-tb ls --parent 1                         # Children of an epic
-tb start 1                               # Prefix is optional — "1" = "%[1]s-1"
-tb done 1
-tb epic 1                                # View epic progress
-tb grep "auth"                           # Search all tasks
-tb scan --apply                          # Create tasks from TODOs
-`+"```"+`
 `, prefix)
 }
 

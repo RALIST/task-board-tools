@@ -69,13 +69,15 @@ func TestInitRefreshDocsUsesExistingConfigAndPreservesFolderBoardState(t *testin
 	conventions := readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md"))
 	assertContains(t, conventions, "TB-NNN")
 	assertNotContains(t, conventions, "PR-NNN")
-	assertContains(t, conventions, "tb init [path] [--board-path=board] [--prefix=TB] [--refresh-docs]")
-	assertContains(t, conventions, "tb board [--json]")
-	assertContains(t, conventions, "tb show <TB-NNN> [--json]")
-	assertContains(t, conventions, "tb attach <TB-NNN> <path>...")
-	assertContains(t, conventions, "tb assign <TB-NNN> <claude|codex>")
-	assertContains(t, conventions, "tb create --legacy-file")
-	assertContains(t, conventions, "<status>/TB-NNN/TASK.md")
+	assertContains(t, conventions, "policy guide, not a command manual")
+	assertContains(t, conventions, "backlog → ready → in-progress → code-review → done → archive")
+	assertContains(t, conventions, "Directories are the source of truth")
+	assertContains(t, conventions, "## Task Quality")
+	assertContains(t, conventions, "## Review Loop")
+	assertNotContains(t, conventions, "## CLI Reference")
+	assertNotContains(t, conventions, "tb init [path]")
+	assertNotContains(t, conventions, "tb create \"Title\"")
+	assertNotContains(t, conventions, "<status>/TB-NNN/TASK.md")
 
 	skill := readFileForTest(t, filepath.Join(boardDir, "SKILL.md"))
 	assertContains(t, skill, "tb attach <TB-NNN> <path>...")
@@ -95,7 +97,7 @@ func TestInitExistingBoardRefreshesDocsByDefault(t *testing.T) {
 	assertContains(t, out, "Refreshed board docs")
 	assertContains(t, out, "CONVENTIONS.md.bak")
 	assertContains(t, out, "SKILL.md.bak")
-	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "tb init [path] [--board-path=board] [--prefix=TB]")
+	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "Detailed command syntax belongs in CLI help")
 	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "All operations use the `tb` CLI")
 }
 
@@ -228,7 +230,9 @@ func TestInitRefreshDocsPreservesLegacyFileFormBoard(t *testing.T) {
 		t.Fatalf("legacy task changed:\n%s", got)
 	}
 	assertPathMissing(t, filepath.Join(boardDir, "backlog", "TB-1", folderTaskFileName))
-	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "Legacy path: `<status>/TB-NNN.md`")
+	conventions := readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md"))
+	assertContains(t, conventions, "A task entry exists in one status only")
+	assertNotContains(t, conventions, "Legacy path:")
 }
 
 func TestInitRefreshDocsBacksUpCustomizedDocs(t *testing.T) {
@@ -248,7 +252,7 @@ func TestInitRefreshDocsBacksUpCustomizedDocs(t *testing.T) {
 	if got := readFileForTest(t, filepath.Join(boardDir, "SKILL.md.bak")); got != customSkill {
 		t.Fatalf("custom skill backup = %q", got)
 	}
-	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "Generated kanban view")
+	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "generated board view")
 	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "All operations use the `tb` CLI")
 }
 
