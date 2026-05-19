@@ -10,6 +10,7 @@ board/
   .next-id              — Counter for next TB-NNN ID
   backlog/              — Prioritized, ready to pick up
   in-progress/          — Currently being worked on (max 2 tasks)
+  code-review/          — Implementation work awaiting reviewer signoff (TB-194)
   done/                 — Completed (archive, clean periodically)
 ```
 
@@ -63,6 +64,31 @@ Why this task exists. Link to the task or session where it was discovered.
 - Question/Action: the specific ask the user must answer or do.
 - Attempted context: what the agent already tried, read, or ruled out.
 - Unblock condition: exactly what answer/state lets the run resume.
+
+## Review Target
+
+*(optional — only present once the task enters or is about to enter code-review)*
+
+Free-form text telling the reviewer where the implementation lives: a
+branch name, PR URL, commit SHA, worktree path, or a short note. Set with
+`tb review --target <ID> -` (heredoc or file).
+
+## Reviewer Notes
+
+*(optional — implementer-facing guidance for reviewers)*
+
+Set with `tb review --notes <ID> -`. Use it to highlight the most
+important diff hotspots, list manual smoke steps the reviewer should run,
+or call out intentional non-changes.
+
+## Review Findings
+
+*(optional — written by the reviewer or a review-mode agent)*
+
+Set with `tb review --findings <ID> -` (or `tb review --fail <ID> -`
+when also bouncing the task back to backlog). Actionable bullets: file
+references, line ranges, acceptance criteria the change failed, suggested
+fixes. Non-blocking nits should be prefixed `(nit)`.
 
 ## Attachments
 
@@ -140,6 +166,13 @@ Quick capture: `tb create "Title" -m module -d "description"`
 | `interrupted` | Recovery-initiated: the daemon crashed mid-run with a captured session id; the user can Resume. Reserved for `RecoverStale`. |
 | `needs-user` | The agent stopped because user input is required. The task carries a `## User Attention` section with the specific ask. Auto-groom and auto-implement skip `needs-user` tasks; manual Run/Groom are blocked in the GUI. Resolve by reading the ask, updating the task body or doing the action, then clearing the status with `tb edit <ID> --agent-status none`. |
 
+`AgentStatus` values are independent of board status. Specifically:
+
+- `code-review` is a **board status** (directory), not an `AgentStatus`.
+- `review-failed` is a **tag** on backlog tasks, not an `AgentStatus`.
+- `needs-user` is an `AgentStatus` for autonomous-agent pauses; it is
+  unrelated to code-review (see TB-182).
+
 Autonomous agents that cannot continue safely use the `needs-user` handoff:
 
 1. `tb edit <ID> --user-attention -` (heredoc) with reason, question/action, attempted context, and unblock condition.
@@ -166,6 +199,51 @@ Autonomous agents that cannot continue safely use the `needs-user` handoff:
 | `quick-win` | S-size tech-debt/improvement/bug |
 | `epic` | Parent/umbrella tasks with sub-tasks |
 | `needs-split` | XL tasks that should be broken down |
+| `review-failed` | Failed code review — task bounced back to backlog with actionable findings (added automatically by `tb review --fail`; cleared automatically on `tb review --submit`). |
+
+### Code review workflow (TB-194)
+
+`code-review` is a first-class board status sitting between in-progress and
+done. Use it whenever an implementation is finished and ready for a human
+or agent reviewer to look at.
+
+**Happy path (passed review):**
+
+1. While the task is in `in-progress`, set the review target so the
+   reviewer knows where the change lives:
+   ```sh
+   tb review --target TB-NNN - <<'EOF'
+   branch: feat/foo
+   PR: https://example.com/pull/42
+   EOF
+   ```
+   Optionally add reviewer-facing guidance with
+   `tb review --notes TB-NNN -`.
+2. Submit to code-review: `tb review --submit TB-NNN`. The CLI prints a
+   warning to stderr (and still moves the task) if no Review Target is
+   present yet.
+3. A human reviewer or a review-mode agent inspects the change and writes
+   findings: `tb review --findings TB-NNN -` (use the `(nit)` prefix for
+   non-blocking notes).
+4. When the review passes, run `tb done TB-NNN` directly from `code-review`.
+
+**Failure path (rework required):**
+
+1. From `code-review`, run `tb review --fail TB-NNN -` with the blocking
+   findings on stdin. The CLI atomically: writes/replaces
+   `## Review Findings`, moves the task to `backlog`, adds the
+   `review-failed` tag, regenerates `BOARD.md`.
+2. The original implementer addresses the findings, then resubmits with
+   `tb review --submit TB-NNN`. The `review-failed` tag is cleared
+   automatically on resubmit.
+
+`review-failed` is a tag, not an `AgentStatus`. It is also distinct from
+`needs-user` (which is an `AgentStatus` carrying a `## User Attention`
+section — for autonomous-agent pauses, not workflow rework).
+
+Review agents run via `tb-gui`'s "Review" button (mode `review`) on a
+code-review task. Review-mode runs are read-only against implementation
+code; they may only mutate the task via `tb review` commands.
 
 ## BOARD.md
 
@@ -187,7 +265,7 @@ The command reads `.tb.yaml` for the current board path and prefix, rewrites gen
 tb init [path] [--board-path=board] [--prefix=TB] [--refresh-docs]
 tb board [--json]
 tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [--json]
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|code-review|done|archive|active|all] [--json]
 tb mv <TB-NNN> <status>                                                    — Move task between statuses
 tb start <TB-NNN>                                                          — Move to in-progress
 tb done <TB-NNN>                                                           — Move to done
@@ -200,14 +278,19 @@ tb show <TB-NNN> [--json]                                                  — P
 tb open <TB-NNN>                                                           — Open in default editor
 tb epic <TB-NNN> [--status active|archive|all]                             — Show epic progress and children
 tb triage [--json]                                                            — Find tasks needing grooming
-tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l] — Search tasks by regex
+tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l] — Search tasks by regex
 tb scan [--apply] [--path dir]                                                — Find untagged TODOs, create tasks
 tb regenerate                                                                 — Regenerate BOARD.md
+tb review --submit <TB-NNN>                                                   — Submit task to code-review
+tb review --target <TB-NNN> file|-                                            — Write ## Review Target
+tb review --notes <TB-NNN> file|-                                             — Write ## Reviewer Notes
+tb review --findings <TB-NNN> file|-                                          — Write ## Review Findings
+tb review --fail <TB-NNN> file|-                                              — Fail review: findings -> backlog with review-failed tag
 ```
 
 **Defaults:** type=bug, priority=P2, size=M.
 
-**Status aliases:** `b`=backlog, `ip`=in-progress, `d`=done
+**Status aliases:** `b`=backlog, `ip`/`wip`=in-progress, `cr`/`review`=code-review, `d`=done
 
 **Examples:**
 

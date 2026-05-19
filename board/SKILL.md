@@ -44,7 +44,43 @@ Based on the argument, perform one of:
 
 1. Check all acceptance criteria boxes in the task file
 2. Add Log entry with completion summary
-3. Run `tb done TB-NNN`
+3. Run `tb done TB-NNN` (works from both in-progress and code-review)
+
+**`submit <TB-NNN>` (code review)**:
+
+1. Set the implementation pointer for reviewers:
+   ```sh
+   tb review --target TB-NNN - <<'EOF'
+   branch: feat/foo
+   PR: https://example.com/pull/42
+   EOF
+   ```
+2. Optionally leave reviewer notes:
+   `tb review --notes TB-NNN -` (heredoc or file)
+3. Submit: `tb review --submit TB-NNN`. Moves the task from
+   `in-progress` to `code-review`. The CLI warns to stderr (and still
+   moves the task) when no `## Review Target` section is present.
+
+**`review-pass <TB-NNN>`**:
+
+1. Optionally record observations: `tb review --findings TB-NNN -`
+   (use `(nit)` prefix for non-blocking notes).
+2. Run `tb done TB-NNN` to complete the task.
+
+**`review-fail <TB-NNN>`**:
+
+1. Write actionable findings via stdin (heredoc) and bounce the task
+   back to backlog with the `review-failed` tag in one step:
+   ```sh
+   tb review --fail TB-NNN - <<'EOF'
+   - <Finding 1: file/line and what needs to change>
+   - <Finding 2: …>
+   EOF
+   ```
+2. The CLI moves the task to `backlog`, adds `review-failed`, writes
+   findings, regenerates `BOARD.md`.
+3. After the implementer fixes the findings, they resubmit with
+   `tb review --submit TB-NNN`, which clears `review-failed` on move.
 
 **`show <TB-NNN>`**:
 
@@ -98,6 +134,8 @@ Based on the argument, perform one of:
 - BOARD.md is auto-generated — `tb` regenerates it on every move/create
 - Directories are the source of truth — `BOARD.md` is a derived view
 - **Link related tasks** — when creating or grooming a task, use `tb grep` to find related tasks. Add `## Related Tasks` section with bidirectional links
+- **Use the code-review column** — when an implementation is complete and ready for review, set Review Target then `tb review --submit`. Don't go straight from in-progress to done if the change needs reviewer signoff.
+- **Review-mode agents are read-only** — when you run a review-mode agent against a code-review task, write findings to `## Review Findings` via `tb review --findings` (or `tb review --fail` for blocking findings). Do NOT modify implementation files.
 
 ### Stopping for user attention (`needs-user`)
 
@@ -154,8 +192,8 @@ Or run `tb scan --apply` to auto-create tasks from untagged TODO/FIXME/HACK comm
 tb init [path] [--board-path=board] [--prefix=TB] [--refresh-docs]     Initialize or reconcile a board
 tb board [--json]                                                      Print board status or JSON snapshot
 tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [--json]
-tb mv <TB-NNN> <status>                                               Move task
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|code-review|done|archive|active|all] [--json]
+tb mv <TB-NNN> <status>                                               Move task (accepts code-review and aliases cr/review)
 tb start <TB-NNN>                                                     Start working
 tb done <TB-NNN>                                                      Mark done
 tb edit <TB-NNN> [--goal file|-] [--acceptance file|-] [--user-attention file|-] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none]   Edit metadata/body sections
@@ -167,9 +205,14 @@ tb show <TB-NNN> [--json]                                             Print task
 tb open <TB-NNN>                                                      Open in default editor
 tb epic <TB-NNN> [--status active|archive|all]                        Show epic progress
 tb triage [--json]                                                       Find tasks needing grooming
-tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l]   Search tasks by regex
+tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l]   Search tasks by regex
 tb scan [--apply] [--path dir]                                           Find untagged TODOs
 tb regenerate                                                            Regenerate BOARD.md
+tb review --submit <TB-NNN>                                              Submit to code-review (warns if no Review Target)
+tb review --target <TB-NNN> file|-                                       Write ## Review Target
+tb review --notes <TB-NNN> file|-                                        Write ## Reviewer Notes
+tb review --findings <TB-NNN> file|-                                     Write ## Review Findings
+tb review --fail <TB-NNN> file|-                                         Fail review: findings + move to backlog with review-failed tag
 ```
 
 **Commands:**
@@ -182,8 +225,9 @@ tb regenerate                                                            Regener
 | `ls` | `list` | List and filter tasks |
 | `mv` | `move` | Move task between statuses |
 | `start` | | Move task to in-progress |
-| `done` | | Move task to done |
+| `done` | | Move task to done (from in-progress or code-review) |
 | `edit` | | Edit task metadata and Goal/Acceptance Criteria sections |
+| `review` | | Code-review flow: --submit, --target, --notes, --findings, --fail |
 | `attach` | | Copy or remove task attachments |
 | `assign` | | Assign claude or codex and queue daemon pickup |
 | `close` | | Archive task |

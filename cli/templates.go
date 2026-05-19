@@ -16,6 +16,7 @@ board/
   .next-id              — Counter for next %[1]s-NNN ID
   backlog/              — Prioritized, ready to pick up
   in-progress/          — Currently being worked on (max 2 tasks)
+  code-review/          — Implementation work awaiting reviewer signoff
   done/                 — Completed (archive, clean periodically)
 `+"```"+`
 
@@ -191,7 +192,7 @@ The command reads `+"`"+`.tb.yaml`+"`"+` for the current board path and prefix, 
 tb init [path] [--board-path=board] [--prefix=%[1]s] [--refresh-docs]
 tb board [--json]
 tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [--json]
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|code-review|done|archive|active|all] [--json]
 tb mv <%[1]s-NNN> <status>                                                    — Move task between statuses
 tb start <%[1]s-NNN>                                                          — Move to in-progress
 tb done <%[1]s-NNN>                                                           — Move to done
@@ -204,14 +205,14 @@ tb show <%[1]s-NNN> [--json]                                                  �
 tb open <%[1]s-NNN>                                                           — Open in default editor
 tb epic <%[1]s-NNN> [--status active|archive|all]                             — Show epic progress and children
 tb triage [--json]                                                            — Find tasks needing grooming
-tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l] — Search tasks by regex
+tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l] — Search tasks by regex
 tb scan [--apply] [--path dir]                                                — Find untagged TODOs, create tasks
 tb regenerate                                                                 — Regenerate BOARD.md
 `+"```"+`
 
 **Defaults:** type=bug, priority=P2, size=M.
 
-**Status aliases:** `+"`b`"+`=backlog, `+"`ip`"+`=in-progress, `+"`d`"+`=done
+**Status aliases:** `+"`b`"+`=backlog, `+"`ip`"+`/`+"`wip`"+`=in-progress, `+"`cr`"+`/`+"`review`"+`=code-review, `+"`d`"+`=done
 
 **Examples:**
 
@@ -392,7 +393,7 @@ Or run `+"`tb scan --apply`"+` to auto-create tasks from untagged TODO/FIXME/HAC
 tb init [path] [--board-path=board] [--prefix=%[1]s] [--refresh-docs]     Initialize or reconcile a board
 tb board [--json]                                                      Print board status or JSON snapshot
 tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [--json]
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|code-review|done|archive|active|all] [--json]
 tb mv <%[1]s-NNN> <status>                                               Move task
 tb start <%[1]s-NNN>                                                     Start working
 tb done <%[1]s-NNN>                                                      Mark done
@@ -405,7 +406,7 @@ tb show <%[1]s-NNN> [--json]                                             Print t
 tb open <%[1]s-NNN>                                                      Open in default editor
 tb epic <%[1]s-NNN> [--status active|archive|all]                        Show epic progress
 tb triage [--json]                                                       Find tasks needing grooming
-tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l]   Search tasks by regex
+tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l]   Search tasks by regex
 tb scan [--apply] [--path dir]                                           Find untagged TODOs
 tb regenerate                                                            Regenerate BOARD.md
 `+"```"+`
@@ -435,7 +436,7 @@ tb regenerate                                                            Regener
 
 **Defaults:** type=bug, priority=P2, size=M. Module and tags are optional.
 
-**Status aliases:** `+"`b`"+`=backlog, `+"`ip`"+`=in-progress, `+"`d`"+`=done
+**Status aliases:** `+"`b`"+`=backlog, `+"`ip`"+`/`+"`wip`"+`=in-progress, `+"`cr`"+`/`+"`review`"+`=code-review, `+"`d`"+`=done
 
 Task IDs use the configured prefix (default: %[1]s). The prefix is optional in commands — `+"`tb start 123`"+` and `+"`tb start %[1]s-123`"+` are equivalent.
 

@@ -52,6 +52,8 @@ Two binaries built from one repo, sharing the same on-disk format.
     │   └── …
     ├── in-progress/
     │   └── PR-2.md
+    ├── code-review/                 # implementation work awaiting reviewer signoff (TB-194)
+    │   └── PR-5.md
     ├── done/
     │   └── PR-3.md
     ├── archive/                     # tasks closed via `tb close`
@@ -237,7 +239,7 @@ No other path differs between forms. `BOARD.md` content, `tb --json` output, wat
 - All structured mutations acquire `.board.lock` (POSIX `flock`).
 - Auto-regenerates `BOARD.md` after every mutation that changes status, task set, or metadata visible in the board summary.
 - Adds `--json` mode to `ls`, `show`, `board` for machine consumption.
-- Adds `--status active|archive|all` for filter clarity. `active` = backlog + in-progress + done. `all` = everything.
+- Adds `--status active|archive|all` for filter clarity. `active` = backlog + in-progress + code-review + done. `all` = everything (adds archive). Aliases: `b`=backlog, `ip`/`wip`=in-progress, `cr`/`review`=code-review, `d`=done.
 
 ### `gui/app/` — Wails services (Go)
 
@@ -252,7 +254,7 @@ Exported to the frontend via Wails3 bindings.
 - **`cli/`** — thin `exec` wrapper with consistent error handling.
 - **`parser/`** — markdown reader (duplicates CLI parser; read-only, no lock).
 - **`watcher/`** — fsnotify wrapper. Watches the status directories, ignores `BOARD.md`, `.next-id`, `.board.lock`, and agent artifact paths (`.agent-state/`, `.agent-logs/`, task-local `.agent-state.jsonl`, task-local `.agent-logs/`). Debounces 200ms. Emits Wails events `board:reloaded` (create/remove/rename) and `task:updated:<id>` (write).
-- **`agent/`** — `Runner` interface + `ClaudeRunner`, `CodexRunner`, `GroomingDecorator`. Embedded prompt templates via `//go:embed`; `GroomingDecorator` is the only mode-aware runner layer and swaps the prompt for `mode=groom`.
+- **`agent/`** — `Runner` interface + `ClaudeRunner`, `CodexRunner`, `GroomingDecorator`, `ReviewDecorator`, `ResumeDecorator`. Embedded prompt templates via `//go:embed`; the decorators are the only mode-aware runner layers and each swaps the prompt before delegating (`mode=groom`, `mode=review`, `mode=resume`).
 - **`daemon/`** — goroutine that owns the queue, scans for `AgentStatus: queued`, runs them through the worker pool, writes JSONL events.
 - **`shell/`** — native application menu and system tray controller. It calls the same Wails services as the frontend and emits `settings:open-panel` for the Svelte settings panel.
 
@@ -320,7 +322,7 @@ Hybrid storage:
 | Folder-form run history | `<status>/<ID>/.agent-state.jsonl` | Same event stream, stored beside the task so it moves with the folder |
 | Folder-form run logs | `<status>/<ID>/.agent-logs/<run_id>.log` | Same full log, stored beside the task |
 
-JSONL event shapes (every event carries `task_id` so a log-trawler needs no cross-file index; agent-run events also carry `mode`, one of `implement | groom | resume`):
+JSONL event shapes (every event carries `task_id` so a log-trawler needs no cross-file index; agent-run events also carry `mode`, one of `implement | groom | review | resume`):
 
 ```jsonl
 {"ts":"2026-05-13T10:00:00Z","run_id":"r_abc","task_id":"TB-1","event":"queued","agent":"claude","mode":"implement"}
@@ -339,7 +341,7 @@ A run is **complete** when a `finished` event exists. A run with no `finished` e
 
 **Cancel carve-out**: recovery honors cancellation intent expressed in *either* the task's `.md` or the JSONL trail. If `AgentStatus` is already `cancelled` *or* the latest JSONL event for the latest `run_id` is `finished{status: cancelled}`, recovery reconciles to `cancelled` (writing `AgentStatus=cancelled` if the `.md` is out of sync) and never appends a `failed`/`interrupted` line. This defends the M4 5-step cancel ordering (kill → JSONL → Wails → `tb edit`) against a `kill -9` of the GUI between the JSONL write and the `tb edit`, and ensures a user-cancelled task with a captured session id still becomes `cancelled`, never `interrupted`.
 
-Groom runs use the same JSONL/storage lifecycle with `mode:"groom"`. Resume runs use `mode:"resume"`. Both go through a decorator (`GroomingDecorator` / `ResumeDecorator` in `gui/internal/agent/runner.go`) that overrides the prompt before delegating to the underlying Claude/Codex runner; the daemon and runGoroutine stay mode-agnostic. Resume invokes `claude -r <uuid>` (same session id reused) or `codex exec --json resume <uuid> <prompt>` (a new id flows back through the translator's `OnSessionID` callback as a fresh `session` event — the new id is the resumable target for any future resume; the chain is traceable via each queued event's `resumed_from` + `resumed_from_run` fields).
+Groom runs use the same JSONL/storage lifecycle with `mode:"groom"`. Review runs (TB-198) use `mode:"review"`. Resume runs use `mode:"resume"`. Each goes through its own decorator in `gui/internal/agent/runner.go` (`GroomingDecorator`, `ReviewDecorator`, `ResumeDecorator`) that overrides the prompt before delegating to the underlying Claude/Codex runner; the daemon and runGoroutine stay mode-agnostic. Review-mode agents write findings via the managed `tb review --findings` / `tb review --fail` surface and do not edit implementation files. Resume invokes `claude -r <uuid>` (same session id reused) or `codex exec --json resume <uuid> <prompt>` (a new id flows back through the translator's `OnSessionID` callback as a fresh `session` event — the new id is the resumable target for any future resume; the chain is traceable via each queued event's `resumed_from` + `resumed_from_run` fields).
 
 ## Daemon
 

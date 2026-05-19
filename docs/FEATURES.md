@@ -265,6 +265,25 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ---
 
+## M9 — Code-review column (TB-194)
+
+- ☑ **TB-194** ([epic](../board/done/TB-194/TASK.md)) — code-review board status, managed review-section commands, GUI column + drawer affordances, review-mode agents, `review-failed` rework loop, and the docs sweep that ties it together.
+- **Status / tag invariants**: `code-review` is a board status (directory between in-progress and done). `review-failed` is a tag on backlog tasks, not an `AgentStatus`. `needs-user` (TB-182) is unrelated — it parks autonomous runs that need human input.
+- **CLI surface**: `tb review --submit | --target | --notes | --findings | --fail`. `--submit` accepts in-progress (happy path) and backlog-with-`review-failed` (resubmit after rework, tag cleared on move). `--fail` writes findings, moves task back to backlog, adds `review-failed`, regenerates `BOARD.md` — all atomically under `.board.lock`.
+- **GUI surface**: BoardSnapshot gains a `codeReview` bucket; Board renders Backlog / In Progress / Code Review / Done by default. Cards show a `↩` marker on backlog tasks tagged `review-failed`. TaskDrawer exposes "Submit for review" (in-progress) and "Review" (code-review, runs a review-mode agent).
+- **Agent surface**: `ModeReview` + `ReviewDecorator` + embedded `prompts/review.md`. Review-mode runs inherit the implement/groom JSONL lifecycle, daemon pickup, cancellation, and recovery, and label their JSONL events `mode=review`. Reviewers do NOT edit implementation files; they write findings via `tb review --findings` (or `tb review --fail` for blocking findings).
+- **Acceptance**: managed review surface (CLI + Wails) operates atomically; GUI column visible by default; review-mode runs end-to-end (queue → run → findings on disk); failed-review marker visible in cards/drawer; resubmit clears the marker; docs (`board/CONVENTIONS.md`, `board/SKILL.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `cli/templates.go`) describe the workflow.
+
+### Children
+- ☑ **TB-195** — CLI: add code-review status and submit flow.
+- ☑ **TB-196** — CLI: review target / reviewer notes / findings commands.
+- ☑ **TB-197** — GUI: code-review column, card marker, drawer Submit/Review actions.
+- ☑ **TB-198** — Agent: review mode + findings prompt.
+- ☑ **TB-199** — Workflow: `review-failed` marker + retry priority.
+- ☑ **TB-200** — Docs: board conventions / skill / architecture / CLAUDE updates.
+
+---
+
 ## Explicit non-goals
 
 - Multi-user / collaboration / comments

@@ -58,7 +58,7 @@ cd gui && task build    # or: wails3 build -config ./build/config.yml
 ## Architecture invariants (do not break)
 
 - **Markdown is the source of truth.** Task `.md` files in status directories are canonical. `BOARD.md` is generated; never edit it.
-- **Directory = status.** Moving a task = renaming the file between `backlog/`, `in-progress/`, `done/`, `archive/`.
+- **Directory = status.** Moving a task = renaming the file between `backlog/`, `in-progress/`, `code-review/`, `done/`, `archive/`.
 - **`.board.lock`** (POSIX `flock`) serializes every structured mutation. The CLI takes it; the GUI delegates to the CLI; the one exception (free-form body editing in `EditTaskBody`) takes the same lock with the rules listed in `docs/ARCHITECTURE.md` → "Locking and atomic writes".
 - **Atomic writes.** Every task-file mutation must use `writeFileAtomic` (temp + fsync + `os.Rename`). Direct `os.WriteFile(...".md")` is forbidden outside `cli/atomicfs.go`. This is what makes lock-free GUI reads safe.
 - **Status filter semantics** (`cli/board.go:resolveStatusFilter`):
@@ -81,7 +81,8 @@ cd gui && task build    # or: wails3 build -config ./build/config.yml
 - use `frontend-design` skill for GUI work
 - always run code review session after each meaningful unit of work through /codex:adversarial-review or  `fullstack-code-reviewer`
 - rebuild and install cli binary after any changes in master branch to keep local bin up to date with latest changes.
-
+- use sub-agents for speed up work and parallelization where possible, but coordinate through the main agent to maintain a single source of truth for task state and avoid merge conflicts in `.board.lock`.
+-  
 ## Critical files (CLI today)
 
 - `cli/main.go` — command dispatch
