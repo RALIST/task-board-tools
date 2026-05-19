@@ -23,13 +23,13 @@ import (
 // the test asked for. The OnStarted callback is invoked synchronously so we
 // hit the same code paths the real runners do.
 type stubRunner struct {
-	name           string
-	stdoutLines    []string
-	stderrLines    []string
-	exitCode       int
-	runErr         error
-	startedOnce    bool
-	startedDone    chan struct{}
+	name        string
+	stdoutLines []string
+	stderrLines []string
+	exitCode    int
+	runErr      error
+	startedOnce bool
+	startedDone chan struct{}
 	// fireSessionID, if non-empty, is delivered to in.OnSessionID after
 	// OnStarted but before stdout streaming. Simulates the Codex
 	// translator's mid-stream session-id capture without depending on
@@ -1508,10 +1508,10 @@ func (r *needsUserSettingRunner) Run(ctx context.Context, in agent.RunInput) (ag
 // run history is intact.
 func TestPostRunPreservesNeedsUser(t *testing.T) {
 	cases := []struct {
-		name           string
-		exitCode       int
-		expectStatus   agent.Status
-		expectAgentMD  string // expected substring in task .md AgentStatus line
+		name          string
+		exitCode      int
+		expectStatus  agent.Status
+		expectAgentMD string // expected substring in task .md AgentStatus line
 	}{
 		{
 			name:          "success exit preserves needs-user",
@@ -1605,6 +1605,133 @@ func TestCancelOverridesNeedsUser(t *testing.T) {
 	body := string(taskBytes)
 	if !strings.Contains(body, "**AgentStatus:** cancelled") {
 		t.Fatalf("cancel must win over needs-user; got body:\n%s", body)
+	}
+}
+
+// TestRecordTerminalPerModeAttribution locks the TB-237 contract: the
+// terminal-status write that updates AgentStatus must ALSO update the
+// per-mode pair matching the run's mode. The legacy AgentStatus / Agent
+// fields stay populated for back-compat with auto-implement / auto-groom
+// / daemon pickup.
+func TestRecordTerminalPerModeAttribution(t *testing.T) {
+	cases := []struct {
+		name           string
+		runMode        agent.Mode
+		runAgent       string
+		runStatus      agent.Status
+		wantByLine     string // **<ByField>:** <agent>
+		wantStatusLine string // **<StatusField>:** <status>
+		notByLine1     string
+		notByLine2     string
+	}{
+		{
+			name:           "groom success populates GroomedBy/GroomStatus only",
+			runMode:        agent.ModeGroom,
+			runAgent:       "claude",
+			runStatus:      agent.StatusSuccess,
+			wantByLine:     "**GroomedBy:** claude",
+			wantStatusLine: "**GroomStatus:** success",
+			notByLine1:     "**ImplementedBy:**",
+			notByLine2:     "**ReviewedBy:**",
+		},
+		{
+			name:           "implement failed populates ImplementedBy/ImplementStatus only",
+			runMode:        agent.ModeImplement,
+			runAgent:       "codex",
+			runStatus:      agent.StatusFailed,
+			wantByLine:     "**ImplementedBy:** codex",
+			wantStatusLine: "**ImplementStatus:** failed",
+			notByLine1:     "**GroomedBy:**",
+			notByLine2:     "**ReviewedBy:**",
+		},
+		{
+			name:           "review success populates ReviewedBy/ReviewStatus only",
+			runMode:        agent.ModeReview,
+			runAgent:       "claude",
+			runStatus:      agent.StatusSuccess,
+			wantByLine:     "**ReviewedBy:** claude",
+			wantStatusLine: "**ReviewStatus:** success",
+			notByLine1:     "**GroomedBy:**",
+			notByLine2:     "**ImplementedBy:**",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, boardDir := realTbBoardForRun(t, "claude", &stubRunner{name: "claude"})
+			c := svc.board.snapshot()
+			if c == nil {
+				t.Fatalf("no CLI client on BoardService")
+			}
+
+			ar := &activeRun{
+				RunID:  agent.GenerateRunID(),
+				TaskID: "TB-1",
+				Agent:  tc.runAgent,
+				Mode:   tc.runMode.String(),
+				Done:   make(chan struct{}),
+			}
+			svc.recordTerminal(c, ar, boardDir, tc.runStatus, "", 0)
+
+			taskBytes, err := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
+			if err != nil {
+				t.Fatalf("read task: %v", err)
+			}
+			body := string(taskBytes)
+			if !strings.Contains(body, tc.wantByLine) {
+				t.Errorf("missing %q in task body:\n%s", tc.wantByLine, body)
+			}
+			if !strings.Contains(body, tc.wantStatusLine) {
+				t.Errorf("missing %q in task body:\n%s", tc.wantStatusLine, body)
+			}
+			// Other modes' pairs stay absent — no placeholder rows.
+			if strings.Contains(body, tc.notByLine1) {
+				t.Errorf("unexpected %q in task body:\n%s", tc.notByLine1, body)
+			}
+			if strings.Contains(body, tc.notByLine2) {
+				t.Errorf("unexpected %q in task body:\n%s", tc.notByLine2, body)
+			}
+			// Legacy AgentStatus continues to reflect the most recent run.
+			if !strings.Contains(body, "**AgentStatus:** "+string(tc.runStatus)) {
+				t.Errorf("missing legacy AgentStatus=%q in task body:\n%s", tc.runStatus, body)
+			}
+		})
+	}
+}
+
+// TestRecordTerminalResumeUsesParentMode locks the TB-237 invariant that
+// a resume run updates the originating action's per-mode pair, never a
+// fourth "resume" slot.
+func TestRecordTerminalResumeUsesParentMode(t *testing.T) {
+	svc, boardDir := realTbBoardForRun(t, "claude", &stubRunner{name: "claude"})
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client on BoardService")
+	}
+
+	ar := &activeRun{
+		RunID:      agent.GenerateRunID(),
+		TaskID:     "TB-1",
+		Agent:      "claude",
+		Mode:       agent.ModeResume.String(),
+		ParentMode: agent.ModeGroom.String(),
+		Done:       make(chan struct{}),
+	}
+	svc.recordTerminal(c, ar, boardDir, agent.StatusSuccess, "", 0)
+
+	taskBytes, err := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	body := string(taskBytes)
+	if !strings.Contains(body, "**GroomedBy:** claude") {
+		t.Errorf("resume must update parent action's pair; missing **GroomedBy:** in:\n%s", body)
+	}
+	if !strings.Contains(body, "**GroomStatus:** success") {
+		t.Errorf("resume must update parent action's pair; missing **GroomStatus:** in:\n%s", body)
+	}
+	if strings.Contains(body, "**ImplementedBy:**") || strings.Contains(body, "**ReviewedBy:**") {
+		t.Errorf("resume should not populate non-parent actions in:\n%s", body)
 	}
 }
 
