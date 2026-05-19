@@ -50,6 +50,8 @@ cd cli && go test ./...
 cd gui && go test ./...
 cd gui/frontend && npm install
 cd gui/frontend && npm run check
+cd gui/frontend && npm run lint        # ESLint (typescript-eslint + Svelte 5)
+cd gui/frontend && npm run deadcode    # knip — unused exports/deps
 cd gui/frontend && npm test
 cd gui && task dev      # or: wails3 dev -config ./build/config.yml
 cd gui && task build    # or: wails3 build -config ./build/config.yml

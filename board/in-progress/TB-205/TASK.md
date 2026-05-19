@@ -1,12 +1,13 @@
-# TB-205: Setup esling and deadcode check for frontend
+# TB-205: Setup ESLint and dead-code check for frontend
 
 **Type:** tech-debt
 **Priority:** P2
 **Size:** M
-**Agent:** codex
-**AgentStatus:** failed
+**Agent:** claude
+**AgentStatus:** running
 **Module:** tooling
-**Tags:** lint,frontend,quality,dead-code
+**Tags:** lint,frontend,quality,dead-code,epic
+**ReviewRef:** TB-205-frontend-lint
 **Branch:** —
 
 ## Goal
@@ -31,6 +32,10 @@ Use Svelte/TypeScript-aware tooling compatible with the current Svelte 5/SvelteK
 
 Do not change Go lint setup here; that is TB-206.
 
+## Subtasks
+
+- **TB-247** (S) — Triage TB-205 knip first-pass findings
+
 ## Acceptance Criteria
 
 - [ ] `gui/frontend` has committed ESLint dependencies, configuration, and an `npm run lint` script that works with the existing Svelte 5/SvelteKit + TypeScript project.
@@ -40,6 +45,58 @@ Do not change Go lint setup here; that is TB-206.
 - [ ] Any meaningful lint or dead-code finding not fixed during setup has a follow-up board task linked from this card, including the rule/tool name, affected path, and expected fix direction.
 - [ ] Existing frontend verification still passes: `cd gui/frontend && npm run check` and `cd gui/frontend && npm test`.
 - [ ] Contributor/agent-facing docs that list frontend verification commands are updated to include the new lint/dead-code workflow and when to run it.
+
+## Review Target
+
+branch: main (working tree on host)
+
+scope:
+  - gui/frontend/package.json — added eslint, eslint-plugin-svelte,
+    typescript-eslint, globals, @eslint/js, svelte-eslint-parser, knip
+    (devDeps), plus `npm run lint` and `npm run deadcode` scripts.
+  - gui/frontend/eslint.config.js (new) — Svelte 5 / TS flat config,
+    rule policy documented inline.
+  - gui/frontend/knip.config.js (new) — dead-code config; ignores +
+    entry list intentionally narrow with inline rationale.
+  - gui/frontend/src/lib/components/FilterBar.svelte — inline disable
+    of `svelte/prefer-writable-derived` with TB-247 follow-up reference.
+    No behavioral change.
+  - AGENTS.md, CLAUDE.md — frontend verification commands updated.
+    (These hunks were present from a prior partial run; reviewing
+    confirms they describe the lint/deadcode workflow correctly.)
+  - board/backlog/TB-247/TASK.md (new) — follow-up for first-pass
+    findings.
+
+verification (cd gui/frontend &&):
+  - npm run lint   → 0 errors
+  - npm run check  → 411 files, 0 errors, 0 warnings
+  - npm test       → 17 files, 190 tests pass
+  - npm run deadcode → 13 findings (verbatim below)
+
+deadcode baseline (npm run deadcode):
+  Unused dependencies (2)
+    @types/dompurify  package.json:23:6
+    codemirror        package.json:25:6
+  Unused devDependencies (1)
+    @types/marked  package.json:35:6
+  Unused exports (10)
+    pullNext                   function  src/lib/api.ts:134:23
+    setReviewTarget            function  src/lib/api.ts:148:23
+    setReviewerNotes           function  src/lib/api.ts:152:23
+    setReviewFindings          function  src/lib/api.ts:156:23
+    failReview                 function  src/lib/api.ts:160:23
+    regenerate                 function  src/lib/api.ts:172:23
+    isAlreadyInitializedError  function  src/lib/api.ts:320:17
+    getBoardInfo               function  src/lib/api.ts:348:23
+    totalTaskCount                       src/lib/stores/board.ts:148:14
+    runsStore                            src/lib/stores/runs.ts:46:14
+
+reviewer notes:
+  - All findings above are real, not false positives — captured in
+    TB-247 with per-item triage direction.
+  - Concurrent unrelated work in the working tree (TB-237 et al.,
+    TB-178/241/243/244/245/249/250 task files) is intentionally NOT in
+    this commit and is not part of this review.
 
 ## Related Tasks
 
@@ -58,4 +115,19 @@ Do not change Go lint setup here; that is TB-206.
 - 2026-05-15: Edited priority=P2, type=tech-debt, size=M, module=tooling, tags=lint,frontend,quality,dead-code, goal
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=failed
+- 2026-05-19: Edited agent=claude
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited title=Setup ESLint and dead-code check for frontend
+- 2026-05-19: Edited agentstatus=success
+- 2026-05-19: Committed — moved to ready
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Edited agentstatus=failed
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited reviewref=TB-205-frontend-lint
+- 2026-05-19: Edited review-target
+- 2026-05-19: Edited review-target
 

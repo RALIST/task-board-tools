@@ -19,6 +19,12 @@
   let epicTasks = $derived(observedEpics(snapshot));
   let epicOptions = $derived(epicTasks.map((e) => e.id));
 
+  // svelte/prefer-writable-derived suggests rewriting this as
+  // `let f = $derived(...)` (writable $derived, Svelte ≥ 5.25). That
+  // refactor is intentionally deferred — see TB-247 — to keep TB-205
+  // limited to lint/dead-code tooling setup and avoid a reactivity
+  // behaviour change in the same PR.
+  // eslint-disable-next-line svelte/prefer-writable-derived
   let f = $state<BoardFilter>({ ...$filter });
   $effect(() => {
     f = { ...$filter };

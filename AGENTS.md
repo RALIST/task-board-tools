@@ -18,6 +18,8 @@ In short: create tasks for work items and move them across columns as they progr
 - `cd gui && go test ./...` runs GUI backend tests.
 - `cd gui/frontend && npm install` installs frontend dependencies.
 - `cd gui/frontend && npm run check` runs Svelte/TypeScript checks.
+- `cd gui/frontend && npm run lint` runs ESLint (typescript-eslint + eslint-plugin-svelte).
+- `cd gui/frontend && npm run deadcode` runs knip to surface unused exports/dependencies.
 - `cd gui/frontend && npm test` runs Vitest.
 - `cd gui && task dev` or `wails3 dev` starts the desktop app in development mode.
 - `cd gui && task build` or `wails3 build` creates a production GUI build.
@@ -30,7 +32,7 @@ Format Go with `gofmt`; keep CLI code in the existing single-package style and u
 
 ## Testing Guidelines
 
-Add table-driven Go tests next to the changed package (`*_test.go`). For GUI agent, watcher, daemon, and filesystem behavior, include integration-style tests when the bug depends on real processes, locks, or file events. Frontend logic tests use Vitest (`*.test.ts`); run `npm run check` before treating UI code as complete.
+Add table-driven Go tests next to the changed package (`*_test.go`). For GUI agent, watcher, daemon, and filesystem behavior, include integration-style tests when the bug depends on real processes, locks, or file events. Frontend logic tests use Vitest (`*.test.ts`); before treating UI code as complete, run `npm run check`, `npm run lint`, and (for changes touching exports or `package.json`) `npm run deadcode`.
 
 ## Commit & Pull Request Guidelines
 
