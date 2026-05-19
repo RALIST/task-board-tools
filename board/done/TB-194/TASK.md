@@ -39,7 +39,6 @@ Ship a first-class Code Review workflow for completed implementation work: tasks
 - **TB-198** (M) - Agent: add review mode and findings section.
 - **TB-199** (M) - Workflow: review-failed marker and retry priority.
 - **TB-200** (S) - Docs: document code-review workflow.
-
 ## Related Tasks
 
 - **TB-177** - Auto task implementation; failed reviews should be prioritized when this automation is enabled.
@@ -91,4 +90,3 @@ Ship a first-class Code Review workflow for completed implementation work: tasks
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Done
 - 2026-05-19: Edited agentstatus=success
-

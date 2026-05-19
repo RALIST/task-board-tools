@@ -11,7 +11,7 @@
 
 ## Goal
 
-Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects groomed backlog tasks matching a saved board-filter query and starts implementation-mode agent runs using the task's assigned agent or the configured default agent.
+Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects committed `ready` tasks matching a saved board-filter query, moves them into `in-progress`, and starts implementation-mode agent runs using the task's assigned agent or the configured default agent.
 
 ## Context
 
@@ -19,15 +19,15 @@ Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects groo
 - Existing daemon pickup lives in `gui/internal/daemon/daemon.go`: it scans/enqueues tasks, respects `max_workers`, dedupes active runs, and recovers after restart.
 - Existing preferences live in `gui/app/preferences.go`, `gui/app/settings_service.go`, `gui/frontend/src/lib/stores/preferences.ts`, and `gui/frontend/src/lib/components/SettingsPanel.svelte`; auto-implement should extend that path.
 - Existing board filtering lives in `gui/frontend/src/lib/stores/filter.ts` and `gui/frontend/src/lib/filtering.ts`; the saved auto-implement query should match the same mental model users use on the board, including type, module, size, tags, agent, parent epic, and search text.
-- `BoardService.Triage()` / `tb triage --json` identifies tasks that still need grooming. Auto-implementation must treat those tasks as ineligible even when the saved query matches.
+- `BoardService.Triage()` / `tb triage --json` identifies backlog tasks that still need grooming. Auto-groom owns backlog -> ready; auto-implementation starts from the `ready` commitment column.
 
 **Constraints / non-goals**
 
 - Auto-implement is off by default and must be explicitly enabled.
 - Enabling requires both a supported `default_agent` (`claude` or `codex`) and a non-empty valid query; otherwise the user gets an actionable message and preferences remain disabled.
-- Only backlog tasks that are groomed, match the query, and have blank `AgentStatus` are eligible for automatic first runs.
+- Only `ready` tasks that match the query and have blank `AgentStatus` are eligible for automatic first runs.
 - Use the task's assigned `Agent` when present; otherwise use `default_agent` as the effective runner.
-- Do not auto-run tasks in in-progress, done, archive, queued, running, success, failed, or cancelled states.
+- Do not auto-run tasks in backlog, in-progress, code-review, done, archive, queued, running, success, failed, cancelled, interrupted, or needs-user states.
 - Do not merge this with auto-groom: auto-groom remains groom mode, auto-implement remains implement mode, and neither feature should trigger the other accidentally.
 - Settings is the source of truth. A header quick toggle may exist only as a compact mirror/update path for the same persisted setting.
 
@@ -37,18 +37,21 @@ Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects groo
 - **TB-179** (M) — GUI: enqueue auto-implement candidates from daemon
 - **TB-180** (S) — GUI: show auto-implement controls and feedback
 - **TB-233** (S) — Auto-implement priority: rank review-failed ready tasks first
+- **TB-267** (M) — Auto-implement: respect epic child order
+- **TB-268** (M) — Review-failed handoff clears retry-blocking agent state
 ## Acceptance Criteria
 
 - [ ] **TB-178** is done: auto-implement enabled/query preferences are persisted, exposed through SettingsService/Wails/preferencesStore, validated, and covered by backend/frontend tests.
-- [ ] **TB-179** is done: daemon activation and watcher events enqueue only groomed backlog tasks matching the saved query, use assigned-agent/default-agent fallback correctly, and avoid duplicate or retry loops.
+- [ ] **TB-179** is done: daemon activation and watcher events enqueue only `ready` tasks matching the saved query, use assigned-agent/default-agent fallback correctly, move them to `in-progress` at run start, and avoid duplicate or retry loops.
 - [ ] **TB-180** is done: Settings and the header quick toggle surface enabled state, prerequisite errors, query changes, and auto-started run feedback while preserving manual Run/Groom controls.
-- [ ] Disabled path: with auto-implement disabled, creating or editing a matching groomed backlog task never enqueues an implementation run automatically.
+- [ ] **TB-267** is done: auto-implement skips later children in an epic until every earlier sibling is done.
+- [ ] Disabled path: with auto-implement disabled, creating or editing a matching ready task never enqueues an implementation run automatically.
 - [ ] Validation path: with `default_agent=none` or a blank/invalid query, enabling auto-implement is rejected with an actionable message and no task metadata/JSONL/log files are mutated.
-- [ ] Enabled path: with auto-implement enabled, a valid query such as `bug, S size, gui`, and `default_agent=codex` or `claude`, a matching groomed backlog task with blank `AgentStatus` starts exactly one visible `mode=implement` run.
-- [ ] Grooming guard: a matching task that appears in `tb triage --json` is skipped until it is groomed, regardless of query match.
+- [ ] Enabled path: with auto-implement enabled, a valid query such as `bug, S size, gui`, and `default_agent=codex` or `claude`, a matching ready task with blank `AgentStatus` is pulled/moved to in-progress and starts exactly one visible `mode=implement` run.
+- [ ] Grooming guard: matching backlog tasks are never auto-implemented; they must first pass auto-groom or manual grooming into ready.
 - [ ] Agent selection: a matching task with an explicit `Agent` uses that agent; an unassigned matching task uses the configured default agent.
 - [ ] Verification for the epic includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
-- [ ] Manual test note: exercise Settings enable/disable, missing default-agent message, invalid query message, header quick toggle, query `bug, S size, gui`, eligible auto-start, ungroomed skip, Cancel during an auto-started run, and app restart while an auto-started run is queued/running.
+- [ ] Manual test note: exercise Settings enable/disable, missing default-agent message, invalid query message, header quick toggle, query `bug, S size, gui`, eligible ready auto-start, backlog skip, epic-order skip, Cancel during an auto-started run, and app restart while an auto-started run is queued/running.
 
 ## Related Tasks
 
@@ -59,6 +62,12 @@ Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects groo
 - **TB-178** — Child: persisted auto-implement settings and query.
 - **TB-179** — Child: daemon candidate selection and queueing.
 - **TB-180** — Child: controls and feedback.
+- **TB-234** — Prerequisite daemon status gate so automation cannot start wrong-column implement runs.
+- **TB-262** — Sibling auto-review epic; keep review-mode automation separate from implement-mode automation.
+- **TB-266** — Cross-stage daemon reconciliation for safe missed moves.
+- **TB-267** — Child: epic child ordering gate.
+- **TB-268** — Review-failed handoff must clear retry-blocking `AgentStatus`.
+- **TB-269** — Docs task for the staged autonomous workflow.
 
 ## Attachments
 
@@ -82,4 +91,3 @@ Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects groo
 - 2026-05-19: Edited agentstatus=queued
 - 2026-05-19: Edited agentstatus=running
 - 2026-05-19: Edited agentstatus=success
-

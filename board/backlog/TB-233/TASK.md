@@ -24,7 +24,7 @@ When TB-179 ships the auto-implement candidate selector in the GUI daemon, break
 
 ## Constraints / Non-goals
 
-- Do not change the eligibility rules from TB-179 (groomed, blank `AgentStatus`, query match, source column = `ready` post-M10). This task only affects sort order among already-eligible tasks.
+- Do not change the eligibility rules from TB-179 (blank `AgentStatus`, query match, source column = `ready` post-M10, and epic-order gate from TB-267). This task only affects sort order among already-eligible tasks.
 - Do not change ordering across priorities — P0 always beats P1, etc. The `review-failed` boost only applies *within the same priority bucket*.
 - Do not introduce a new column, status, or `AgentStatus` value. `review-failed` stays a tag.
 - Do not add a new CLI surface or settings toggle; this is a daemon-internal ordering rule.
@@ -33,12 +33,20 @@ When TB-179 ships the auto-implement candidate selector in the GUI daemon, break
 ## Acceptance Criteria
 
 - [ ] In the daemon's auto-implement candidate selector (added by TB-179 in `gui/internal/daemon/`), eligible `ready` tasks at the same priority are ordered with `review-failed`-tagged tasks first; tasks without the tag follow using the existing secondary key (oldest-first or whatever TB-179 chooses).
+- [ ] The boost is applied after hard eligibility gates, including TB-267's epic child ordering. A later child tagged `review-failed` never bypasses an unfinished earlier sibling.
 - [ ] Ordering across priorities is unchanged: a P1 non-`review-failed` task still ranks ahead of a P2 `review-failed` task.
 - [ ] Unit test fixture in the daemon candidate-selection tests covers: (a) two eligible P2 `ready` tasks where the `review-failed`-tagged one is selected first; (b) P1 plain task vs P2 `review-failed` — the P1 still wins; (c) no `review-failed` candidates — existing ordering is preserved.
 - [ ] The `review-failed` boost only applies to tasks in the auto-implement candidate column (`ready` post-M10); tasks in other statuses are not promoted (and are already filtered by the eligibility predicate, so this is enforced by reuse, not by a second check).
 - [ ] Tag matching is case-sensitive on the literal `review-failed` value written by `tb review --fail` (TB-199 + TB-239); no normalization or alias logic is introduced.
 - [ ] Verification: `cd gui && go test ./...` passes.
 - [ ] If TB-179 has not been picked up yet when this task starts, either (a) implement the ordering rule and tests as part of TB-179 and close this task as merged-into-TB-179, or (b) leave a passing test fixture in the daemon test file that asserts the desired ordering against a small in-package helper, so the rule lands as soon as TB-179 wires the selector. Choose one and note it in the Log.
+
+## Related Tasks
+
+- **TB-177** — Parent auto-implement epic.
+- **TB-179** — Candidate selector this ordering extends.
+- **TB-267** — Prerequisite epic child ordering gate.
+- **TB-268** — Ensures review-failed ready tasks have blank retryable agent state.
 
 ## Attachments
 
@@ -52,4 +60,3 @@ When TB-179 ships the auto-implement candidate selector in the GUI daemon, break
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited agentstatus=interrupted
 - 2026-05-19: Edited — rewrote scope from "backlog tasks" to "ready tasks" to reflect M10 (TB-239) canonical kanban; `tb review --fail` now lands in `ready/` not `backlog/`.
-

@@ -10,7 +10,7 @@
 
 ## Goal
 
-Add an auto-groom coordinator that queues groom-mode agent runs for backlog tasks returned by `tb triage --json` when auto-groom is enabled and a default agent is configured.
+Add an auto-groom coordinator that queues groom-mode agent runs for backlog tasks returned by `tb triage --json` when auto-groom is enabled and a default agent is configured, then promotes successfully groomed tasks to `ready` when they pass the triage gate.
 
 ## Context
 
@@ -24,17 +24,20 @@ Add an auto-groom coordinator that queues groom-mode agent runs for backlog task
 - Only backlog tasks returned by `BoardService.Triage()` are candidates. Do not queue in-progress, done, or archive tasks.
 - Auto-groom is opt-in: if `auto_groom_enabled` is false, this task must not enqueue anything.
 - A valid `default_agent` (`claude` or `codex`) is required before any automatic enqueue. When a triaged task has no `Agent`, persist `Agent=<default_agent>` before queueing; do not silently overwrite an explicit task-level agent.
-- Do not move tasks between columns, change task status outside the existing agent lifecycle, or bypass the existing JSONL/log/Wails event contracts.
+- The groom agent prompt still forbids moving columns. The coordinator may move backlog -> ready with `tb ready <ID>` after a successful groom only when the task no longer appears in triage.
+- Do not change task status outside the existing agent lifecycle except the explicit post-groom `tb ready` promotion. Do not bypass the existing JSONL/log/Wails event contracts.
 - Prevent repeat loops: an unchanged task must not be auto-groomed over and over just because `tb triage` still reports a reason after a successful auto-groom pass.
 
 ## Acceptance Criteria
 
 - [ ] Auto-groom runs on the same lifecycle hooks that make sense for automation: after board activation, after enabling the preference, and after triage-relevant watcher invalidation (`board:reloaded` and `task:updated:<id>`), without adding per-card shell-outs.
 - [ ] With `auto_groom_enabled=true` and `default_agent=claude|codex`, a backlog task returned by `BoardService.Triage()` and not already queued/running gets queued for a groom run: `Agent` is set from `default_agent` only when absent, `AgentStatus` becomes `queued`, JSONL/Wails queued data carries `mode=groom`, and daemon execution uses `GroomingDecorator` rather than the implement prompt.
+- [ ] After a daemon-owned groom run finishes successfully, the coordinator re-checks `BoardService.Triage()` / `tb triage --json`; if the task is no longer reported, it runs `tb ready <ID>` so the task lands in the canonical commitment column.
+- [ ] If the task still appears in triage after a successful groom, it remains in backlog and the coordinator records/logs a guarded skip instead of looping immediately.
 - [ ] With `auto_groom_enabled=false`, no automatic enqueue happens on activation or watcher events; the existing manual Groom button remains the only grooming entry point.
 - [ ] With `default_agent=none` or an unreadable preference, no task metadata or JSONL is written and a structured backend status/diagnostic is available for the frontend to tell the user to set a default agent.
 - [ ] Deduplication is durable enough to avoid loops: queued/running/active tasks are skipped, duplicate watcher events do not enqueue duplicate runs, and an unchanged task with a completed auto-groom attempt for the same triage-reason fingerprint is not auto-groomed again until the task changes or the user manually clicks Groom.
-- [ ] Backend tests cover startup scan, watcher-triggered scan, disabled preference, missing default agent, task with/without existing `Agent`, queued/running skip, duplicate event skip, and `mode=groom` preservation through daemon pickup.
+- [ ] Backend tests cover startup scan, watcher-triggered scan, disabled preference, missing default agent, task with/without existing `Agent`, queued/running skip, duplicate event skip, `mode=groom` preservation through daemon pickup, post-groom promotion to ready, and post-groom still-needs-triage skip.
 - [ ] Verification passes: `cd gui && go test ./...` (include race/fake-daemon coverage if new concurrent state is introduced).
 
 ## Related Tasks
@@ -47,6 +50,7 @@ Add an auto-groom coordinator that queues groom-mode agent runs for backlog task
 - **TB-88** — Triage-unavailable behavior for stale CLI binaries must remain advisory.
 - **TB-173** — Provides the persisted `auto_groom_enabled` switch.
 - **TB-175** — Surfaces user-visible state and fallback behavior.
+- **TB-266** — Shared daemon reconciliation should use the same safe post-groom promotion rule.
 
 ## Attachments
 
@@ -55,4 +59,3 @@ Add an auto-groom coordinator that queues groom-mode agent runs for backlog task
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
-

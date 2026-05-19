@@ -10,22 +10,23 @@
 
 ## Goal
 
-Teach the GUI daemon to enqueue safe implementation-mode runs for groomed backlog tasks that match the saved auto-implement query.
+Teach the GUI daemon to enqueue safe implementation-mode runs for committed `ready` tasks that match the saved auto-implement query.
 
 ## Context
 
 - The existing daemon in `gui/internal/daemon/daemon.go` activates after `SettingsService.OpenBoard`, scans queued tasks, dedupes active work, and calls `AgentService.RunQueuedAgentSync`.
-- `BoardService.Triage()` shells out to `tb triage --json`; tasks present in that map are not groomed and must never be auto-implemented.
+- `BoardService.Triage()` shells out to `tb triage --json`; auto-groom owns backlog tasks that still need grooming, while auto-implement starts only from `ready`.
 - `AgentService` already owns implement-mode JSONL/log/Wails lifecycle in `gui/app/agent_run.go`; auto-implement should reuse that lifecycle rather than adding a parallel runner.
 - Auto-implement settings and query parsing come from **TB-178**.
 
 **Constraints / non-goals**
 
 - Depends on **TB-178**.
-- Only backlog tasks are eligible. In-progress, done, archive, and triage-reported tasks are always skipped even when the query matches.
-- Only tasks with blank `AgentStatus` are eligible for automatic first runs; queued, running, success, failed, and cancelled statuses are not retried automatically.
+- Only ready tasks are eligible. Backlog, in-progress, code-review, done, archive, and triage-reported/stale tasks are always skipped even when the query matches.
+- Only tasks with blank `AgentStatus` are eligible for automatic first runs; queued, running, success, failed, cancelled, interrupted, and needs-user statuses are not retried automatically.
 - Use the task's assigned `Agent` when present; otherwise use the configured `default_agent` as the effective runner.
-- Respect existing daemon worker limits, active-run dedupe, cancellation, restart recovery, JSONL/log placement, and Wails run events.
+- Move the selected task to in-progress through the canonical board path before or at run start; respect existing daemon worker limits, active-run dedupe, cancellation, restart recovery, JSONL/log placement, and Wails run events.
+- Respect the epic ordering gate from TB-267 before applying the review-failed priority boost from TB-233.
 - Do not run groom mode and do not write task files directly from frontend code.
 
 ## Related Tasks
@@ -35,16 +36,21 @@ Teach the GUI daemon to enqueue safe implementation-mode runs for groomed backlo
 - **TB-180** — frontend visibility and manual controls.
 - **TB-5** — existing daemon pickup/recovery/shutdown lifecycle.
 - **TB-172** — sibling auto-groom epic that should stay separate from implement-mode automation.
+- **TB-233** — review-failed priority boost within the eligible ready pool.
+- **TB-234** — prerequisite status gate for daemon/manual implement runs.
+- **TB-267** — epic child ordering gate.
+- **TB-268** — review-failed handoff state clearing needed for retry eligibility.
 
 ## Acceptance Criteria
 
 - [ ] With auto-implement disabled, daemon activation, watcher events, and board reloads never enqueue implementation runs automatically.
-- [ ] With auto-implement enabled, a valid query, and `default_agent=codex` or `claude`, daemon activation scans backlog tasks and enqueues exactly the groomed tasks that match the query and have blank `AgentStatus`.
+- [ ] With auto-implement enabled, a valid query, and `default_agent=codex` or `claude`, daemon activation scans ready tasks and enqueues exactly the tasks that match the query and have blank `AgentStatus`.
+- [ ] An auto-started task is moved from ready to in-progress with the canonical pull/move path before implementation work begins; if WIP strict mode blocks the move, no runner starts and the skip is visible.
 - [ ] Watcher-driven updates enqueue a newly eligible matching task once, and active-set/durable status checks prevent duplicate runs across rapid file events and app restart.
-- [ ] Tasks returned by `BoardService.Triage()` are skipped regardless of query match, with test coverage for a task missing acceptance criteria or module.
+- [ ] Backlog tasks returned by `BoardService.Triage()` are skipped regardless of query match, with test coverage for a task missing acceptance criteria or module.
 - [ ] Assigned-agent tasks run with their assigned agent; unassigned eligible tasks run with the default agent and emit queued/started/finished JSONL events with `mode=implement`.
-- [ ] Failed, cancelled, success, queued, and running tasks are not auto-retried unless a future task explicitly defines a retry policy.
-- [ ] Integration-style Go tests use a fake runner/board to cover disabled, no-default, query mismatch, ungroomed skip, assigned-agent, default-agent fallback, duplicate-event dedupe, and restart scan behavior.
+- [ ] Failed, cancelled, success, interrupted, needs-user, queued, and running tasks are not auto-retried unless a future task explicitly defines a retry policy; ready `review-failed` tasks with blank `AgentStatus` remain eligible.
+- [ ] Integration-style Go tests use a fake runner/board to cover disabled, no-default, query mismatch, backlog skip, ready eligible task, assigned-agent, default-agent fallback, duplicate-event dedupe, WIP-blocked move, epic-order blocked task, review-failed eligible task, and restart scan behavior.
 - [ ] Verification includes `cd gui && go test ./...`.
 
 ## Attachments
@@ -59,4 +65,3 @@ Teach the GUI daemon to enqueue safe implementation-mode runs for groomed backlo
 - 2026-05-19: Moved to code-review
 - 2026-05-19: Moved to done
 - 2026-05-19: Moved to backlog
-
