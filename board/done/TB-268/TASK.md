@@ -5,6 +5,9 @@
 **Size:** M
 **Module:** workflow
 **Tags:** code-review,review-failed,automation,agent-status
+**ImplementedBy:** claude
+**ImplementStatus:** success
+**ReviewRef:** TB-268 ships in next commit
 **Branch:** —
 **Parent:** TB-177
 
@@ -38,6 +41,18 @@ Ensure a failed review that returns to ready with findings does not leave AgentS
 - [ ] Tests cover manual fail, daemon review fail, auto-review fail if TB-264 exists, and preservation of `needs-user`/`cancelled`/`interrupted`.
 - [ ] Verification includes `cd cli && go test ./...` and `cd gui && go test ./...`.
 
+## Review Target
+
+- cli/review.go reviewWriteFailMetadata — clears generic AgentStatus inside the same board lock.
+- cli/review_test.go TestReviewFailClearsAgentStatusForRetry — covers the manual CLI path.
+- gui/app/agent_run.go recordTerminal — new TB-268 carve-out (next to the existing needs-user one) that actively clears AgentStatus when a review-mode run finishes success and the task is now in ready + review-failed. Per-mode ReviewedBy/ReviewStatus still written.
+- gui/app/agent_run.go tasksContainsTag — small helper.
+- gui/app/agent_run_test.go — three new tests:
+  - TestRecordTerminalPreservesBlankAgentStatusOnReviewFailHandoff
+  - TestRecordTerminalClearsLingeringAgentStatusOnReviewFailHandoff (alternate-path coverage)
+  - TestRecordTerminalNeedsUserBeatsReviewFailHandoff (precedence guard)
+- TestRecordTerminalReviewSuccessWithoutFailHandoffWritesAgentStatus (negative case).
+
 ## Related Tasks
 
 - **TB-177** — Auto-implement retry pickup depends on blank scheduling state.
@@ -52,3 +67,10 @@ Ensure a failed review that returns to ready with findings does not leave AgentS
 ## Log
 
 - 2026-05-19: Created
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited implemented-by=claude, implement-status=success, reviewref=TB-268 ships in next commit
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Edited review-target
+- 2026-05-20: Done
+

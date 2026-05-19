@@ -335,6 +335,14 @@ func reviewWriteFailMetadata(boardDir, taskID, findingsBody string) error {
 		lines = setField(lines, "Tags", newTags)
 	}
 
+	// TB-268: a failed review returns the task to ready for rework. The
+	// generic AgentStatus cursor reflected the prior implement run (often
+	// `success`); leaving it set blocks auto-implement's retry-pickup
+	// predicate, which requires a blank cursor. Per-mode attribution
+	// (ImplementedBy / ImplementStatus / ReviewedBy / ReviewStatus) is
+	// preserved so review history stays intact.
+	lines = clearField(lines, "AgentStatus")
+
 	content := upsertTaskSection(strings.Join(lines, "\n"), "## Review Findings", findingsBody)
 
 	if err := writeFileAtomic(ref.Path, []byte(content), 0644); err != nil {

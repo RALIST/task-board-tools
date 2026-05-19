@@ -108,6 +108,18 @@ func applyPerModeAttribution(edit *cli.EditInput, mode agent.Mode, agentName, st
 	}
 }
 
+// tasksContainsTag reports whether the given tag list contains tag.
+// Tag matching is case-sensitive on the literal value written by the CLI
+// (review-failed, epic, …); no normalization or alias logic.
+func tasksContainsTag(tags []string, tag string) bool {
+	for _, t := range tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
+
 func runMethodName(mode agent.Mode) string {
 	switch mode {
 	case agent.ModeGroom:
@@ -878,26 +890,57 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 		// gated. User-explicit `cancelled` and recovery-driven `interrupted`
 		// still write through — explicit human or recovery intent wins
 		// over an agent's needs-user marker.
-		shouldWriteStatus := true
+		writeAgentStatus := true
+		writePerMode := true
+		clearAgentStatus := false
 		if (status == agent.StatusSuccess || status == agent.StatusFailed) && s.board != nil {
 			if latest, err := s.board.GetTask(context.Background(), ar.TaskID); err == nil {
-				if latest.Metadata.AgentStatus == "needs-user" {
-					shouldWriteStatus = false
+				switch {
+				case latest.Metadata.AgentStatus == "needs-user":
+					writeAgentStatus = false
+					writePerMode = false
 					slog.Info("agent: preserving needs-user AgentStatus over exit status",
+						"task", ar.TaskID, "run", ar.RunID, "exitStatus", status)
+				case effectiveMode(ar) == agent.ModeReview &&
+					status == agent.StatusSuccess &&
+					latest.Metadata.Status == "ready" &&
+					tasksContainsTag(latest.Metadata.Tags, "review-failed"):
+					// TB-268: a successful review-mode run that ended with
+					// the task in ready + review-failed (canonical fail
+					// handoff via `tb review --fail`, or any equivalent
+					// state) must leave a blank generic AgentStatus so the
+					// next implement run (manual or auto) is eligible.
+					// Explicit clear (vs. skip) so paths that reach this
+					// state without going through the CLI `tb review --fail`
+					// clear are also covered. Per-mode ReviewedBy /
+					// ReviewStatus still record the review attribution.
+					writeAgentStatus = false
+					clearAgentStatus = true
+					slog.Info("agent: clearing AgentStatus on review-fail handoff",
 						"task", ar.TaskID, "run", ar.RunID, "exitStatus", status)
 				}
 			} else {
-				slog.Warn("agent: needs-user carve-out: GetTask failed; falling back to writing exit status",
+				slog.Warn("agent: terminal carve-out: GetTask failed; falling back to writing exit status",
 					"task", ar.TaskID, "run", ar.RunID, "err", err)
 			}
 		}
-		if shouldWriteStatus {
+		if writeAgentStatus || clearAgentStatus || writePerMode {
 			// TB-237: the per-mode pair is written under the same gate as
 			// the legacy AgentStatus so the needs-user carve-out also
 			// covers per-mode (matches AC "needs-user stays a single-
-			// cursor status … no per-mode needs-user fields").
-			edit := cli.EditInput{AgentStatus: string(status)}
-			applyPerModeAttribution(&edit, effectiveMode(ar), ar.Agent, string(status))
+			// cursor status … no per-mode needs-user fields"). TB-268
+			// splits the two gates so a review-fail handoff can clear the
+			// legacy cursor while still recording ReviewedBy/ReviewStatus.
+			edit := cli.EditInput{}
+			switch {
+			case writeAgentStatus:
+				edit.AgentStatus = string(status)
+			case clearAgentStatus:
+				edit.AgentStatus = "none"
+			}
+			if writePerMode {
+				applyPerModeAttribution(&edit, effectiveMode(ar), ar.Agent, string(status))
+			}
 			if err := c.Edit(context.Background(), ar.TaskID, edit); err != nil {
 				slog.Warn("agent: AgentStatus write failed", "task", ar.TaskID, "run", ar.RunID, "status", status, "err", err)
 			}

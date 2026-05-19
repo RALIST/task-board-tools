@@ -1884,6 +1884,186 @@ func TestRecordTerminalPerModeAttribution(t *testing.T) {
 	}
 }
 
+// TestRecordTerminalPreservesBlankAgentStatusOnReviewFailHandoff locks
+// the TB-268 carve-out: when a review-mode run finishes with status=success
+// and the task is now in ready with the `review-failed` tag (the post-state
+// after `tb review --fail`), recordTerminal must leave the generic
+// AgentStatus blank. The per-mode pair (ReviewedBy / ReviewStatus) is
+// still written so review attribution survives.
+func TestRecordTerminalPreservesBlankAgentStatusOnReviewFailHandoff(t *testing.T) {
+	svc, boardDir := realTbBoardForRun(t, "claude", &stubRunner{name: "claude"})
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client on BoardService")
+	}
+
+	// Simulate the post-state of `tb review --fail`: task is in ready/
+	// with the `review-failed` tag and a blank generic AgentStatus.
+	if err := c.Move(context.Background(), "TB-1", "ready"); err != nil {
+		t.Fatalf("move to ready: %v", err)
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{Tags: "review-failed"}); err != nil {
+		t.Fatalf("set review-failed tag: %v", err)
+	}
+
+	ar := &activeRun{
+		RunID:  agent.GenerateRunID(),
+		TaskID: "TB-1",
+		Agent:  "claude",
+		Mode:   agent.ModeReview.String(),
+		Done:   make(chan struct{}),
+	}
+	svc.recordTerminal(c, ar, boardDir, agent.StatusSuccess, "", 0)
+
+	taskBytes, err := os.ReadFile(filepath.Join(boardDir, "ready", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	body := string(taskBytes)
+	if strings.Contains(body, "**AgentStatus:**") {
+		t.Fatalf("AgentStatus should stay blank after review-fail handoff; got body:\n%s", body)
+	}
+	if !strings.Contains(body, "**ReviewedBy:** claude") {
+		t.Errorf("expected per-mode ReviewedBy preserved; got body:\n%s", body)
+	}
+	if !strings.Contains(body, "**ReviewStatus:** success") {
+		t.Errorf("expected per-mode ReviewStatus preserved; got body:\n%s", body)
+	}
+	if !strings.Contains(body, "**Tags:** review-failed") {
+		t.Errorf("review-failed tag should be preserved; got body:\n%s", body)
+	}
+
+	// JSONL still captures the real exit outcome so run history is intact.
+	events := readEvents(t, boardDir, "TB-1")
+	last := events[len(events)-1]
+	if last.Event != agent.EvFinished {
+		t.Fatalf("last event not finished: %+v", last)
+	}
+	if last.Status != agent.StatusSuccess {
+		t.Fatalf("finished event status: got %q, want success", last.Status)
+	}
+}
+
+// TestRecordTerminalClearsLingeringAgentStatusOnReviewFailHandoff covers
+// the alternate-path case Codex flagged: a successful review-mode run
+// ends with the task in ready + review-failed, but the legacy AgentStatus
+// on disk is still `success` from a prior implement run (e.g. the agent
+// reached the state without going through `tb review --fail`, or the file
+// was edited externally between the CLI clear and the GUI write). The
+// carve-out must actively clear the cursor so auto-implement sees the
+// task as retry-eligible.
+func TestRecordTerminalClearsLingeringAgentStatusOnReviewFailHandoff(t *testing.T) {
+	svc, boardDir := realTbBoardForRun(t, "claude", &stubRunner{name: "claude"})
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client on BoardService")
+	}
+
+	if err := c.Move(context.Background(), "TB-1", "ready"); err != nil {
+		t.Fatalf("move to ready: %v", err)
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{
+		Tags:        "review-failed",
+		AgentStatus: "success", // stale from a prior implement run
+	}); err != nil {
+		t.Fatalf("set tags + stale AgentStatus: %v", err)
+	}
+
+	ar := &activeRun{
+		RunID:  agent.GenerateRunID(),
+		TaskID: "TB-1",
+		Agent:  "claude",
+		Mode:   agent.ModeReview.String(),
+		Done:   make(chan struct{}),
+	}
+	svc.recordTerminal(c, ar, boardDir, agent.StatusSuccess, "", 0)
+
+	taskBytes, err := os.ReadFile(filepath.Join(boardDir, "ready", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	body := string(taskBytes)
+	if strings.Contains(body, "**AgentStatus:**") {
+		t.Fatalf("stale AgentStatus must be cleared by carve-out; got body:\n%s", body)
+	}
+	if !strings.Contains(body, "**ReviewedBy:** claude") {
+		t.Errorf("expected per-mode ReviewedBy; got body:\n%s", body)
+	}
+}
+
+// TestRecordTerminalNeedsUserBeatsReviewFailHandoff guards the carve-out
+// precedence: if the agent set AgentStatus=needs-user, that wins over the
+// review-fail handoff carve-out (needs-user is an explicit human-action
+// request and is never overwritten by automation).
+func TestRecordTerminalNeedsUserBeatsReviewFailHandoff(t *testing.T) {
+	svc, boardDir := realTbBoardForRun(t, "claude", &stubRunner{name: "claude"})
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client on BoardService")
+	}
+
+	if err := c.Move(context.Background(), "TB-1", "ready"); err != nil {
+		t.Fatalf("move to ready: %v", err)
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{
+		Tags:        "review-failed",
+		AgentStatus: "needs-user",
+	}); err != nil {
+		t.Fatalf("seed needs-user: %v", err)
+	}
+
+	ar := &activeRun{
+		RunID:  agent.GenerateRunID(),
+		TaskID: "TB-1",
+		Agent:  "claude",
+		Mode:   agent.ModeReview.String(),
+		Done:   make(chan struct{}),
+	}
+	svc.recordTerminal(c, ar, boardDir, agent.StatusSuccess, "", 0)
+
+	taskBytes, err := os.ReadFile(filepath.Join(boardDir, "ready", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	body := string(taskBytes)
+	if !strings.Contains(body, "**AgentStatus:** needs-user") {
+		t.Fatalf("needs-user must win over review-fail carve-out; got body:\n%s", body)
+	}
+}
+
+// TestRecordTerminalReviewSuccessWithoutFailHandoffWritesAgentStatus
+// guards the opposite path of TB-268: a review-mode run that ended
+// without `tb review --fail` (no review-failed tag) still writes the
+// generic AgentStatus normally. The carve-out is scoped, not blanket.
+func TestRecordTerminalReviewSuccessWithoutFailHandoffWritesAgentStatus(t *testing.T) {
+	svc, boardDir := realTbBoardForRun(t, "claude", &stubRunner{name: "claude"})
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client on BoardService")
+	}
+
+	ar := &activeRun{
+		RunID:  agent.GenerateRunID(),
+		TaskID: "TB-1",
+		Agent:  "claude",
+		Mode:   agent.ModeReview.String(),
+		Done:   make(chan struct{}),
+	}
+	svc.recordTerminal(c, ar, boardDir, agent.StatusSuccess, "", 0)
+
+	taskBytes, err := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	body := string(taskBytes)
+	if !strings.Contains(body, "**AgentStatus:** success") {
+		t.Fatalf("expected AgentStatus=success on non-fail review handoff; got body:\n%s", body)
+	}
+	if !strings.Contains(body, "**ReviewedBy:** claude") {
+		t.Errorf("expected per-mode ReviewedBy; got body:\n%s", body)
+	}
+}
+
 // TestRecordTerminalResumeUsesParentMode locks the TB-237 invariant that
 // a resume run updates the originating action's per-mode pair, never a
 // fourth "resume" slot.

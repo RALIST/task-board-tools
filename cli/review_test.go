@@ -235,6 +235,43 @@ func TestReviewFailMovesToReadyWithMarker(t *testing.T) {
 	}
 }
 
+// TB-268: a failed review must leave the generic AgentStatus blank so
+// auto-implement's retry-pickup predicate sees the rework-ready task as
+// eligible. Per-mode attribution (e.g. ImplementStatus) is preserved.
+func TestReviewFailClearsAgentStatusForRetry(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	body := strings.Replace(
+		reviewBaseTask,
+		"**Module:** cli\n",
+		"**Module:** cli\n**Agent:** claude\n**AgentStatus:** success\n**ImplementedBy:** claude\n**ImplementStatus:** success\n",
+		1,
+	)
+	writeReviewTask(t, boardDir, "code-review", body)
+
+	withStdin(t, "- Found a regression.\n", func() {
+		if _, err := reviewFail("TB-1", "-"); err != nil {
+			t.Fatalf("reviewFail: %v", err)
+		}
+	})
+
+	content := readReviewTask(t, boardDir, "ready")
+	if strings.Contains(content, "**AgentStatus:**") {
+		t.Fatalf("expected AgentStatus cleared after review --fail, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**ImplementStatus:** success") {
+		t.Fatalf("expected ImplementStatus preserved, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**ImplementedBy:** claude") {
+		t.Fatalf("expected ImplementedBy preserved, got:\n%s", content)
+	}
+	if !strings.Contains(content, "**Agent:** claude") {
+		t.Fatalf("expected Agent field preserved (only AgentStatus is cleared), got:\n%s", content)
+	}
+	if !strings.Contains(content, "**Tags:** review-failed") {
+		t.Fatalf("expected review-failed tag, got:\n%s", content)
+	}
+}
+
 func TestReviewFailRejectsNonCodeReview(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	writeReviewTask(t, boardDir, "in-progress", reviewBaseTask)

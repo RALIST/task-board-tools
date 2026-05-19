@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 0/6 | backlog | gui |
+| TB-177 | Auto task implementation | 1/6 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-262 | Auto-review | 0/4 | backlog | gui |
 | TB-267 | Auto-implement: respect epic child order | 0/0 | backlog | gui |
@@ -96,7 +96,6 @@
 | TB-265 | GUI: surface auto-review state and decisions | feature | P1 | S | gui |
 | TB-266 | Daemon: reconcile autonomous stage transitions | improvement | P1 | M | gui |
 | TB-267 | Auto-implement: respect epic child order | feature | P1 | M | gui |
-| TB-268 | Review-failed handoff clears retry-blocking agent state | bug | P1 | M | workflow |
 | TB-269 | Docs: define staged autonomous agent workflow | improvement | P1 | S | docs |
 | TB-270 | Align agent prompts with staged kanban workflow | improvement | P1 | S | agent |
 | TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
@@ -110,6 +109,7 @@
 | ID | Title | Type | Module |
 |----|-------|------|--------|
 | TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
+| TB-268 | Review-failed handoff clears retry-blocking agent state | bug | workflow |
 | TB-253 | GUI Run History shows multiple concurrent RUNNING rows for one task | bug | gui |
 | TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | gui |
 | TB-244 | Periodic re-recovery for stale agent runs | improvement | gui |
@@ -158,4 +158,3 @@
 | TB-195 | CLI: add code-review status and submit flow | feature | cli |
 | TB-194 | Code-review column | feature | workflow |
 | TB-190 | Implement autosave instead of save with buttons | improvement | gui |
-| TB-185 | GUI: surface user-attention state and automation guard | feature | gui |
