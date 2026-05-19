@@ -493,6 +493,49 @@ func TestGroomTask_HappyPath_Success(t *testing.T) {
 	}
 }
 
+func TestReviewTask_HappyPath_Success(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"reviewed"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbBoardForRun(t, "claude", stub)
+
+	runID, err := svc.ReviewTask(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("ReviewTask: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	in := stub.input()
+	if in.Mode != agent.ModeReview {
+		t.Fatalf("runner mode: %s, want review", in.Mode)
+	}
+	if !strings.Contains(in.Prompt, "tb review --findings TB-1") {
+		t.Fatalf("runner prompt did not use review template:\n%s", in.Prompt)
+	}
+	if !strings.Contains(in.Prompt, "tb review --fail TB-1") {
+		t.Fatalf("runner prompt missing failure handoff guidance:\n%s", in.Prompt)
+	}
+	if strings.Contains(in.Prompt, "Implement the task") {
+		t.Fatalf("runner prompt still looks like implement template:\n%s", in.Prompt)
+	}
+
+	events := readEvents(t, boardDir, "TB-1")
+	for _, ev := range events {
+		switch ev.Event {
+		case agent.EvQueued, agent.EvStarted, agent.EvFinished:
+			if ev.RunID == runID && ev.Mode != agent.ModeReview.String() {
+				t.Fatalf("%s mode: %q, want review; event=%+v", ev.Event, ev.Mode, ev)
+			}
+		}
+	}
+	last := events[len(events)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusSuccess {
+		t.Fatalf("final event: %+v", last)
+	}
+}
+
 // TestRunAgent_ClaudePreAllocatesSessionID is the TB-135 contract: a
 // Claude run gets a UUIDv4 SessionID pre-allocated in runGoroutine,
 // passes it through RunInput.SessionID to the runner, and persists the

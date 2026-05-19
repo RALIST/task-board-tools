@@ -154,6 +154,46 @@ func (c *Client) Run(ctx context.Context, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// RunWithStdin executes `tb args...` with stdin streamed from r. Same error
+// shape as Run; used by review-section writers that pipe replacement content
+// in via `-`.
+func (c *Client) RunWithStdin(ctx context.Context, r io.Reader, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
+	if c.cwd != "" {
+		cmd.Dir = c.cwd
+	}
+	cmd.Stdin = r
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	stderrText := stderr.String()
+
+	if stderrText != "" {
+		c.logger.Debug("tb stderr", "args", args, "stderr", stderrText)
+	}
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return stdout.Bytes(), &ExitError{
+				Args:   append([]string(nil), args...),
+				Code:   exitErr.ExitCode(),
+				Stderr: truncate(stderrText, stderrTruncateBytes),
+			}
+		}
+		return stdout.Bytes(), fmt.Errorf("tb %v: %w", args, err)
+	}
+
+	return stdout.Bytes(), nil
+}
+
 // RunJSON executes `tb args...` and decodes its stdout into out.
 //
 // Returns the same error shape as Run, plus a wrapped json.SyntaxError /

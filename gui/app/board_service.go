@@ -43,6 +43,7 @@ type Task struct {
 type BoardSnapshot struct {
 	Backlog    []Task `json:"backlog"`
 	InProgress []Task `json:"inProgress"`
+	CodeReview []Task `json:"codeReview"`
 	Done       []Task `json:"done"`
 	Archive    []Task `json:"archive"`
 }
@@ -137,6 +138,7 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 	snap := BoardSnapshot{
 		Backlog:    make([]Task, 0),
 		InProgress: make([]Task, 0),
+		CodeReview: make([]Task, 0),
 		Done:       make([]Task, 0),
 		Archive:    make([]Task, 0),
 	}
@@ -146,6 +148,8 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 			snap.Backlog = append(snap.Backlog, t)
 		case "in-progress":
 			snap.InProgress = append(snap.InProgress, t)
+		case "code-review":
+			snap.CodeReview = append(snap.CodeReview, t)
 		case "done":
 			snap.Done = append(snap.Done, t)
 		case "archive":
@@ -290,7 +294,7 @@ func (b *BoardService) EditTask(ctx context.Context, id string, in EditTaskInput
 	})
 }
 
-// MoveTask runs `tb mv <id> <status>` where status ∈ {backlog, in-progress, done}.
+// MoveTask runs `tb mv <id> <status>` where status ∈ {backlog, in-progress, code-review, done}.
 func (b *BoardService) MoveTask(ctx context.Context, id, status string) error {
 	c := b.snapshot()
 	if c == nil {
@@ -317,6 +321,53 @@ func (b *BoardService) Regenerate(ctx context.Context) error {
 		return ErrNoBoard
 	}
 	return c.Regenerate(ctx)
+}
+
+// SubmitReview runs `tb review --submit <id>`. Moves an in-progress task (or
+// a review-failed backlog task) into code-review.
+func (b *BoardService) SubmitReview(ctx context.Context, id string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.ReviewSubmit(ctx, id)
+}
+
+// SetReviewTarget replaces the ## Review Target section with body.
+func (b *BoardService) SetReviewTarget(ctx context.Context, id, body string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.ReviewWriteSection(ctx, id, "target", body)
+}
+
+// SetReviewerNotes replaces the ## Reviewer Notes section with body.
+func (b *BoardService) SetReviewerNotes(ctx context.Context, id, body string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.ReviewWriteSection(ctx, id, "notes", body)
+}
+
+// SetReviewFindings replaces the ## Review Findings section with body.
+func (b *BoardService) SetReviewFindings(ctx context.Context, id, body string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.ReviewWriteSection(ctx, id, "findings", body)
+}
+
+// FailReview moves a code-review task back to backlog with the review-failed
+// marker and persists the findings body.
+func (b *BoardService) FailReview(ctx context.Context, id, findings string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.ReviewFail(ctx, id, findings)
 }
 
 func (b *BoardService) snapshot() *cli.Client {

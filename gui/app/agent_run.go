@@ -49,6 +49,8 @@ func runnerForMode(runner agent.Runner, mode agent.Mode, detail TaskDetail) agen
 	switch mode {
 	case agent.ModeGroom:
 		return agent.NewGroomingDecorator(runner, promptVarsFromDetail(detail))
+	case agent.ModeReview:
+		return agent.NewReviewDecorator(runner, promptVarsFromDetail(detail))
 	case agent.ModeResume:
 		return agent.NewResumeDecorator(runner)
 	}
@@ -67,6 +69,8 @@ func runMethodName(mode agent.Mode) string {
 	switch mode {
 	case agent.ModeGroom:
 		return "GroomTask"
+	case agent.ModeReview:
+		return "ReviewTask"
 	case agent.ModeResume:
 		return "ResumeAgent"
 	}
@@ -107,6 +111,15 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 // and runner decorator differ.
 func (s *AgentService) GroomTask(ctx context.Context, id string) (string, error) {
 	return s.startAgentRun(ctx, id, agent.ModeGroom)
+}
+
+// ReviewTask kicks off a code-review run for the given task. Same lifecycle
+// as RunAgent / GroomTask; the review prompt instructs the agent to read the
+// implementation referenced by `## Review Target`, write actionable findings
+// via `tb review --findings`, and use `tb review --fail` when rework is
+// required. Review runs do NOT edit implementation files.
+func (s *AgentService) ReviewTask(ctx context.Context, id string) (string, error) {
+	return s.startAgentRun(ctx, id, agent.ModeReview)
 }
 
 // ResumeAgent continues the most recent interrupted agent session for

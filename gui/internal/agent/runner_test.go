@@ -12,6 +12,32 @@ func TestMode_String(t *testing.T) {
 	if ModeGroom.String() != "groom" {
 		t.Fatalf("ModeGroom: %q", ModeGroom)
 	}
+	if ModeReview.String() != "review" {
+		t.Fatalf("ModeReview: %q", ModeReview)
+	}
+}
+
+func TestPromptReview_LocksReviewContract(t *testing.T) {
+	if strings.TrimSpace(PromptReview) == "" {
+		t.Fatal("PromptReview is empty")
+	}
+	for _, tok := range []string{"{{TASK_ID}}", "{{TASK_TITLE}}", "{{TASK_BODY}}"} {
+		if !strings.Contains(PromptReview, tok) {
+			t.Errorf("PromptReview missing placeholder %s", tok)
+		}
+	}
+	// TB-198: review-mode runs MUST be read-only against implementation
+	// code, MUST write findings through the managed `tb review` surface,
+	// and MUST use the failure handoff (--fail) for blocking findings.
+	for _, text := range []string{
+		"tb review --findings {{TASK_ID}}",
+		"tb review --fail {{TASK_ID}}",
+		"Do NOT change implementation code",
+	} {
+		if !strings.Contains(PromptReview, text) {
+			t.Errorf("PromptReview missing required text %q", text)
+		}
+	}
 }
 
 func TestPromptImplement_NonEmptyAndContainsPlaceholders(t *testing.T) {

@@ -21,7 +21,14 @@ Read `@board/SKILL.md` for important rules about working with the board and task
 - The task `.md` file is the source of truth. Use the `tb` CLI to read and
   mutate task state; never edit `BOARD.md` directly.
 - Make small, atomic commits. Run the project's test suite before declaring done.
-- When the work is complete, append a summary line to the task's `## Log` section via `tb` (or by editing the body through the CLI), and run `tb done {{TASK_ID}}` to move the task to the `done` column.
+- When the work is complete, append a summary line to the task's `## Log` section via `tb`. If the change needs reviewer signoff, set the review target and submit to code-review instead of marking the task done:
+  ```sh
+  tb review --target {{TASK_ID}} - <<'EOF'
+  branch: <feature-branch>
+  EOF
+  tb review --submit {{TASK_ID}}
+  ```
+  When the change is small and you have authorisation to land it directly, run `tb done {{TASK_ID}}` to move the task to the `done` column.
 - If you discover follow-up work or bugs durung the work and that is out of scope, create a new task via
   `tb create "<title>" …` rather than expanding this one.
 - validate task against codebase before imlementation: it can be stale or outdated. Just add a comment with your findings and close or move to done.
@@ -55,7 +62,8 @@ Auto-implement and auto-groom skip `needs-user` tasks until that clear.
 
 - All acceptance criteria in the task are met.
 - All tests pass and new tests are added if needed.
-- Code review is passed.
+- Code review is passed (or the task has been submitted to code-review via
+  `tb review --submit {{TASK_ID}}` with a `## Review Target` set).
 - Linting and formatting checks pass.
 - A summary of the work is added to the `## Log` section of the task.
 - Documentation is updated if needed.

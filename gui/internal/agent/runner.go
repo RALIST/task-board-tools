@@ -32,6 +32,7 @@ type Mode string
 const (
 	ModeImplement Mode = "implement"
 	ModeGroom     Mode = "groom"
+	ModeReview    Mode = "review"
 	ModeResume    Mode = "resume"
 )
 
@@ -175,6 +176,14 @@ var PromptGroom string
 //go:embed prompts/resume.md
 var PromptResume string
 
+// PromptReview is the embedded "review this code-review task" template
+// (TB-198). Review runs inspect the implementation referenced by the task's
+// `## Review Target` section and write actionable findings back via the
+// managed `tb review` surface — they never edit implementation files.
+//
+//go:embed prompts/review.md
+var PromptReview string
+
 // PromptVars are the values RenderPrompt substitutes into a template. The
 // set is intentionally tiny — adding a new placeholder requires editing the
 // templates AND this struct AND RenderPrompt, so reviewers always see the
@@ -216,6 +225,26 @@ func (r *groomingDecorator) Name() string {
 
 func (r *groomingDecorator) Run(ctx context.Context, in RunInput) (RunResult, error) {
 	in.Prompt = RenderPrompt(PromptGroom, r.vars)
+	return r.inner.Run(ctx, in)
+}
+
+type reviewDecorator struct {
+	inner Runner
+	vars  PromptVars
+}
+
+// NewReviewDecorator returns a Runner that renders the review-mode prompt
+// before delegating to inner. Symmetric with NewGroomingDecorator —
+// runnerForMode wraps a base runner in this decorator when Mode == review.
+func NewReviewDecorator(inner Runner, vars PromptVars) Runner {
+	return &reviewDecorator{inner: inner, vars: vars}
+}
+
+func (r *reviewDecorator) Name() string { return r.inner.Name() }
+
+func (r *reviewDecorator) Run(ctx context.Context, in RunInput) (RunResult, error) {
+	in.Prompt = RenderPrompt(PromptReview, r.vars)
+	in.Mode = ModeReview
 	return r.inner.Run(ctx, in)
 }
 

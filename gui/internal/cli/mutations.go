@@ -336,6 +336,50 @@ func (c *Client) Regenerate(ctx context.Context) error {
 	return wrapMutation("regenerate", args, err)
 }
 
+// ReviewSubmit runs `tb review --submit <id>`. The CLI emits a stderr warning
+// if no ## Review Target section is present yet but still exits successfully.
+func (c *Client) ReviewSubmit(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: "task id is required"}
+	}
+	args := []string{"review", "--submit", id}
+	_, err := c.Run(ctx, args...)
+	return wrapMutation("review", args, err)
+}
+
+// ReviewWriteSection invokes `tb review --<section> <id> -` and pipes content
+// in via stdin. section must be one of "target", "notes", "findings".
+func (c *Client) ReviewWriteSection(ctx context.Context, id, section, content string) error {
+	if strings.TrimSpace(id) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: "task id is required"}
+	}
+	switch section {
+	case "target", "notes", "findings":
+	default:
+		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: "section must be target|notes|findings"}
+	}
+	if strings.TrimSpace(content) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: section + " content cannot be empty"}
+	}
+	args := []string{"review", "--" + section, "-", id}
+	_, err := c.RunWithStdin(ctx, strings.NewReader(content), args...)
+	return wrapMutation("review", args, err)
+}
+
+// ReviewFail runs `tb review --fail <id> -` with findings piped in. Moves the
+// task back to backlog and tags it review-failed.
+func (c *Client) ReviewFail(ctx context.Context, id, findings string) error {
+	if strings.TrimSpace(id) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: "task id is required"}
+	}
+	if strings.TrimSpace(findings) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: "review findings cannot be empty"}
+	}
+	args := []string{"review", "--fail", "-", id}
+	_, err := c.RunWithStdin(ctx, strings.NewReader(findings), args...)
+	return wrapMutation("review", args, err)
+}
+
 // Attach runs `tb attach <id> <path>...`. The CLI owns source validation,
 // collision handling, and legacy file-task promotion; this wrapper only
 // ensures the call shape is non-empty before exec.
