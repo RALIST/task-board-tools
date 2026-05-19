@@ -9,10 +9,14 @@ import (
 const defaultScanExtensionsConfig = ".go,.ts,.svelte,.js,.tsx,.jsx"
 
 var configTemplateKnownKeys = map[string]bool{
-	"board":           true,
-	"prefix":          true,
-	"wip_limit":       true,
-	"scan_extensions": true,
+	"board":                 true,
+	"prefix":                true,
+	"wip_limit":             true,
+	"wip_limit_ready":       true,
+	"wip_limit_in_progress": true,
+	"wip_limit_code_review": true,
+	"wip_enforcement":       true,
+	"scan_extensions":       true,
 }
 
 func renderConfigTemplate(values map[string]string) []byte {
@@ -32,8 +36,18 @@ func renderConfigTemplate(values map[string]string) []byte {
 	fmt.Fprintf(&b, "board: %s\n\n", boardPath)
 	b.WriteString("# Task ID prefix.\n")
 	fmt.Fprintf(&b, "prefix: %s\n\n", prefix)
-	b.WriteString("# Warn when starting a task above this many in-progress tasks.\n")
+	b.WriteString("# Canonical kanban WIP limits. Per-column limits cap the number of\n")
+	b.WriteString("# tasks allowed in each pull-based column. Set to 0 (or omit) to disable.\n")
+	b.WriteString("# `wip_limit` (legacy) seeds the in-progress limit when no explicit\n")
+	b.WriteString("# wip_limit_in_progress is set.\n")
 	writeOptionalConfigLine(&b, values, "wip_limit", "2")
+	writeOptionalConfigLine(&b, values, "wip_limit_ready", "5")
+	writeOptionalConfigLine(&b, values, "wip_limit_in_progress", "2")
+	writeOptionalConfigLine(&b, values, "wip_limit_code_review", "3")
+	b.WriteString("\n# WIP enforcement: 'warn' (default) emits a stderr warning when a\n")
+	b.WriteString("# move would exceed the destination column's limit. 'strict' rejects\n")
+	b.WriteString("# the move with a non-zero exit so the source state is left untouched.\n")
+	writeOptionalConfigLine(&b, values, "wip_enforcement", "warn")
 	b.WriteString("\n")
 	b.WriteString("# File extensions scanned by `tb scan`.\n")
 	writeOptionalConfigLine(&b, values, "scan_extensions", defaultScanExtensionsConfig)

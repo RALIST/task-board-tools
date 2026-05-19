@@ -701,10 +701,16 @@ func newCommandTestBoard(t *testing.T) string {
 	}
 
 	cfg = tbConfig{
-		RootDir:        root,
-		BoardDir:       boardDir,
-		Prefix:         "TB",
-		WipLimit:       2,
+		RootDir:  root,
+		BoardDir: boardDir,
+		Prefix:   "TB",
+		WipLimit: 2,
+		// WipLimits intentionally left nil so tests opt-in to WIP-limited
+		// columns explicitly. enforceWipLimit returns silently when no
+		// limit is configured for a status, so default behavior matches
+		// the pre-canonical-kanban code path. Tests that exercise WIP
+		// enforcement should seed cfg.WipLimits and cfg.WipEnforcement.
+		WipEnforcement: "warn",
 		ScanExtensions: defaultScanExtensions(),
 	}
 	t.Cleanup(func() { cfg = prevCfg })

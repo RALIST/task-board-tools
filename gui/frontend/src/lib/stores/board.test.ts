@@ -103,9 +103,9 @@ function snapshot(id: string, title: string): BoardSnapshot {
   return {
     backlog: [task(id, title, 'backlog')],
     inProgress: [],
-    codeReview: [],
+    ready: [], codeReview: [],
     done: [],
-    archive: [],
+    archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn',
   } as BoardSnapshot;
 }
 
@@ -124,7 +124,7 @@ function task(id: string, title: string, status: Task['status']): Task {
     status,
     filePath: `board/backlog/${id}.md`,
     agent: '',
-    agentStatus: '',
+    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
   };
 }
 

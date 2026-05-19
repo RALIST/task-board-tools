@@ -18,6 +18,8 @@
     moveTask,
     openBoard,
     pickBoardDialog,
+    pullTask,
+    readyTask,
     type RecentBoard,
   } from '$lib/api';
   import {
@@ -199,14 +201,40 @@
     return p;
   }
 
-  async function onDrop(taskId: string, target: 'backlog' | 'in-progress' | 'code-review' | 'done') {
+  async function onDrop(taskId: string, target: 'backlog' | 'ready' | 'in-progress' | 'code-review' | 'done') {
+    // Resolve source column so we can route through the canonical kanban
+    // commands when applicable. Pre-routing means the CLI runs its triage
+    // gate (ready), WIP enforcement (pull), and warn-on-skip (start)
+    // identically whether the user drags a card or types `tb ready`/`tb pull`.
+    const source = sourceStatusOf(taskId);
     const before = optimisticMove(taskId, target);
     try {
-      await moveTask(taskId, target);
+      if (source === 'backlog' && target === 'ready') {
+        await readyTask(taskId);
+      } else if (source === 'ready' && target === 'in-progress') {
+        await pullTask(taskId);
+      } else {
+        await moveTask(taskId, target);
+      }
     } catch (err) {
       revert(before);
       pushToast(`Move failed: ${errorString(err)}`);
     }
+  }
+
+  // sourceStatusOf scans the current snapshot for the task's column so
+  // onDrop can pick the right CLI command. Returns undefined when the
+  // task can't be located (e.g. it was just removed in another window) —
+  // the caller then falls back to plain moveTask.
+  function sourceStatusOf(id: string): string | undefined {
+    const snap = $board;
+    if (snap.backlog.some((t) => t.id === id)) return 'backlog';
+    if ((snap.ready ?? []).some((t) => t.id === id)) return 'ready';
+    if (snap.inProgress.some((t) => t.id === id)) return 'in-progress';
+    if ((snap.codeReview ?? []).some((t) => t.id === id)) return 'code-review';
+    if (snap.done.some((t) => t.id === id)) return 'done';
+    if ((snap.archive ?? []).some((t) => t.id === id)) return 'archive';
+    return undefined;
   }
 
   function onShowArchiveChange(show: boolean) {
@@ -324,7 +352,13 @@
     </section>
   {:else}
     <FilterBar snapshot={$board} {onShowArchiveChange} />
-    <Board snapshot={filtered} showArchive={$filter.showArchive} onSelect={openTask} {onDrop} />
+    <Board
+      snapshot={filtered}
+      showArchive={$filter.showArchive}
+      wipLimits={$board.wipLimits ?? {}}
+      onSelect={openTask}
+      {onDrop}
+    />
     {#if $loadError}<p class="err">{$loadError}</p>{/if}
     {#if !$loaded}<p class="hint">Loading…</p>{/if}
   {/if}

@@ -7,7 +7,6 @@
 | TB-177 | Auto task implementation | 0/4 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
-| TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | 0/0 | in-progress | core |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
 
 ## Finished Epics
@@ -23,6 +22,7 @@
 | TB-130 | Agent session resume + interrupted-run recovery | 12/12 | gui |
 | TB-182 | Add special labes\tags\status for user attention | 3/3 | agent |
 | TB-194 | Code-review column | 6/6 | workflow |
+| TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | 0/0 | core |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
@@ -32,20 +32,21 @@
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
 | TB-202 | Create proper name and icon for app | P2 | gui | — |
+| TB-205 | Setup ESLint and dead-code check for frontend | P2 | tooling | — |
 | TB-237 | Save diffrent agent actions in diffrent fields | P2 | cli | — |
-| TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | P1 | core | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | P2 | workflow | — |
+| — | — | — | — | — |
 
 ## Ready
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| — | — | — | — | — | — |
+| TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
+| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | improvement | P2 | S | workflow |
 
 ## Backlog
 
@@ -82,8 +83,6 @@
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
-| TB-205 | Setup ESLint and dead-code check for frontend | tech-debt | P2 | M | tooling |
-| TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-233 | Auto-implement priority: rank review-failed backlog tasks first | improvement | P2 | S | gui |
 | TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P2 | S | gui |
 
@@ -91,6 +90,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | feature | core |
 | TB-236 | macOS titlebar double-click should zoom/restore window | bug | gui |
 | TB-235 | Require ReviewRef metadata before code-review moves | improvement | workflow |
 | TB-232 | tb-gui usage tap: chain to user's original statusline instead of replacing it | bug | gui |
@@ -140,4 +140,3 @@
 | TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |
 | TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | gui |
 | TB-165 | TB-93/GUI: empty-state hint should say 'drag onto this drawer' not 'onto the task' | improvement | gui |
-| TB-164 | TB-93/GUI: surface drag-and-drop in-flight state via attach:dropping/attach:dropped events | improvement | gui |

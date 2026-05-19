@@ -29,13 +29,17 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// statusDirs are the four directories a board may contain. Missing dirs are
-// silently skipped on attach — a fresh board may have only some of them.
-var statusDirs = []string{"backlog", "in-progress", "done", "archive"}
+// statusDirs are the six directories a board may contain (canonical kanban:
+// backlog → ready → in-progress → code-review → done → archive). Missing
+// dirs are silently skipped on attach — a fresh board may have only some
+// of them.
+var statusDirs = []string{"backlog", "ready", "in-progress", "code-review", "done", "archive"}
 
 var statusDirSet = map[string]struct{}{
 	"backlog":     {},
+	"ready":       {},
 	"in-progress": {},
+	"code-review": {},
 	"done":        {},
 	"archive":     {},
 }

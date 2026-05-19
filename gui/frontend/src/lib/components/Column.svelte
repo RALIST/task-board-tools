@@ -3,18 +3,21 @@
   import Card from './Card.svelte';
   import { dndzone, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
 
-  export type DropTarget = 'backlog' | 'in-progress' | 'code-review' | 'done';
+  export type DropTarget = 'backlog' | 'ready' | 'in-progress' | 'code-review' | 'done';
 
   interface Props {
     title: string;
-    status: 'backlog' | 'in-progress' | 'code-review' | 'done' | 'archive';
+    status: 'backlog' | 'ready' | 'in-progress' | 'code-review' | 'done' | 'archive';
     tasks: Task[];
     draggable?: boolean;
+    wipLimit?: number;
     onSelect?: (id: string) => void;
     onDrop?: (taskId: string, target: DropTarget) => void;
   }
 
-  let { title, status, tasks, draggable = true, onSelect, onDrop }: Props = $props();
+  let { title, status, tasks, draggable = true, wipLimit, onSelect, onDrop }: Props = $props();
+
+  let overLimit = $derived(wipLimit !== undefined && wipLimit > 0 && tasks.length >= wipLimit);
 
   let dragOver = $state(false);
   let dragging = $state(false);
@@ -66,7 +69,13 @@
 <article class="col" class:drag-over={dragOver}>
   <header class="col-head">
     <h2>{title}</h2>
-    <span class="count">{tasks.length}</span>
+    {#if wipLimit !== undefined && wipLimit > 0}
+      <span class="count" class:over-limit={overLimit} title="WIP limit {tasks.length}/{wipLimit}">
+        {tasks.length}/{wipLimit}{overLimit ? ' ⚠' : ''}
+      </span>
+    {:else}
+      <span class="count">{tasks.length}</span>
+    {/if}
   </header>
   {#if draggable && status !== 'archive'}
     <ul
@@ -133,6 +142,10 @@
     padding: 1px 7px;
     font-size: 11px;
     font-variant-numeric: tabular-nums;
+  }
+  .count.over-limit {
+    background: rgba(220, 80, 80, 0.18);
+    color: #ff9a9a;
   }
   ul {
     list-style: none;

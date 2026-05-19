@@ -207,7 +207,7 @@ func TestReviewWriteFindingsRejectsEmptyStdin(t *testing.T) {
 	}
 }
 
-func TestReviewFailMovesToBacklogWithMarker(t *testing.T) {
+func TestReviewFailMovesToReadyWithMarker(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	writeReviewTask(t, boardDir, "code-review", reviewBaseTask)
 
@@ -217,13 +217,13 @@ func TestReviewFailMovesToBacklogWithMarker(t *testing.T) {
 		}
 	})
 
-	if _, err := os.Stat(filepath.Join(boardDir, "backlog", "TB-1.md")); err != nil {
-		t.Fatalf("task should be in backlog/: %v", err)
+	if _, err := os.Stat(filepath.Join(boardDir, "ready", "TB-1.md")); err != nil {
+		t.Fatalf("task should be in ready/: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(boardDir, "code-review", "TB-1.md")); !os.IsNotExist(err) {
 		t.Fatalf("source file should be removed, got err=%v", err)
 	}
-	content := readReviewTask(t, boardDir, "backlog")
+	content := readReviewTask(t, boardDir, "ready")
 	if !strings.Contains(content, "**Tags:** review-failed") {
 		t.Fatalf("expected review-failed tag, got:\n%s", content)
 	}
@@ -248,6 +248,44 @@ func TestReviewFailRejectsNonCodeReview(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "only accepts tasks in code-review") {
 		t.Fatalf("expected code-review-only error, got: %v", err)
+	}
+}
+
+func TestStatusAliasesReady(t *testing.T) {
+	for _, alias := range []string{"ready", "r"} {
+		t.Run(alias, func(t *testing.T) {
+			status, err := resolveStatus(alias)
+			if err != nil {
+				t.Fatalf("resolveStatus(%q): %v", alias, err)
+			}
+			if status != "ready" {
+				t.Fatalf("resolveStatus(%q) = %q, want ready", alias, status)
+			}
+
+			dirs, err := resolveStatusFilter(alias)
+			if err != nil {
+				t.Fatalf("resolveStatusFilter(%q): %v", alias, err)
+			}
+			if len(dirs) != 1 || dirs[0] != "ready" {
+				t.Fatalf("resolveStatusFilter(%q) = %v, want [ready]", alias, dirs)
+			}
+		})
+	}
+}
+
+func TestActiveStatusFilterIncludesReady(t *testing.T) {
+	dirs, err := resolveStatusFilter("active")
+	if err != nil {
+		t.Fatalf("resolveStatusFilter(active): %v", err)
+	}
+	found := false
+	for _, d := range dirs {
+		if d == "ready" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("active filter should include ready, got: %v", dirs)
 	}
 }
 
@@ -302,5 +340,64 @@ func TestBoardJSONIncludesCodeReviewBucket(t *testing.T) {
 	}
 	if snap.CodeReview[0].ID != "TB-1" {
 		t.Fatalf("CodeReview[0].ID = %q, want TB-1", snap.CodeReview[0].ID)
+	}
+}
+
+func TestBoardJSONExposesWipLimitsAndCounts(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	prevLimits := cfg.WipLimits
+	prevEnforcement := cfg.WipEnforcement
+	cfg.WipLimits = map[string]int{"ready": 3, "in-progress": 2}
+	cfg.WipEnforcement = "strict"
+	t.Cleanup(func() {
+		cfg.WipLimits = prevLimits
+		cfg.WipEnforcement = prevEnforcement
+	})
+
+	writeReviewTask(t, boardDir, "in-progress", reviewBaseTask)
+
+	snap, err := buildBoardSnapshot(boardDir)
+	if err != nil {
+		t.Fatalf("buildBoardSnapshot: %v", err)
+	}
+	if got := snap.WipLimits["ready"]; got != 3 {
+		t.Fatalf("WipLimits[ready] = %d, want 3", got)
+	}
+	if got := snap.WipLimits["in-progress"]; got != 2 {
+		t.Fatalf("WipLimits[in-progress] = %d, want 2", got)
+	}
+	if _, ok := snap.WipLimits["code-review"]; ok {
+		t.Fatalf("WipLimits[code-review] should be absent (no limit configured), got %d", snap.WipLimits["code-review"])
+	}
+	if snap.WipCounts["in-progress"] != 1 {
+		t.Fatalf("WipCounts[in-progress] = %d, want 1", snap.WipCounts["in-progress"])
+	}
+	if snap.WipCounts["ready"] != 0 {
+		t.Fatalf("WipCounts[ready] = %d, want 0", snap.WipCounts["ready"])
+	}
+	if snap.WipEnforcement != "strict" {
+		t.Fatalf("WipEnforcement = %q, want strict", snap.WipEnforcement)
+	}
+}
+
+func TestParseWipLimitsHonoursExplicitZeroAsDisabled(t *testing.T) {
+	limits, legacy := parseWipLimits(map[string]string{
+		"wip_limit_in_progress": "0",
+		"wip_limit_ready":       "5",
+	})
+	if got := limits["in-progress"]; got != 0 {
+		t.Fatalf("explicit zero in-progress should be preserved as 0, got %d", got)
+	}
+	if legacy != 0 {
+		t.Fatalf("legacy mirror should be 0 (disabled), got %d", legacy)
+	}
+	prev := cfg.WipLimits
+	cfg.WipLimits = limits
+	t.Cleanup(func() { cfg.WipLimits = prev })
+	if _, ok := cfg.wipLimitFor("in-progress"); ok {
+		t.Fatalf("wipLimitFor should return ok=false when limit is 0")
+	}
+	if n, ok := cfg.wipLimitFor("ready"); !ok || n != 5 {
+		t.Fatalf("wipLimitFor(ready) = (%d, %v), want (5, true)", n, ok)
 	}
 }

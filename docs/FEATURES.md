@@ -42,11 +42,22 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - **Acceptance**: `tb ls --json | jq .` parses without errors for both empty and populated boards. All Task fields present in output.
 
 ### F1.4 — Status semantics ☑
-- `--status active` = backlog + in-progress + done.
+- `--status active` = backlog + ready + in-progress + code-review + done.
 - `--status archive` = archive directory only.
 - `--status all` = active + archive (everything on disk).
 - Default for `tb ls` remains `backlog` (backward-compatible).
 - **Acceptance**: `tb ls --status archive --json` returns only archived tasks. `tb ls --status all` returns archive entries too.
+
+### F1.7 — Canonical kanban: `ready` + pull mechanics ☑
+- Adds a `ready` column between `backlog` and `in-progress` (canonical kanban commitment column).
+- `tb ready <ID>` promotes a backlog task to `ready`, running the same gate as `tb triage` (priority + non-placeholder goal).
+- `tb pull` (no arg) auto-picks the highest-priority oldest ready task and moves it to `in-progress`. `tb pull <ID>` overrides selection.
+- `tb start <ID>` continues to work for backwards compatibility but emits a stderr warning when the source is `backlog` (skipping the commitment column).
+- Per-column WIP limits in `.tb.yaml`: `wip_limit_ready`, `wip_limit_in_progress`, `wip_limit_code_review`. Legacy `wip_limit` scalar still seeds `in-progress`. `wip_enforcement: warn` (default) warns; `strict` blocks moves over the limit.
+- `BOARD.md` renders a `## Ready` section between Code Review and Backlog with a `(n/m)` WIP header on limited columns (with `⚠` when at/over).
+- `tb board --json` adds `ready` array plus `wipLimits`, `wipCounts`, and `wipEnforcement` fields.
+- Failed code review (`tb review --fail`) now returns the task to `ready` (was `backlog`) with the `review-failed` tag.
+- **Acceptance**: `tb create … && tb edit <ID> -p P1 && tb ready <ID> && tb pull` flows a single task from backlog through ready to in-progress with logged entries on each move. `tb ready <noPriorityID>` exits non-zero with a "needs grooming" message.
 
 ### F1.5 — Regenerate consistency ☑
 - `tb create` and `tb edit` call `regenerateBoard` at the end of the operation.
@@ -77,9 +88,10 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - **Acceptance**: pick a board, see its tasks; close and reopen — same board loads.
 
 ### F2.3 — Three-column kanban (read-only) ☑
-- Columns: backlog / in-progress / done.
+- Columns (canonical kanban, in pull order): backlog / ready / in-progress / code-review / done (+ archive when toggled).
 - Each card shows: ID, title, priority pill, type, tags, agent badge (if assigned), parent epic indicator.
 - Cards sorted by priority then numeric ID.
+- WIP-limited columns surface a `(n/m)` badge with a red over-limit highlight.
 - **Acceptance**: open GUI on a populated board, all tasks rendered in correct columns matching `tb ls --status active`.
 
 ### F2.4 — Task drawer (read-only) ☑

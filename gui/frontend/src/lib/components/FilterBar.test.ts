@@ -22,13 +22,13 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     status: 'backlog',
     filePath: '',
     agent: '',
-    agentStatus: '',
+    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
     ...overrides,
   };
 }
 
 function snapshot(tasks: Task[]): BoardSnapshot {
-  return { backlog: tasks, inProgress: [], codeReview: [], done: [], archive: [] };
+  return { backlog: tasks, inProgress: [], ready: [], codeReview: [], done: [], archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn' };
 }
 
 function triggers(): HTMLButtonElement[] {

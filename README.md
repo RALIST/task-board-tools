@@ -9,7 +9,7 @@ Two binaries built from this repo:
 | **`tb`** | `cli/` | Terminal CLI. Manages the board, owns all structured mutations. Used by humans, the GUI, and AI agents. |
 | **`tb-gui`** | `gui/` | Desktop app (Wails3 + Svelte 5). Kanban board with DnD, filters, markdown editor, attachments, agent assignment, live updates, and settings. |
 
-Tasks are plain Markdown files in directories (`backlog/`, `in-progress/`, `done/`, `archive/`) — the directory is the status. Current tasks default to folder form (`board/backlog/TB-123/TASK.md`) so attachments and task-local agent artifacts can live beside the task. Legacy single-file tasks (`TB-123.md`) remain readable. No database. No server.
+Tasks are plain Markdown files in directories (`backlog/`, `ready/`, `in-progress/`, `code-review/`, `done/`, `archive/`) — the directory is the status, and the canonical kanban flow is `backlog → ready → in-progress → code-review → done → archive`. `ready` is the commitment column: promote groomed backlog tasks into it with `tb ready <ID>`, then `tb pull` to pull the next one into in-progress. Current tasks default to folder form (`board/backlog/TB-123/TASK.md`) so attachments and task-local agent artifacts can live beside the task. Legacy single-file tasks (`TB-123.md`) remain readable. No database. No server.
 
 ## Why
 
@@ -36,9 +36,11 @@ ln -sf "$(pwd)/tb" ~/.local/bin/tb
 # Create a board in another project.
 cd /your/project
 tb init                                # creates ./board and .tb.yaml
-tb create "First task" -m core         # adds board/backlog/PR-1/TASK.md
+tb create "First task" -m core -p P1   # adds board/backlog/PR-1/TASK.md
 tb ls                                  # see the backlog
-tb start 1 && tb done 1                # workflow
+tb ready 1                             # commit it to the ready column (triage-gated)
+tb pull                                # pull the highest-priority ready task → in-progress
+tb done 1                              # mark done
 tb regenerate                          # refresh generated board/BOARD.md
 ```
 

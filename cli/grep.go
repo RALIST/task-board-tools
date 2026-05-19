@@ -13,12 +13,12 @@ import (
 
 func cmdGrep(args []string) {
 	fs := flag.NewFlagSet("grep", flag.ExitOnError)
-	statusFilter := fs.String("status", "all", "status filter: backlog|in-progress|code-review|done|archive|active|all (default: all)")
+	statusFilter := fs.String("status", "all", "status filter: backlog|ready|in-progress|code-review|done|archive|active|all (default: all)")
 	caseSensitive := fs.Bool("s", false, "case-sensitive search (default: case-insensitive)")
 	filesOnly := fs.Bool("l", false, "show only matching task IDs, no matched lines")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb grep <pattern> [--status backlog|ready|in-progress|code-review|done|archive|active|all] [-s] [-l]\n\n")
 		fmt.Fprintf(os.Stderr, "Search across all task files using a regular expression.\n\n")
 		fs.PrintDefaults()
 	}

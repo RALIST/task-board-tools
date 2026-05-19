@@ -200,10 +200,12 @@ func TestOpenBoard_UsesPersistedCLIPath(t *testing.T) {
 	}
 
 	// OpenBoard runs `tb ls --json --status active` to validate the
-	// candidate board before committing the switch (TB-208), and then the
-	// explicit board.LoadBoard call adds a second invocation.
-	if got := readMarkerLog(t, logPath); got != "persisted\npersisted\n" {
-		t.Fatalf("stub log: got %q, want persisted marker twice (validate + LoadBoard)", got)
+	// candidate board before committing the switch (TB-208). LoadBoard
+	// itself fires two invocations under canonical kanban: `tb ls --json
+	// --status active` for the buckets plus `tb board --json` for the
+	// WIP metadata. Total: 1 (validate) + 2 (load) = 3.
+	if got := readMarkerLog(t, logPath); got != "persisted\npersisted\npersisted\n" {
+		t.Fatalf("stub log: got %q, want persisted marker three times (validate + LoadBoard ls + LoadBoard board)", got)
 	}
 }
 
@@ -238,10 +240,11 @@ func TestSetCLIPath_ReloadsActiveBoardClient(t *testing.T) {
 		t.Fatalf("LoadBoard second: %v", err)
 	}
 
-	// "first" is logged twice: once by OpenBoard's candidate-board validate
-	// (TB-208), once by the explicit LoadBoard. Then SetCLIPath swaps in
-	// the "second" binary, which records the next LoadBoard call.
-	if got := readMarkerLog(t, logPath); got != "first\nfirst\nsecond\n" {
+	// "first" is logged three times: OpenBoard's candidate-board validate
+	// (TB-208), then LoadBoard's two invocations (ls --json + board
+	// --json for WIP metadata). SetCLIPath swaps in the "second" binary,
+	// which records the next LoadBoard's two invocations.
+	if got := readMarkerLog(t, logPath); got != "first\nfirst\nfirst\nsecond\nsecond\n" {
 		t.Fatalf("stub log: got %q, want first validate+load then second", got)
 	}
 }
@@ -280,11 +283,11 @@ func TestSetCLIPath_BadPathDoesNotPersistOrSwapActiveClient(t *testing.T) {
 	if _, err := board.LoadBoard(context.Background()); err != nil {
 		t.Fatalf("LoadBoard after bad path: %v", err)
 	}
-	// Three "valid" entries: OpenBoard's TB-208 candidate validate, the
-	// explicit pre-bad-path LoadBoard, and the explicit post-bad-path
-	// LoadBoard (still on the valid binary because SetCLIPath rejected
-	// the missing one).
-	if got := readMarkerLog(t, logPath); got != "valid\nvalid\nvalid\n" {
+	// Five "valid" entries: OpenBoard's TB-208 candidate validate (1),
+	// the pre-bad-path LoadBoard's ls + board --json (2), and the
+	// post-bad-path LoadBoard's ls + board --json (2). SetCLIPath
+	// rejected the missing binary so the active client stays valid.
+	if got := readMarkerLog(t, logPath); got != "valid\nvalid\nvalid\nvalid\nvalid\n" {
 		t.Fatalf("stub log: got %q, want active client to remain on valid binary", got)
 	}
 }

@@ -40,6 +40,10 @@ func main() {
 		cmdList(os.Args[2:])
 	case "mv", "move":
 		cmdMove(os.Args[2:])
+	case "ready":
+		cmdReady(os.Args[2:])
+	case "pull":
+		cmdPull(os.Args[2:])
 	case "start":
 		cmdStart(os.Args[2:])
 	case "done":
@@ -83,14 +87,16 @@ Usage:
   tb board [--json]                                                      Print board status (or JSON snapshot)
   tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
   tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID] [-n N]
-        [--status backlog|in-progress|code-review|done|archive|active|all] [--json]
-  tb mv <ID> <status>                                                    Move task (status: backlog|in-progress|code-review|done|archive)
-  tb review --submit <ID>                                                Submit in-progress (or review-failed backlog) task to code-review
+        [--status backlog|ready|in-progress|code-review|done|archive|active|all] [--json]
+  tb mv <ID> <status>                                                    Move task (status: backlog|ready|in-progress|code-review|done|archive)
+  tb ready <ID>                                                          Promote a backlog task to ready (canonical kanban commitment column)
+  tb pull [<ID>]                                                         Pull the next highest-priority ready task into in-progress
+  tb review --submit <ID>                                                Submit in-progress (or review-failed ready/backlog) task to code-review
   tb review --target <ID> file|-                                         Write ## Review Target section
   tb review --notes <ID> file|-                                          Write ## Reviewer Notes section
   tb review --findings <ID> file|-                                       Write ## Review Findings section
-  tb review --fail <ID> file|-                                           Fail review: write findings, move to backlog, mark review-failed
-  tb start <ID>                                                          Start working
+  tb review --fail <ID> file|-                                           Fail review: write findings, move to ready, mark review-failed
+  tb start <ID>                                                          Start working (warns when called on a backlog task — pulls should come from ready)
   tb done <ID>                                                           Mark done
   tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user] [--review-ref value|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
   tb attach <ID> <path>...                                               Copy files into task attachments
@@ -100,13 +106,17 @@ Usage:
   tb show <ID> [--json]                                                  Print task content (or {metadata, body} JSON)
   tb open <ID>                                                           Open in default editor
   tb epic <ID> [--status active|archive|all]                             Show epic progress
-  tb triage [--json]                                                     Find tasks needing grooming
-  tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l]   Search tasks by regex
+  tb triage [--json]                                                     Find tasks needing grooming (gates the backlog → ready commit)
+  tb grep <pattern> [--status backlog|ready|in-progress|code-review|done|archive|active|all] [-s] [-l]   Search tasks by regex
   tb scan [--apply] [--path dir]                                         Find untagged TODOs
   tb regenerate                                                          Regenerate BOARD.md
 
+Canonical kanban flow:
+  backlog → ready → in-progress → code-review → done → archive
+  Pull from ready into in-progress with ` + "`tb pull`" + `; promote backlog → ready with ` + "`tb ready`" + `.
+
 Status aliases:
-  b=backlog  ip/wip=in-progress  cr/review=code-review  d=done
+  b=backlog  r=ready  ip/wip=in-progress  cr/review=code-review  d=done
 
 Commands:
   init              Initialize board structure; existing boards refresh docs and annotated config with .bak backups
@@ -114,7 +124,9 @@ Commands:
   create, new       Create a new task
   ls, list          List and filter tasks
   mv, move          Move task between statuses
-  start             Move task to in-progress
+  ready             Promote a backlog task to ready (kanban commitment point; must pass triage gate)
+  pull              Pull the next highest-priority ready task into in-progress (canonical kanban pull)
+  start             Move task to in-progress (push-style — warns when source is backlog; prefer ` + "`tb pull`" + `)
   done              Move task to done
   edit              Edit task metadata, title (--title), and Goal/Acceptance Criteria/User Attention sections
   attach            Copy files into task attachments; --rm: Remove task attachments by name
@@ -127,7 +139,7 @@ Commands:
   grep, search      Full-text regex search across all task files
   scan              Find untagged TODO/FIXME/HACK comments, create tasks, update source
   regenerate, regen Regenerate BOARD.md from directory contents
-  review            Code-review flow: submit, set Review Target/Reviewer Notes/Findings, fail back to backlog
+  review            Code-review flow: submit, set Review Target/Reviewer Notes/Findings, fail back to ready
 
 Task IDs use the configured prefix (default: PR). The prefix is optional in commands —
 "tb start 123" and "tb start PR-123" are equivalent.

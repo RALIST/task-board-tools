@@ -38,10 +38,10 @@ type pidLivenessFunc func(pid int, expectedAgent string) bool
 //   - JSONL has no finished event AND the PID is alive → leave the
 //     task alone. M5 does not re-attach to live runs.
 type RecoveryService struct {
-	board   *BoardService
-	agent   *AgentService
-	logger  *slog.Logger
-	liveFn  pidLivenessFunc
+	board  *BoardService
+	agent  *AgentService
+	logger *slog.Logger
+	liveFn pidLivenessFunc
 }
 
 // NewRecoveryService returns a Recovery wrapper.
@@ -78,13 +78,23 @@ func (r *RecoveryService) RecoverStale(ctx context.Context, boardDir string) err
 		return errors.New("recovery: no CLI client")
 	}
 
-	snap, err := r.board.LoadBoard(ctx)
+	// "all" mode includes archive tasks alongside the active buckets.
+	// LoadBoard (active) was scoped to backlog/in-progress/done in M2, so
+	// a closed task with a dangling running run would slip past recovery.
+	snap, err := r.board.LoadBoardWithMode(ctx, string(StatusModeAll))
 	if err != nil {
 		return fmt.Errorf("recovery: load board: %w", err)
 	}
 
 	candidates := make([]Task, 0)
-	for _, bucket := range [][]Task{snap.Backlog, snap.InProgress, snap.Done} {
+	// All six status buckets are scanned. An earlier version only walked
+	// Backlog/InProgress/Done, which missed tasks that the agent moved into
+	// code-review (TB-194) — or ready (canonical kanban), or that the user
+	// archived — while a daemon-tracked run was still in flight. After a
+	// daemon restart those tasks would stay at AgentStatus=running
+	// indefinitely, blocking Run/Groom in the drawer (taskHasActiveRun
+	// gating) until manually cleared.
+	for _, bucket := range [][]Task{snap.Backlog, snap.Ready, snap.InProgress, snap.CodeReview, snap.Done, snap.Archive} {
 		for _, t := range bucket {
 			if t.AgentStatus == "running" {
 				candidates = append(candidates, t)
@@ -267,12 +277,15 @@ func (r *RecoveryService) emitFinished(runID, taskID, status string, exitCode in
 // runRecoveryView is the slice of run state recovery cares about. The
 // fields are derived from the JSONL events for the latest run_id.
 type runRecoveryView struct {
-	RunID        string
-	AgentName    string
-	PID          int
-	SessionID    string
-	Cwd          string
-	RunEnv       map[string]string
+	RunID     string
+	AgentName string
+	PID       int
+	SessionID string
+	Cwd       string
+	RunEnv    map[string]string
+	// Mode is the run's mode parsed from the queued JSONL event
+	// (TB-237). Empty when the queued event predates mode capture.
+	Mode         agent.Mode
 	LastFinished *finishedEvent
 }
 
@@ -326,6 +339,9 @@ func readLatestRun(boardDir, taskID string) (runRecoveryView, bool, error) {
 			if ev.Agent != "" {
 				v.AgentName = ev.Agent
 			}
+			if ev.Mode != "" {
+				v.Mode = parseRunMode(ev.Mode)
+			}
 		case agent.EvStarted:
 			if ev.PID > 0 {
 				v.PID = ev.PID
@@ -375,6 +391,11 @@ type ResumeCandidate struct {
 	RunID     string
 	Cwd       string
 	Env       map[string]string
+	// Mode is the parent run's originating mode (groom/implement/review).
+	// TB-237 uses it so the resume's per-mode pair update lands on the
+	// originating action rather than on a non-existent "resume" slot.
+	// Defaults to ModeImplement when the parent JSONL is too old to carry it.
+	Mode agent.Mode
 }
 
 // resumableSessionID returns the resume context for the *latest* run of
@@ -401,10 +422,15 @@ func resumableSessionID(boardDir, taskID string) (ResumeCandidate, bool, error) 
 	if view.SessionID == "" {
 		return ResumeCandidate{}, false, nil
 	}
+	parentMode := view.Mode
+	if parentMode == "" {
+		parentMode = agent.ModeImplement
+	}
 	return ResumeCandidate{
 		SessionID: view.SessionID,
 		RunID:     view.RunID,
 		Cwd:       view.Cwd,
 		Env:       view.RunEnv,
+		Mode:      parentMode,
 	}, true, nil
 }

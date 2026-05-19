@@ -8,10 +8,21 @@ board/
   CONVENTIONS.md        — This file
   SKILL.md              — AI agent instructions for using the board
   .next-id              — Counter for next TB-NNN ID
-  backlog/              — Prioritized, ready to pick up
-  in-progress/          — Currently being worked on (max 2 tasks)
+  backlog/              — Raw intake; un-groomed ideas live here
+  ready/                — Committed and pullable; WIP-limited; pulled into in-progress in priority order
+  in-progress/          — Currently being worked on (WIP-limited)
+  code-review/          — Implementation work awaiting reviewer signoff
   done/                 — Completed (archive, clean periodically)
+  archive/              — Closed; hidden from BOARD.md unless explicitly inspected
 ```
+
+Canonical kanban flow:
+
+```
+backlog → ready → in-progress → code-review → done → archive
+```
+
+`backlog` is the open intake queue. Promote a task to `ready` with `tb ready <ID>` once it has a priority and a real goal (the same gate `tb triage` uses). `tb pull` then pulls the highest-priority oldest ready task into `in-progress`. `tb start <ID>` is the explicit push variant — it still works from any column, but warns when called on a backlog task because it skips the commitment column.
 
 CLI tool `tb` manages board operations (create, move, edit, attach, assign, list, JSON views, regenerate).
 
@@ -40,6 +51,7 @@ Folder-form tasks store new attachments directly under `<status>/TB-NNN/`. Legac
 **Module:** module-name (optional)
 **Tags:** comma-separated tags (optional)
 **Branch:** feat/branch-name (set when work starts)
+**ReviewRef:** branch/PR/commit/worktree (required to move into code-review)
 **Parent:** TB-NNN (optional — links to parent epic)
 
 ## Goal
@@ -91,10 +103,12 @@ Why this task exists. Link to the task or session where it was discovered.
 
 ### Before coding
 
-1. Run `tb ls` for current state
-2. Pick a task or create one with `tb create "Title"`
-3. Start it with `tb start TB-NNN`
-4. Set the `Branch` field
+1. Run `tb ls --status ready` for the committed queue (fall back to `--status all` for the whole board).
+2. If `ready` is empty, groom a backlog task and commit it: `tb edit` to fix any gaps, then `tb ready TB-NNN`.
+3. Pull the next task with `tb pull` (auto-picks highest-priority oldest) or `tb pull TB-NNN` to override. `tb start TB-NNN` still works push-style but warns when called on a backlog task.
+4. Set the `Branch` field once you start writing code.
+
+**Never push backlog → in-progress directly.** Promote through `ready` (or accept that `tb start <ID>` on a backlog task will warn).
 
 ### During work
 
@@ -185,11 +199,13 @@ The command reads `.tb.yaml` for the current board path and prefix, rewrites gen
 tb init [path] [--board-path=board] [--prefix=TB] [--refresh-docs]
 tb board [--json]
 tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [--json]
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|ready|in-progress|code-review|done|archive|active|all] [--json]
 tb mv <TB-NNN> <status>                                                    — Move task between statuses
-tb start <TB-NNN>                                                          — Move to in-progress
+tb ready <TB-NNN>                                                          — Promote backlog → ready (kanban commitment; triage-gated)
+tb pull [<TB-NNN>]                                                         — Pull the highest-priority oldest ready task into in-progress
+tb start <TB-NNN>                                                          — Move to in-progress (push-style; warns when source is backlog)
 tb done <TB-NNN>                                                           — Move to done
-tb edit <TB-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
+tb edit <TB-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
 tb attach <TB-NNN> <path>...                                               — Copy files into task attachments
 tb attach --rm <TB-NNN> <attachment-name>...                               — Remove task attachments
 tb assign <TB-NNN> <claude|codex>                                          — Assign a runnable agent and queue pickup
@@ -198,14 +214,14 @@ tb show <TB-NNN> [--json]                                                  — P
 tb open <TB-NNN>                                                           — Open in default editor
 tb epic <TB-NNN> [--status active|archive|all]                             — Show epic progress and children
 tb triage [--json]                                                            — Find tasks needing grooming
-tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l] — Search tasks by regex
+tb grep <pattern> [--status backlog|ready|in-progress|code-review|done|archive|active|all] [-s] [-l] — Search tasks by regex
 tb scan [--apply] [--path dir]                                                — Find untagged TODOs, create tasks
 tb regenerate                                                                 — Regenerate BOARD.md
 ```
 
 **Defaults:** type=bug, priority=P2, size=M.
 
-**Status aliases:** `b`=backlog, `ip`=in-progress, `d`=done
+**Status aliases:** `b`=backlog, `r`=ready, `ip`/`wip`=in-progress, `cr`/`review`=code-review, `d`=done
 
 **Examples:**
 

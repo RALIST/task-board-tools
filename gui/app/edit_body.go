@@ -138,7 +138,7 @@ func (b *BoardService) setBoardDir(dir string) {
 // cli/move.go:normalizeTaskID's tolerance.
 func findTaskFile(boardDir, id string) (string, error) {
 	upper := strings.ToUpper(strings.TrimSpace(id))
-	dirs := []string{"backlog", "in-progress", "done", "archive"}
+	dirs := []string{"backlog", "ready", "in-progress", "code-review", "done", "archive"}
 
 	if strings.Contains(upper, "-") {
 		for _, dir := range dirs {

@@ -26,6 +26,11 @@ board/.board.lock
 /gui/frontend/dist
 /gui/frontend/node_modules
 /gui/frontend/.svelte-kit
+# Vitest/Vite caches occasionally land at gui/node_modules (root of the gui
+# workspace, not under frontend) when tooling resolves the workspace root
+# differently. Ignored so a stale cached test result never lands as commit
+# noise.
+/gui/node_modules
 
 # tb-gui claude usage tap (auto-added)
 /.claude/settings.local.json

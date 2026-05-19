@@ -29,7 +29,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     status: 'backlog',
     filePath: '',
     agent: '',
-    agentStatus: '',
+    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
     ...overrides,
   };
 }
@@ -37,10 +37,14 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
 function snapshot(columns: Partial<BoardSnapshot>): BoardSnapshot {
   return {
     backlog: columns.backlog ?? [],
+    ready: columns.ready ?? [],
     inProgress: columns.inProgress ?? [],
     codeReview: columns.codeReview ?? [],
     done: columns.done ?? [],
     archive: columns.archive ?? [],
+    wipLimits: columns.wipLimits ?? {},
+    wipCounts: columns.wipCounts ?? {},
+    wipEnforcement: columns.wipEnforcement ?? 'warn',
   };
 }
 

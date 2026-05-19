@@ -53,7 +53,7 @@ GUI shows epics in a dedicated section with a progress bar.
 ## Design principles
 
 1. **Markdown is the source of truth.** Every task is a human-readable file. Anyone can `cat` a task, `git diff` it, edit in vim. No proprietary formats.
-2. **Directories are status.** A task in `board/in-progress/` is in progress. Moving = renaming.
+2. **Directories are status.** A task in `board/in-progress/` is in progress. Moving = renaming. The canonical kanban flow is `backlog → ready → in-progress → code-review → done → archive`.
 3. **CLI owns mutations.** `tb create`, `tb mv`, `tb edit`, … take an exclusive `.board.lock`. The GUI defers structured mutations to the CLI via `exec`. Direct writes from the GUI happen only for free-form body editing, under the same lock, with the same rules (preserve header/metadata, append log entry, atomic write, regenerate).
 4. **Maximum simplicity in UI/UX.** No nested menus, no settings rabbit holes, no required configuration. Open a board, see a kanban, drag cards. Defaults work for one person; everything else is opt-in.
 5. **Agents are a button.** Assigning an agent is one click. Running it is another. The user never authors prompts or fiddles with model parameters in the MVP.
@@ -63,14 +63,16 @@ GUI shows epics in a dedicated section with a progress bar.
 
 | Term | Meaning |
 |------|---------|
-| **Board** | A directory containing `backlog/`, `in-progress/`, `done/`, `archive/` subdirs + `.tb.yaml` config in the parent. |
+| **Board** | A directory containing `backlog/`, `ready/`, `in-progress/`, `code-review/`, `done/`, `archive/` subdirs + `.tb.yaml` config in the parent. |
 | **Task** | A markdown task in one of the status directories. Current tasks default to folder form (`PREFIX-NNN/TASK.md` with optional task-root attachments, legacy `attachments/` compatibility files, and task-local agent artifacts); legacy file form (`PREFIX-NNN.md`) is still supported. The containing status directory determines status. |
-| **Status** | One of `backlog`, `in-progress`, `done`, `archive`. Plus filter aliases: `active` (all but archive) and `all` (everything). |
+| **Status** | One of `backlog`, `ready`, `in-progress`, `code-review`, `done`, `archive`. Plus filter aliases: `active` (all but archive) and `all` (everything). |
+| **Ready** | The canonical kanban commitment column: a task here has been triaged (priority + real goal) and is pullable into in-progress. Promote with `tb ready <ID>`; pull with `tb pull`. |
+| **WIP limit** | Optional per-column cap declared in `.tb.yaml` (`wip_limit_ready`, `wip_limit_in_progress`, `wip_limit_code_review`). With `wip_enforcement: warn` (default) the CLI warns when a move would exceed the limit; `strict` blocks the move. |
 | **Project root** | The directory containing `.tb.yaml`. Everything else is resolved from there. |
 | **Prefix** | Project-specific task ID prefix (e.g., `WS`, `PR`). Tasks are `WS-1`, `WS-2`, … |
 | **Epic** | A task with the `epic` tag. Other tasks can declare `**Parent:** WS-N` to belong to it. |
 | **Agent** | One of `claude` (runs `claude -p`) or `codex` (runs `codex exec`). Assigned to a task via the `**Agent:**` metadata field. |
-| **AgentStatus** | One of `queued`, `running`, `success`, `failed`, `cancelled`. The daemon watches for `queued` and picks them up. `cancelled` is user-initiated (Cancel button or `tb edit --agent-status cancelled`) and is never overwritten by stale-recovery. |
+| **AgentStatus** | One of `queued`, `running`, `success`, `failed`, `cancelled`, `interrupted`, `needs-user`. The daemon watches for `queued` and picks them up. `cancelled` is user-initiated (Cancel button or `tb edit --agent-status cancelled`) and is never overwritten by stale-recovery. `interrupted` is recovery-initiated (TB-130) when the daemon crashed mid-run with a captured session id, surfacing a Resume button. `needs-user` (TB-182) is the agent-attention handoff: an autonomous agent stopped because user input is required; automation skips these and the user clears with `tb edit --agent-status none`. |
 | **Run** | A single execution of an agent on a task. File-form tasks record events/logs under `board/.agent-state/PREFIX-NNN.jsonl` and `board/.agent-logs/PREFIX-NNN/<run_id>.log`; folder-form tasks keep them beside the task in `.agent-state.jsonl` and `.agent-logs/<run_id>.log`. |
 | **Groom** | An agent run in "grooming" mode: instead of writing code, the agent refines the task's Goal and Acceptance Criteria. |
 | **Daemon** | A goroutine inside the single-instance GUI process that scans for queued tasks, runs the assigned agent, and recovers stale runs on startup. |

@@ -78,36 +78,58 @@ func buildBoardContent(boardDir string) (string, error) {
 		b.WriteString("\n")
 	}
 
+	// Active work columns rendered in pull order: in-progress (doing), then
+	// code-review (awaiting signoff), then ready (committed, pullable),
+	// then backlog (intake). WIP-limited columns show `(n/m)` in the
+	// header, with a `⚠` suffix when the column is at or over its limit.
+
 	// In Progress
-	b.WriteString("## In Progress\n\n")
-	b.WriteString("| ID | Title | Priority | Module | Branch |\n")
-	b.WriteString("|----|-------|----------|--------|--------|\n")
-	tasks, err := collectTasks(boardDir, "in-progress")
+	inProgressTasks, err := collectTasks(boardDir, "in-progress")
 	if err != nil {
 		return "", err
 	}
-	if len(tasks) == 0 {
+	fmt.Fprintf(&b, "## In Progress%s\n\n", columnHeaderSuffix("in-progress", len(inProgressTasks)))
+	b.WriteString("| ID | Title | Priority | Module | Branch |\n")
+	b.WriteString("|----|-------|----------|--------|--------|\n")
+	if len(inProgressTasks) == 0 {
 		b.WriteString("| — | — | — | — | — |\n")
 	} else {
-		for _, t := range tasks {
+		for _, t := range inProgressTasks {
 			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", t.ID, t.Title, t.Priority, t.Module, t.Branch)
 		}
 	}
 	b.WriteString("\n")
 
 	// Code Review
-	b.WriteString("## Code Review\n\n")
-	b.WriteString("| ID | Title | Priority | Module | Branch |\n")
-	b.WriteString("|----|-------|----------|--------|--------|\n")
-	tasks, err = collectTasks(boardDir, "code-review")
+	codeReviewTasks, err := collectTasks(boardDir, "code-review")
 	if err != nil {
 		return "", err
 	}
-	if len(tasks) == 0 {
+	fmt.Fprintf(&b, "## Code Review%s\n\n", columnHeaderSuffix("code-review", len(codeReviewTasks)))
+	b.WriteString("| ID | Title | Priority | Module | Branch |\n")
+	b.WriteString("|----|-------|----------|--------|--------|\n")
+	if len(codeReviewTasks) == 0 {
 		b.WriteString("| — | — | — | — | — |\n")
 	} else {
-		for _, t := range tasks {
+		for _, t := range codeReviewTasks {
 			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", t.ID, t.Title, t.Priority, t.Module, t.Branch)
+		}
+	}
+	b.WriteString("\n")
+
+	// Ready (canonical kanban commitment column)
+	readyTasks, err := collectTasks(boardDir, "ready")
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(&b, "## Ready%s\n\n", columnHeaderSuffix("ready", len(readyTasks)))
+	b.WriteString("| ID | Title | Type | Priority | Size | Module |\n")
+	b.WriteString("|----|-------|------|----------|------|--------|\n")
+	if len(readyTasks) == 0 {
+		b.WriteString("| — | — | — | — | — | — |\n")
+	} else {
+		for _, t := range readyTasks {
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n", t.ID, t.Title, t.Type, t.Priority, t.Size, t.Module)
 		}
 	}
 	b.WriteString("\n")
@@ -116,14 +138,14 @@ func buildBoardContent(boardDir string) (string, error) {
 	b.WriteString("## Backlog\n\n")
 	b.WriteString("| ID | Title | Type | Priority | Size | Module |\n")
 	b.WriteString("|----|-------|------|----------|------|--------|\n")
-	tasks, err = collectTasks(boardDir, "backlog")
+	backlogTasks, err := collectTasks(boardDir, "backlog")
 	if err != nil {
 		return "", err
 	}
-	if len(tasks) == 0 {
+	if len(backlogTasks) == 0 {
 		b.WriteString("| — | — | — | — | — | — |\n")
 	} else {
-		for _, t := range tasks {
+		for _, t := range backlogTasks {
 			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n", t.ID, t.Title, t.Type, t.Priority, t.Size, t.Module)
 		}
 	}
@@ -133,26 +155,40 @@ func buildBoardContent(boardDir string) (string, error) {
 	b.WriteString("## Recently Done\n\n")
 	b.WriteString("| ID | Title | Type | Module |\n")
 	b.WriteString("|----|-------|------|--------|\n")
-	tasks, err = collectTasks(boardDir, "done")
+	doneTasks, err := collectTasks(boardDir, "done")
 	if err != nil {
 		return "", err
 	}
-	if len(tasks) == 0 {
+	if len(doneTasks) == 0 {
 		b.WriteString("| — | — | — | — |\n")
 	} else {
 		// Reverse sort (highest ID first), take last 50.
-		sort.Slice(tasks, func(i, j int) bool {
-			return numericID(tasks[i].ID) > numericID(tasks[j].ID)
+		sort.Slice(doneTasks, func(i, j int) bool {
+			return numericID(doneTasks[i].ID) > numericID(doneTasks[j].ID)
 		})
-		if len(tasks) > 50 {
-			tasks = tasks[:50]
+		if len(doneTasks) > 50 {
+			doneTasks = doneTasks[:50]
 		}
-		for _, t := range tasks {
+		for _, t := range doneTasks {
 			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", t.ID, t.Title, t.Type, t.Module)
 		}
 	}
 
 	return b.String(), nil
+}
+
+// columnHeaderSuffix returns the " (n/m)" or " (n/m ⚠)" suffix appended to
+// a WIP-limited column heading. Returns "" for columns without a configured
+// limit so unlimited columns render cleanly.
+func columnHeaderSuffix(status string, count int) string {
+	limit, ok := cfg.wipLimitFor(status)
+	if !ok {
+		return ""
+	}
+	if count >= limit {
+		return fmt.Sprintf(" (%d/%d ⚠)", count, limit)
+	}
+	return fmt.Sprintf(" (%d/%d)", count, limit)
 }
 
 // regenerateBoard generates BOARD.md from the current directory state.
@@ -212,7 +248,7 @@ func collectTasks(boardDir, status string) ([]Task, error) {
 }
 
 // collectActiveTasks reads and parses task files from active board
-// directories only: backlog, in-progress, and done.
+// directories only: backlog, in-progress, code-review, and done.
 func collectActiveTasks(boardDir string) ([]Task, error) {
 	var all []Task
 	for _, status := range statusDirs {

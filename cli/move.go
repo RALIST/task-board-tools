@@ -10,7 +10,7 @@ import (
 
 func cmdMove(args []string) {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: tb mv <ID> <status>\n\nExample: tb mv 123 ip\nAliases: b=backlog, ip=in-progress, cr=code-review (review), d=done")
+		fmt.Fprintln(os.Stderr, "Usage: tb mv <ID> <status>\n\nExample: tb mv 123 ip\nAliases: b=backlog, r=ready, ip=in-progress, cr=code-review (review), d=done")
 		os.Exit(1)
 	}
 	taskID := normalizeTaskID(args[0])
@@ -18,7 +18,13 @@ func cmdMove(args []string) {
 	if err != nil {
 		fatal("%v", err)
 	}
-	moveTask(taskID, targetStatus, "Moved to "+targetStatus)
+	// Pre-flight WIP check for fast-fail UX; the authoritative recheck
+	// inside the lock is wired through the guard below so concurrent
+	// invocations cannot race past `len(dest) < limit`.
+	if err := enforceWipLimit(targetStatus, cfg.BoardDir); err != nil {
+		fatal("%v", err)
+	}
+	moveTaskWithGuard(taskID, targetStatus, "Moved to "+targetStatus, wipLimitGuard())
 }
 
 func cmdStart(args []string) {
@@ -26,13 +32,22 @@ func cmdStart(args []string) {
 		fmt.Fprintln(os.Stderr, "Usage: tb start <ID>\n\nExample: tb start 123")
 		os.Exit(1)
 	}
+	taskID := normalizeTaskID(args[0])
 
-	// Warn if WIP limit reached.
-	if tasks, err := collectTasks(cfg.BoardDir, "in-progress"); err == nil && len(tasks) >= cfg.WipLimit {
-		fmt.Fprintf(os.Stderr, "warning: WIP limit reached (%d/%d tasks in progress)\n", len(tasks), cfg.WipLimit)
+	// Push-vs-pull warning: skipping ready violates canonical kanban. Keep
+	// the source status warning soft (stderr) so existing workflows still
+	// work — the user can always opt out by promoting via `tb ready` first.
+	if ref, err := resolveTaskRef(cfg.BoardDir, taskID, allStatusDirs); err == nil {
+		if ref.Status == "backlog" {
+			fmt.Fprintf(os.Stderr, "warning: %s is in backlog — `tb start` is push-style; canonical kanban pulls from ready. Promote it first with `tb ready %s`, or use `tb pull` to pull the next groomed task.\n", taskID, taskID)
+		}
 	}
 
-	moveTask(normalizeTaskID(args[0]), "in-progress", "Started — moved to in-progress")
+	if err := enforceWipLimit("in-progress", cfg.BoardDir); err != nil {
+		fatal("%v", err)
+	}
+
+	moveTaskWithGuard(taskID, "in-progress", "Started — moved to in-progress", wipLimitGuard())
 }
 
 func cmdDone(args []string) {
@@ -96,7 +111,16 @@ type taskMoveResult struct {
 // moveTask is the shared command wrapper for moving a task between status
 // directories. It acquires the board lock through moveTaskOnBoard.
 func moveTask(taskID, targetStatus, logMessage string) {
-	result, err := moveTaskOnBoard(cfg.BoardDir, taskID, targetStatus, logMessage)
+	moveTaskWithGuard(taskID, targetStatus, logMessage, nil)
+}
+
+// moveTaskWithGuard is moveTask with an in-lock invariant. Used by
+// commands that want a destination-WIP, expected-source, or any other
+// rule re-checked under .board.lock so concurrent CLI/agent invocations
+// cannot race a pre-flight gate.
+func moveTaskWithGuard(taskID, targetStatus, logMessage string, guard moveGuardFunc) {
+	logFn := func(string) string { return logMessage }
+	result, err := moveTaskOnBoardWithGuard(cfg.BoardDir, taskID, targetStatus, guard, logFn)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -119,7 +143,26 @@ func moveTaskOnBoard(boardDir, taskID, targetStatus, logMessage string) (taskMov
 	})
 }
 
+// moveGuardFunc is a command-specific invariant the move pipeline must
+// re-validate AFTER taking the board lock but BEFORE any filesystem
+// mutation. Use it to lift expected-source-status checks (e.g. `tb ready`
+// only accepts backlog) or destination WIP enforcement into the lock so
+// concurrent CLI/agent invocations cannot race the gate.
+//
+// guard returns nil to allow the move; any other error aborts and is
+// returned to the caller without touching disk.
+type moveGuardFunc func(boardDir, taskID, srcStatus, targetStatus string) error
+
 func moveTaskOnBoardWithLog(boardDir, taskID, targetStatus string, logMessage func(srcStatus string) string) (taskMoveResult, error) {
+	return moveTaskOnBoardWithGuard(boardDir, taskID, targetStatus, nil, logMessage)
+}
+
+// moveTaskOnBoardWithGuard is moveTaskOnBoardWithLog with an in-lock guard.
+// All command-specific gates (expected source, WIP, etc.) belong here so
+// they can't TOCTOU around the board lock — callers that pre-check OUTSIDE
+// the lock get the friendly fast-fail error message, but the authoritative
+// check still runs serialized inside the lock.
+func moveTaskOnBoardWithGuard(boardDir, taskID, targetStatus string, guard moveGuardFunc, logMessage func(srcStatus string) string) (taskMoveResult, error) {
 	lock, err := lockBoard(boardDir)
 	if err != nil {
 		return taskMoveResult{}, err
@@ -150,6 +193,12 @@ func moveTaskOnBoardWithLog(boardDir, taskID, targetStatus string, logMessage fu
 	// noop-already-in-code-review branch above skips this gate.
 	if targetStatus == "code-review" {
 		if err := ensureReviewRefForCodeReview(srcRef.Path, taskID); err != nil {
+			return result, err
+		}
+	}
+
+	if guard != nil {
+		if err := guard(boardDir, taskID, srcRef.Status, targetStatus); err != nil {
 			return result, err
 		}
 	}
@@ -208,7 +257,7 @@ func resolveMoveSource(boardDir, taskID, targetStatus string) (taskRef, bool, er
 		return taskRef{}, false, err
 	}
 	if len(refs) == 0 {
-		return taskRef{}, false, fmt.Errorf("task %s not found in any directory (backlog, in-progress, code-review, done, archive). Verify the ID with `tb ls --status all`", taskID)
+		return taskRef{}, false, fmt.Errorf("task %s not found in any directory (%s). Verify the ID with `tb ls --status all`", taskID, strings.Join(allStatusDirs, ", "))
 	}
 
 	var sourceRefs []taskRef
@@ -235,6 +284,50 @@ func resolveMoveSource(boardDir, taskID, targetStatus string) (taskRef, bool, er
 		return taskRef{}, false, fmt.Errorf("task %s exists in multiple source statuses (%s); refusing ambiguous move", taskID, strings.Join(paths, ", "))
 	}
 	return sourceRefs[0], false, nil
+}
+
+// wipLimitGuard returns a moveGuardFunc that re-checks the destination's
+// WIP limit while holding the board lock. Use it on every command path
+// that wants WIP enforcement: pre-flight calls outside the lock stay for
+// fast-fail UX, but this guard is the authoritative check.
+func wipLimitGuard() moveGuardFunc {
+	return func(boardDir, _ string, _, targetStatus string) error {
+		return enforceWipLimit(targetStatus, boardDir)
+	}
+}
+
+// expectedSourceGuard rejects the move when the resolved source status
+// isn't in expected. Use it on push/pull commands that require a specific
+// origin column so a concurrent move between the pre-flight check and the
+// in-lock resolution cannot smuggle the task through the wrong path.
+func expectedSourceGuard(expected ...string) moveGuardFunc {
+	allowed := make(map[string]struct{}, len(expected))
+	for _, s := range expected {
+		allowed[s] = struct{}{}
+	}
+	return func(_ string, taskID, srcStatus, _ string) error {
+		if _, ok := allowed[srcStatus]; ok {
+			return nil
+		}
+		return fmt.Errorf("%s is no longer in %s (now in %s); aborting move to avoid an unintended transition", taskID, strings.Join(expected, "/"), srcStatus)
+	}
+}
+
+// composeGuards runs each non-nil guard in order, returning the first
+// error. Lets callers stack independent invariants (source + WIP) without
+// hand-rolling a closure each time.
+func composeGuards(guards ...moveGuardFunc) moveGuardFunc {
+	return func(boardDir, taskID, srcStatus, targetStatus string) error {
+		for _, g := range guards {
+			if g == nil {
+				continue
+			}
+			if err := g(boardDir, taskID, srcStatus, targetStatus); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 }
 
 func ensureMoveDestinationFree(boardDir, targetStatus, taskID string) error {

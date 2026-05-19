@@ -47,9 +47,11 @@ Two binaries built from one repo, sharing the same on-disk format.
     ├── SKILL.md                     # agent skill instructions
     ├── .next-id                     # ID counter, locked
     ├── .board.lock                  # flock target, never read
-    ├── backlog/
+    ├── backlog/                     # intake; un-groomed ideas
     │   ├── PR-1.md
     │   └── …
+    ├── ready/                       # canonical kanban commitment column — groomed and pullable
+    │   └── PR-6.md
     ├── in-progress/
     │   └── PR-2.md
     ├── code-review/                 # implementation work awaiting reviewer signoff (TB-194)
@@ -239,7 +241,7 @@ No other path differs between forms. `BOARD.md` content, `tb --json` output, wat
 - All structured mutations acquire `.board.lock` (POSIX `flock`).
 - Auto-regenerates `BOARD.md` after every mutation that changes status, task set, or metadata visible in the board summary.
 - Adds `--json` mode to `ls`, `show`, `board` for machine consumption.
-- Adds `--status active|archive|all` for filter clarity. `active` = backlog + in-progress + code-review + done. `all` = everything (adds archive). Aliases: `b`=backlog, `ip`/`wip`=in-progress, `cr`/`review`=code-review, `d`=done.
+- Adds `--status active|archive|all` for filter clarity. `active` = backlog + ready + in-progress + code-review + done. `all` = everything (adds archive). Aliases: `b`=backlog, `r`=ready, `ip`/`wip`=in-progress, `cr`/`review`=code-review, `d`=done.
 
 ### `gui/app/` — Wails services (Go)
 

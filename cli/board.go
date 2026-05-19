@@ -11,23 +11,52 @@ import (
 	"syscall"
 )
 
-// statusDirs lists the active board directories. Archive is intentionally not
-// active: it is a closed/hidden status for explicit inspection, not a synonym
-// for done. `code-review` sits between in-progress and done and represents
-// implementation work awaiting reviewer signoff.
-var statusDirs = []string{"backlog", "in-progress", "code-review", "done"}
+// statusDirs lists the active board directories in canonical kanban order.
+// `ready` is the commitment column: tasks that have been groomed in backlog
+// and pulled forward for upcoming work, but are not yet being actively
+// worked. Archive is intentionally not active: it is a closed/hidden status
+// for explicit inspection, not a synonym for done. `code-review` sits
+// between in-progress and done and represents implementation work awaiting
+// reviewer signoff.
+var statusDirs = []string{"backlog", "ready", "in-progress", "code-review", "done"}
 
 // allStatusDirs adds archive to the active set; this is the expansion of
 // `--status all`.
-var allStatusDirs = []string{"backlog", "in-progress", "code-review", "done", "archive"}
+var allStatusDirs = []string{"backlog", "ready", "in-progress", "code-review", "done", "archive"}
 
 // tbConfig holds the resolved per-project configuration.
 type tbConfig struct {
 	RootDir        string          // absolute path to directory containing .tb.yaml
 	BoardDir       string          // absolute path to board directory
 	Prefix         string          // task ID prefix (e.g., "PR", "WS")
-	WipLimit       int             // max tasks in in-progress before warning (default: 2)
+	WipLimit       int             // legacy: max in-progress tasks (mirrors WipLimits["in-progress"])
+	WipLimits      map[string]int  // per-status WIP limits; missing/zero means no limit for that column
+	WipEnforcement string          // "warn" (default) or "strict": strict blocks moves that would exceed the limit
 	ScanExtensions map[string]bool // file extensions to scan for TODOs
+}
+
+// wipLimitConfigKey maps a status directory name to the flat YAML key used in
+// .tb.yaml. Underscores are used in place of hyphens because the minimal YAML
+// parser is flat key/value and hyphen-bearing keys would still work but look
+// less idiomatic. Add to this map when introducing a new column that should
+// support WIP limits.
+var wipLimitConfigKey = map[string]string{
+	"ready":       "wip_limit_ready",
+	"in-progress": "wip_limit_in_progress",
+	"code-review": "wip_limit_code_review",
+}
+
+// wipLimitFor returns the configured WIP limit for status, or (0, false) if
+// the status is not WIP-limited in the current config.
+func (c tbConfig) wipLimitFor(status string) (int, bool) {
+	if c.WipLimits == nil {
+		return 0, false
+	}
+	n, ok := c.WipLimits[status]
+	if !ok || n <= 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // cfg is the global configuration, set once by loadProjectConfig().
@@ -118,11 +147,11 @@ func loadProjectConfig() (tbConfig, error) {
 				return tbConfig{}, fmt.Errorf("board directory %s does not contain .next-id — run `tb init`", boardDir)
 			}
 
-			wipLimit := 2
-			if wl, ok := values["wip_limit"]; ok {
-				if n, err := strconv.Atoi(wl); err == nil && n > 0 {
-					wipLimit = n
-				}
+			wipLimits, legacyLimit := parseWipLimits(values)
+
+			enforcement := strings.ToLower(strings.TrimSpace(values["wip_enforcement"]))
+			if enforcement != "strict" {
+				enforcement = "warn"
 			}
 
 			scanExts := defaultScanExtensions()
@@ -134,7 +163,9 @@ func loadProjectConfig() (tbConfig, error) {
 				RootDir:        dir,
 				BoardDir:       boardDir,
 				Prefix:         prefix,
-				WipLimit:       wipLimit,
+				WipLimit:       legacyLimit,
+				WipLimits:      wipLimits,
+				WipEnforcement: enforcement,
 				ScanExtensions: scanExts,
 			}, nil
 		}
@@ -165,6 +196,8 @@ func loadProjectConfig() (tbConfig, error) {
 			BoardDir:       env,
 			Prefix:         prefix,
 			WipLimit:       2,
+			WipLimits:      map[string]int{"in-progress": 2},
+			WipEnforcement: "warn",
 			ScanExtensions: defaultScanExtensions(),
 		}, nil
 	}
@@ -534,7 +567,7 @@ func findTask(boardDir, taskID string) (string, error) {
 	if err == nil {
 		return path, nil
 	}
-	return "", fmt.Errorf("task %s not found in any directory (backlog, in-progress, code-review, done, archive). Verify the ID with `tb ls --status all`", taskID)
+	return "", fmt.Errorf("task %s not found in any directory (%s). Verify the ID with `tb ls --status all`", taskID, strings.Join(allStatusDirs, ", "))
 }
 
 func findTaskInStatuses(boardDir, taskID string, statuses []string) (string, error) {
@@ -585,6 +618,8 @@ func resolveStatus(input string) (string, error) {
 	switch strings.ToLower(input) {
 	case "b", "backlog":
 		return "backlog", nil
+	case "r", "ready":
+		return "ready", nil
 	case "ip", "in-progress", "wip":
 		return "in-progress", nil
 	case "cr", "code-review", "review":
@@ -594,7 +629,7 @@ func resolveStatus(input string) (string, error) {
 	case "archive":
 		return "archive", nil
 	default:
-		return "", fmt.Errorf("unknown status %q — valid values: backlog (b), in-progress (ip), code-review (cr/review), done (d), archive", input)
+		return "", fmt.Errorf("unknown status %q — valid values: backlog (b), ready (r), in-progress (ip), code-review (cr/review), done (d), archive", input)
 	}
 }
 
@@ -602,12 +637,13 @@ func resolveStatus(input string) (string, error) {
 // directories to scan. Aliases:
 //
 //	b / backlog              -> [backlog]
+//	r / ready                -> [ready]
 //	ip / wip / in-progress   -> [in-progress]
 //	cr / review / code-review -> [code-review]
 //	d / done                 -> [done]
 //	archive                  -> [archive]
-//	active                   -> [backlog, in-progress, code-review, done]
-//	all                      -> [backlog, in-progress, code-review, done, archive]
+//	active                   -> [backlog, ready, in-progress, code-review, done]
+//	all                      -> [backlog, ready, in-progress, code-review, done, archive]
 //
 // Returned slice is safe to range over without further mutation.
 func resolveStatusFilter(input string) ([]string, error) {
@@ -619,10 +655,53 @@ func resolveStatusFilter(input string) ([]string, error) {
 	default:
 		single, err := resolveStatus(input)
 		if err != nil {
-			return nil, fmt.Errorf("unknown status %q — valid values: backlog (b), in-progress (ip), code-review (cr/review), done (d), archive, active, all", input)
+			return nil, fmt.Errorf("unknown status %q — valid values: backlog (b), ready (r), in-progress (ip), code-review (cr/review), done (d), archive, active, all", input)
 		}
 		return []string{single}, nil
 	}
+}
+
+// parseWipLimits reads the WIP-limit keys from a parsed .tb.yaml map and
+// returns the per-status limit map plus a legacy mirror of the in-progress
+// limit. Precedence: a per-status `wip_limit_*` value wins over the legacy
+// scalar `wip_limit` for that same column; `wip_limit` (legacy) seeds the
+// in-progress slot when no explicit `wip_limit_in_progress` was set so old
+// configs keep their behavior.
+//
+// An explicit `0` is honoured as "disabled" (wipLimitFor returns ok=false),
+// matching the comment in the generated config template. Default
+// in-progress limit is 2 when the user supplied NO `wip_limit` /
+// `wip_limit_in_progress` key at all; other columns default to "no limit"
+// until the user opts in.
+func parseWipLimits(values map[string]string) (map[string]int, int) {
+	limits := make(map[string]int)
+	explicit := make(map[string]bool)
+
+	if wl, ok := values["wip_limit"]; ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(wl)); err == nil && n >= 0 {
+			limits["in-progress"] = n
+			explicit["in-progress"] = true
+		}
+	}
+
+	for status, key := range wipLimitConfigKey {
+		raw, ok := values[key]
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || n < 0 {
+			continue
+		}
+		limits[status] = n
+		explicit[status] = true
+	}
+
+	if !explicit["in-progress"] {
+		limits["in-progress"] = 2
+	}
+
+	return limits, limits["in-progress"]
 }
 
 // parseScanExtensions parses a comma-separated list of file extensions.

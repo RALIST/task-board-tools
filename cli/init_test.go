@@ -118,8 +118,12 @@ func TestInitExistingBoardExpandsMinimalConfigWithAnnotatedDefaults(t *testing.T
 	assertContains(t, updated, "board: board")
 	assertContains(t, updated, "# Task ID prefix.")
 	assertContains(t, updated, "prefix: TB")
-	assertContains(t, updated, "# Warn when starting a task above this many in-progress tasks.")
+	assertContains(t, updated, "# Canonical kanban WIP limits.")
 	assertContains(t, updated, "# wip_limit: 2")
+	assertContains(t, updated, "# wip_limit_ready: 5")
+	assertContains(t, updated, "# wip_limit_in_progress: 2")
+	assertContains(t, updated, "# wip_limit_code_review: 3")
+	assertContains(t, updated, "# wip_enforcement: warn")
 	assertContains(t, updated, "# File extensions scanned by `tb scan`.")
 	assertContains(t, updated, "# scan_extensions: .go,.ts,.svelte,.js,.tsx,.jsx")
 }

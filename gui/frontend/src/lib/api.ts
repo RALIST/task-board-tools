@@ -18,6 +18,9 @@ import {
   LoadBoardWithMode,
   MoveTask,
   OpenAttachment,
+  PullNext,
+  PullTask,
+  ReadyTask,
   Regenerate,
   RemoveAttachments,
   SetReviewFindings,
@@ -112,9 +115,30 @@ export async function renameTask(id: string, newTitle: string): Promise<void> {
 
 export async function moveTask(
   id: string,
-  status: 'backlog' | 'in-progress' | 'code-review' | 'done',
+  status: 'backlog' | 'ready' | 'in-progress' | 'code-review' | 'done',
 ): Promise<void> {
   await MoveTask(id, status);
+}
+
+// readyTask promotes a backlog task into ready (canonical kanban
+// commitment column). The CLI enforces the triage gate, so a task missing
+// priority or with a placeholder goal is rejected here with a stderr
+// message in the Wails error.
+export async function readyTask(id: string): Promise<void> {
+  await ReadyTask(id);
+}
+
+// pullNext pulls the highest-priority oldest task from ready into
+// in-progress. No-op (resolves successfully) when the ready column is
+// empty.
+export async function pullNext(): Promise<void> {
+  await PullNext();
+}
+
+// pullTask pulls a specific ready task into in-progress. Rejects when
+// the task is not currently in ready.
+export async function pullTask(id: string): Promise<void> {
+  await PullTask(id);
 }
 
 export async function submitReview(id: string): Promise<void> {

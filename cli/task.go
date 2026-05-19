@@ -10,21 +10,34 @@ import (
 // Task represents a parsed task file. JSON tags describe the wire shape used
 // by `--json` callers (the GUI in particular); see cli/json_output.go for the
 // transformations applied (e.g. Tags is split into a list).
+//
+// TB-237: per-mode attribution fields (GroomedBy/GroomStatus,
+// ImplementedBy/ImplementStatus, ReviewedBy/ReviewStatus) preserve which
+// agent ran each kanban action and how it ended. The legacy Agent /
+// AgentStatus pair tracks the most recent run for backwards compatibility
+// with tb triage, auto-implement (TB-177/TB-179), auto-groom (TB-172),
+// daemon pickup (TB-5), and stale recovery (TB-130).
 type Task struct {
-	ID          string `json:"id"` // e.g. "WS-1170"
-	Title       string `json:"title"`
-	Type        string `json:"type"`     // feature, bug, tech-debt, improvement, spike
-	Priority    string `json:"priority"` // P0, P1, P2, P3
-	Size        string `json:"size"`     // S, M, L, XL
-	Module      string `json:"module"`
-	Tags        string `json:"tags"` // comma-separated; emitted as []string in JSON
-	Branch      string `json:"branch"`
-	ReviewRef   string `json:"reviewRef"`   // required when entering code-review (TB-235): branch, PR URL, commit, worktree, or short ref
-	Parent      string `json:"parent"`      // parent epic task ID (e.g., "WS-32")
-	Status      string `json:"status"`      // directory name: backlog, in-progress, code-review, done, archive
-	FilePath    string `json:"filePath"`    // relative path from project root
-	Agent       string `json:"agent"`       // claude | codex | "" (optional)
-	AgentStatus string `json:"agentStatus"` // queued | running | success | failed | cancelled | interrupted | needs-user | "" (optional)
+	ID              string `json:"id"` // e.g. "WS-1170"
+	Title           string `json:"title"`
+	Type            string `json:"type"`     // feature, bug, tech-debt, improvement, spike
+	Priority        string `json:"priority"` // P0, P1, P2, P3
+	Size            string `json:"size"`     // S, M, L, XL
+	Module          string `json:"module"`
+	Tags            string `json:"tags"` // comma-separated; emitted as []string in JSON
+	Branch          string `json:"branch"`
+	ReviewRef       string `json:"reviewRef"`       // required when entering code-review (TB-235): branch, PR URL, commit, worktree, or short ref
+	Parent          string `json:"parent"`          // parent epic task ID (e.g., "WS-32")
+	Status          string `json:"status"`          // directory name: backlog, ready, in-progress, code-review, done, archive
+	FilePath        string `json:"filePath"`        // relative path from project root
+	Agent           string `json:"agent"`           // claude | codex | "" (optional) — most recent run
+	AgentStatus     string `json:"agentStatus"`     // queued | running | success | failed | cancelled | interrupted | needs-user | "" (optional) — most recent run
+	GroomedBy       string `json:"groomedBy"`       // TB-237: agent that last ran ModeGroom
+	GroomStatus     string `json:"groomStatus"`     // TB-237: terminal status of last groom run
+	ImplementedBy   string `json:"implementedBy"`   // TB-237: agent that last ran ModeImplement
+	ImplementStatus string `json:"implementStatus"` // TB-237: terminal status of last implement run
+	ReviewedBy      string `json:"reviewedBy"`      // TB-237: agent that last ran ModeReview
+	ReviewStatus    string `json:"reviewStatus"`    // TB-237: terminal status of last review run
 }
 
 // validAgents enumerates the agents `tb edit -a` accepts. Empty is also
@@ -55,9 +68,9 @@ var validAgentStatuses = map[string]bool{
 }
 
 // maxMetadataLines limits how many lines we scan for metadata (performance).
-// Bumped from 15 to 20 in M1 to accommodate the Agent and AgentStatus fields
-// without crowding out existing metadata on tasks that also have Parent.
-const maxMetadataLines = 20
+// Bumped from 15 → 20 in M1 (Agent / AgentStatus) and from 20 → 28 in TB-237
+// (six per-mode attribution lines + headroom).
+const maxMetadataLines = 28
 
 // parseTaskFile reads a task markdown file and extracts metadata from the first
 // maxMetadataLines lines. Status and FilePath are set by the discovery wrapper,
@@ -109,6 +122,18 @@ func parseTaskFile(path string) (Task, error) {
 			t.ReviewRef = val
 		} else if val, ok := extractFieldAny(trimmed, "Parent"); ok {
 			t.Parent = val
+		} else if val, ok := extractFieldAny(trimmed, "GroomedBy"); ok {
+			t.GroomedBy = val
+		} else if val, ok := extractFieldAny(trimmed, "GroomStatus"); ok {
+			t.GroomStatus = val
+		} else if val, ok := extractFieldAny(trimmed, "ImplementedBy"); ok {
+			t.ImplementedBy = val
+		} else if val, ok := extractFieldAny(trimmed, "ImplementStatus"); ok {
+			t.ImplementStatus = val
+		} else if val, ok := extractFieldAny(trimmed, "ReviewedBy"); ok {
+			t.ReviewedBy = val
+		} else if val, ok := extractFieldAny(trimmed, "ReviewStatus"); ok {
+			t.ReviewStatus = val
 		} else if val, ok := extractFieldAny(trimmed, "Agent"); ok {
 			t.Agent = val
 		} else if val, ok := extractFieldAny(trimmed, "AgentStatus"); ok {

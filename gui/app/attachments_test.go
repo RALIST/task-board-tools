@@ -64,7 +64,7 @@ func makeLegacyAttachment(t *testing.T, taskDir, name, content string) {
 func makeBoardFS(t *testing.T) string {
 	t.Helper()
 	board := t.TempDir()
-	for _, d := range []string{"backlog", "in-progress", "done", "archive"} {
+	for _, d := range []string{"backlog", "ready", "in-progress", "code-review", "done", "archive"} {
 		if err := os.MkdirAll(filepath.Join(board, d), 0o755); err != nil {
 			t.Fatalf("mkdir status %s: %v", d, err)
 		}
@@ -137,6 +137,24 @@ func TestListAttachments_MixedRootLegacyAndReservedFiles(t *testing.T) {
 	want := []string{"attachments/legacy.txt", "root.txt"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("attachment names = %v, want %v", got, want)
+	}
+}
+
+func TestListAttachments_ResolvesReadyFolderTask(t *testing.T) {
+	board := makeBoardFS(t)
+	makeFolderTask(t, board, "ready", "TB-1", map[string]string{
+		"notes.md": "ready-column attachment",
+	})
+
+	svc := NewBoardService()
+	svc.setBoardDir(board)
+
+	list, err := svc.ListAttachments(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("ListAttachments: %v", err)
+	}
+	if len(list) != 1 || list[0].Name != "notes.md" {
+		t.Fatalf("expected single attachment 'notes.md' resolved from ready/, got %+v", list)
 	}
 }
 

@@ -264,13 +264,25 @@ type EditInput struct {
 	// sentinel the CLI translates into removing the **ReviewRef:** line.
 	// Required (non-placeholder) when moving the task into code-review.
 	ReviewRef string
+	// TB-237: per-mode attribution pairs. Each pair mirrors the legacy
+	// (Agent, AgentStatus) shape but scoped to one kanban action. Empty
+	// means "leave unchanged"; "none" clears the line.
+	GroomedBy       string
+	GroomStatus     string
+	ImplementedBy   string
+	ImplementStatus string
+	ReviewedBy      string
+	ReviewStatus    string
 }
 
 // HasChanges reports whether any field is set.
 func (in EditInput) HasChanges() bool {
 	return in.Priority != "" || in.Type != "" || in.Size != "" ||
 		in.Module != "" || in.Tags != "" || in.Agent != "" || in.AgentStatus != "" ||
-		strings.TrimSpace(in.Title) != "" || strings.TrimSpace(in.ReviewRef) != ""
+		strings.TrimSpace(in.Title) != "" || strings.TrimSpace(in.ReviewRef) != "" ||
+		in.GroomedBy != "" || in.GroomStatus != "" ||
+		in.ImplementedBy != "" || in.ImplementStatus != "" ||
+		in.ReviewedBy != "" || in.ReviewStatus != ""
 }
 
 // Edit runs `tb edit <id> [flags]`. Returns a MutationError on any failure.
@@ -320,13 +332,29 @@ func (c *Client) Edit(ctx context.Context, id string, in EditInput) error {
 	} else if in.ReviewRef != "" {
 		return &MutationError{Kind: ErrKindValidation, Op: "edit", Stderr: "review-ref must not be empty or whitespace (use \"none\" to clear)"}
 	}
+	// TB-237: per-mode attribution pairs.
+	for _, kv := range [...]struct {
+		flag, val string
+	}{
+		{"--groomed-by", in.GroomedBy},
+		{"--groom-status", in.GroomStatus},
+		{"--implemented-by", in.ImplementedBy},
+		{"--implement-status", in.ImplementStatus},
+		{"--reviewed-by", in.ReviewedBy},
+		{"--review-status", in.ReviewStatus},
+	} {
+		if kv.val != "" {
+			args = append(args, kv.flag, kv.val)
+		}
+	}
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("edit", args, err)
 }
 
 // Move runs `tb mv <id> <status>`. Status must be one of
-// backlog | in-progress | done. The CLI accepts aliases (b, ip, d) but we
-// pass through verbatim; callers should normalize before calling.
+// backlog | ready | in-progress | code-review | done | archive. The CLI
+// accepts aliases (b, r, ip, cr, d) but we pass through verbatim; callers
+// should normalize before calling.
 func (c *Client) Move(ctx context.Context, id, status string) error {
 	if strings.TrimSpace(id) == "" {
 		return &MutationError{Kind: ErrKindValidation, Op: "mv", Stderr: "task id is required"}
@@ -337,6 +365,31 @@ func (c *Client) Move(ctx context.Context, id, status string) error {
 	args := []string{"mv", id, status}
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("mv", args, err)
+}
+
+// Ready runs `tb ready <id>` to promote a backlog task into the ready
+// column. The CLI enforces the triage gate (priority + non-placeholder
+// goal), so this wrapper passes ID through verbatim and lets the CLI
+// reject malformed tasks with a validation-shaped MutationError.
+func (c *Client) Ready(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "ready", Stderr: "task id is required"}
+	}
+	args := []string{"ready", id}
+	_, err := c.Run(ctx, args...)
+	return wrapMutation("ready", args, err)
+}
+
+// Pull runs `tb pull [<id>]`. Pass "" to let the CLI auto-pick the highest-
+// priority oldest task from the ready column. The CLI emits a stderr hint
+// and exits 0 when the ready column is empty.
+func (c *Client) Pull(ctx context.Context, id string) error {
+	args := []string{"pull"}
+	if trimmed := strings.TrimSpace(id); trimmed != "" {
+		args = append(args, trimmed)
+	}
+	_, err := c.Run(ctx, args...)
+	return wrapMutation("pull", args, err)
 }
 
 // Close runs `tb close <id>` which archives the task.
@@ -387,7 +440,7 @@ func (c *Client) ReviewWriteSection(ctx context.Context, id, section, content st
 }
 
 // ReviewFail runs `tb review --fail <id> -` with findings piped in. Moves the
-// task back to backlog and tags it review-failed.
+// task back to ready and tags it review-failed.
 func (c *Client) ReviewFail(ctx context.Context, id, findings string) error {
 	if strings.TrimSpace(id) == "" {
 		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: "task id is required"}

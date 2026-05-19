@@ -124,18 +124,28 @@ func findChildrenInStatuses(boardDir, epicID string, statuses []string) ([]Task,
 	return children, nil
 }
 
-// statusRank returns a sort rank for status ordering.
+// statusRank returns a sort rank for status ordering. "Active work first"
+// in epic listings means: in-progress (the agent is actively touching it),
+// then code-review (waiting for human/agent review — still in flight from
+// the contributor's perspective), then ready (committed and pullable), then
+// backlog (queued for grooming), then done, then archive. An unknown status
+// sorts last so a misspelled or future status is visible at the bottom
+// rather than silently grouped.
 func statusRank(status string) int {
 	switch status {
 	case "in-progress":
 		return 0
-	case "backlog":
+	case "code-review":
 		return 1
-	case "done":
+	case "ready":
 		return 2
-	case "archive":
+	case "backlog":
 		return 3
-	default:
+	case "done":
 		return 4
+	case "archive":
+		return 5
+	default:
+		return 6
 	}
 }

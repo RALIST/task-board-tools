@@ -4,7 +4,8 @@
 //   - stdout = data; stderr = errors/warnings.
 //   - empty selections return `[]` or `{}`, never prose like "No tasks found.".
 //   - all Task fields are camelCase: id, title, type, priority, size, module,
-//     tags, branch, parent, status, filePath, agent, agentStatus.
+//     tags, branch, parent, status, filePath, agent, agentStatus, groomedBy,
+//     groomStatus, implementedBy, implementStatus, reviewedBy, reviewStatus.
 //   - body strings in `tb show --json` are the full raw markdown.
 package main
 
@@ -20,20 +21,26 @@ import (
 // consumers don't have to re-parse the comma-separated string; the markdown
 // file still stores them as a single line.
 type taskJSON struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Type        string   `json:"type"`
-	Priority    string   `json:"priority"`
-	Size        string   `json:"size"`
-	Module      string   `json:"module"`
-	Tags        []string `json:"tags"`
-	Branch      string   `json:"branch"`
-	ReviewRef   string   `json:"reviewRef"`
-	Parent      string   `json:"parent"`
-	Status      string   `json:"status"`
-	FilePath    string   `json:"filePath"`
-	Agent       string   `json:"agent"`
-	AgentStatus string   `json:"agentStatus"`
+	ID              string   `json:"id"`
+	Title           string   `json:"title"`
+	Type            string   `json:"type"`
+	Priority        string   `json:"priority"`
+	Size            string   `json:"size"`
+	Module          string   `json:"module"`
+	Tags            []string `json:"tags"`
+	Branch          string   `json:"branch"`
+	ReviewRef       string   `json:"reviewRef"`
+	Parent          string   `json:"parent"`
+	Status          string   `json:"status"`
+	FilePath        string   `json:"filePath"`
+	Agent           string   `json:"agent"`
+	AgentStatus     string   `json:"agentStatus"`
+	GroomedBy       string   `json:"groomedBy"`
+	GroomStatus     string   `json:"groomStatus"`
+	ImplementedBy   string   `json:"implementedBy"`
+	ImplementStatus string   `json:"implementStatus"`
+	ReviewedBy      string   `json:"reviewedBy"`
+	ReviewStatus    string   `json:"reviewStatus"`
 }
 
 func marshalTask(t Task) taskJSON {
@@ -57,20 +64,26 @@ func marshalTask(t Task) taskJSON {
 	}
 	reviewRef := normalizeReviewRef(t.ReviewRef)
 	return taskJSON{
-		ID:          t.ID,
-		Title:       t.Title,
-		Type:        t.Type,
-		Priority:    t.Priority,
-		Size:        t.Size,
-		Module:      t.Module,
-		Tags:        tags,
-		Branch:      branch,
-		ReviewRef:   reviewRef,
-		Parent:      t.Parent,
-		Status:      t.Status,
-		FilePath:    t.FilePath,
-		Agent:       t.Agent,
-		AgentStatus: t.AgentStatus,
+		ID:              t.ID,
+		Title:           t.Title,
+		Type:            t.Type,
+		Priority:        t.Priority,
+		Size:            t.Size,
+		Module:          t.Module,
+		Tags:            tags,
+		Branch:          branch,
+		ReviewRef:       reviewRef,
+		Parent:          t.Parent,
+		Status:          t.Status,
+		FilePath:        t.FilePath,
+		Agent:           t.Agent,
+		AgentStatus:     t.AgentStatus,
+		GroomedBy:       t.GroomedBy,
+		GroomStatus:     t.GroomStatus,
+		ImplementedBy:   t.ImplementedBy,
+		ImplementStatus: t.ImplementStatus,
+		ReviewedBy:      t.ReviewedBy,
+		ReviewStatus:    t.ReviewStatus,
 	}
 }
 
@@ -131,14 +144,21 @@ func emitShowJSON(path string, data []byte) error {
 
 // boardSnapshotJSON is the shape of `tb board --json`. Every slice is
 // initialised so JSON output is always `[]` rather than `null` on empty.
+// WipLimits and WipCounts let the GUI render `(n/m)` column headers without
+// re-counting tasks; missing entries mean the column has no WIP limit
+// configured.
 type boardSnapshotJSON struct {
-	Epics         []taskJSON `json:"epics"`
-	ActiveEpics   []taskJSON `json:"activeEpics"`
-	FinishedEpics []taskJSON `json:"finishedEpics"`
-	InProgress    []taskJSON `json:"inProgress"`
-	CodeReview    []taskJSON `json:"codeReview"`
-	Backlog       []taskJSON `json:"backlog"`
-	RecentlyDone  []taskJSON `json:"recentlyDone"`
+	Epics          []taskJSON     `json:"epics"`
+	ActiveEpics    []taskJSON     `json:"activeEpics"`
+	FinishedEpics  []taskJSON     `json:"finishedEpics"`
+	InProgress     []taskJSON     `json:"inProgress"`
+	CodeReview     []taskJSON     `json:"codeReview"`
+	Ready          []taskJSON     `json:"ready"`
+	Backlog        []taskJSON     `json:"backlog"`
+	RecentlyDone   []taskJSON     `json:"recentlyDone"`
+	WipLimits      map[string]int `json:"wipLimits"`
+	WipCounts      map[string]int `json:"wipCounts"`
+	WipEnforcement string         `json:"wipEnforcement"`
 }
 
 // buildBoardSnapshot mirrors buildBoardContent but emits structured data.
@@ -185,6 +205,10 @@ func buildBoardSnapshot(boardDir string) (boardSnapshotJSON, error) {
 	if err != nil {
 		return boardSnapshotJSON{}, err
 	}
+	ready, err := collectTasks(boardDir, "ready")
+	if err != nil {
+		return boardSnapshotJSON{}, err
+	}
 	backlog, err := collectTasks(boardDir, "backlog")
 	if err != nil {
 		return boardSnapshotJSON{}, err
@@ -201,14 +225,31 @@ func buildBoardSnapshot(boardDir string) (boardSnapshotJSON, error) {
 		done = done[:50]
 	}
 
+	wipLimits := make(map[string]int)
+	for status := range wipLimitConfigKey {
+		if n, ok := cfg.wipLimitFor(status); ok {
+			wipLimits[status] = n
+		}
+	}
+	wipCounts := map[string]int{
+		"backlog":     len(backlog),
+		"ready":       len(ready),
+		"in-progress": len(inProgress),
+		"code-review": len(codeReview),
+	}
+
 	return boardSnapshotJSON{
-		Epics:         marshalTasks(allEpics),
-		ActiveEpics:   marshalTasks(activeEpics),
-		FinishedEpics: marshalTasks(finishedEpics),
-		InProgress:    marshalTasks(inProgress),
-		CodeReview:    marshalTasks(codeReview),
-		Backlog:       marshalTasks(backlog),
-		RecentlyDone:  marshalTasks(done),
+		Epics:          marshalTasks(allEpics),
+		ActiveEpics:    marshalTasks(activeEpics),
+		FinishedEpics:  marshalTasks(finishedEpics),
+		InProgress:     marshalTasks(inProgress),
+		CodeReview:     marshalTasks(codeReview),
+		Ready:          marshalTasks(ready),
+		Backlog:        marshalTasks(backlog),
+		RecentlyDone:   marshalTasks(done),
+		WipLimits:      wipLimits,
+		WipCounts:      wipCounts,
+		WipEnforcement: cfg.WipEnforcement,
 	}, nil
 }
 

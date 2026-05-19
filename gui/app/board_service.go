@@ -19,40 +19,69 @@ import (
 // cli/json_output.go in the CLI module). The JSON tags drive both the Wails
 // binding generator and the on-the-wire shape.
 type Task struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Type        string   `json:"type"`
-	Priority    string   `json:"priority"`
-	Size        string   `json:"size"`
-	Module      string   `json:"module"`
-	Tags        []string `json:"tags"`
-	Branch      string   `json:"branch"`
+	ID       string   `json:"id"`
+	Title    string   `json:"title"`
+	Type     string   `json:"type"`
+	Priority string   `json:"priority"`
+	Size     string   `json:"size"`
+	Module   string   `json:"module"`
+	Tags     []string `json:"tags"`
+	Branch   string   `json:"branch"`
 	// ReviewRef is the branch/PR/commit/worktree reviewers should inspect.
 	// Required (non-placeholder) when the task enters code-review (TB-235).
-	ReviewRef   string   `json:"reviewRef"`
-	Parent      string   `json:"parent"`
-	Status      string   `json:"status"`
-	FilePath    string   `json:"filePath"`
-	Agent       string   `json:"agent"`
-	AgentStatus string   `json:"agentStatus"`
+	ReviewRef   string `json:"reviewRef"`
+	Parent      string `json:"parent"`
+	Status      string `json:"status"`
+	FilePath    string `json:"filePath"`
+	Agent       string `json:"agent"`
+	AgentStatus string `json:"agentStatus"`
+	// TB-237: per-mode attribution. Each pair mirrors the (Agent,
+	// AgentStatus) shape but scoped to one kanban action; the legacy pair
+	// continues to reflect the most recent run.
+	GroomedBy       string `json:"groomedBy"`
+	GroomStatus     string `json:"groomStatus"`
+	ImplementedBy   string `json:"implementedBy"`
+	ImplementStatus string `json:"implementStatus"`
+	ReviewedBy      string `json:"reviewedBy"`
+	ReviewStatus    string `json:"reviewStatus"`
 }
 
 // BoardSnapshot is the read-only view the frontend renders as a kanban.
 // Tasks are pre-bucketed server-side so the frontend doesn't have to know
-// about the status taxonomy.
+// about the status taxonomy. Columns are in canonical kanban order:
+// backlog → ready → in-progress → code-review → done (+ archive on demand).
 //
-// Archive is always non-nil so the JSON encoder emits `[]` not `null`; it
-// stays empty until LoadBoard is called in `all` mode.
+// All slices are always non-nil so the JSON encoder emits `[]` not `null`;
+// Archive stays empty until LoadBoard is called in `all` mode.
+//
+// WipLimits / WipCounts / WipEnforcement come from `tb board --json` so the
+// frontend can render `(n/m)` badges without re-counting. Missing entries
+// in WipLimits mean the column has no limit configured. Maps are always
+// non-nil for clean JSON ({} not null).
 type BoardSnapshot struct {
-	Backlog    []Task `json:"backlog"`
-	InProgress []Task `json:"inProgress"`
-	CodeReview []Task `json:"codeReview"`
-	Done       []Task `json:"done"`
-	Archive    []Task `json:"archive"`
+	Backlog        []Task         `json:"backlog"`
+	Ready          []Task         `json:"ready"`
+	InProgress     []Task         `json:"inProgress"`
+	CodeReview     []Task         `json:"codeReview"`
+	Done           []Task         `json:"done"`
+	Archive        []Task         `json:"archive"`
+	WipLimits      map[string]int `json:"wipLimits"`
+	WipCounts      map[string]int `json:"wipCounts"`
+	WipEnforcement string         `json:"wipEnforcement"`
 }
 
-// StatusMode selects which directories LoadBoard surfaces. "active" matches
-// M2 behavior (backlog + in-progress + done). "all" adds the archive bucket.
+// boardWIPSnapshot is the slice of `tb board --json` LoadBoardWithMode
+// reads to populate the WIP fields. The full board snapshot has many
+// other fields we don't need; this struct only decodes the WIP metadata.
+type boardWIPSnapshot struct {
+	WipLimits      map[string]int `json:"wipLimits"`
+	WipCounts      map[string]int `json:"wipCounts"`
+	WipEnforcement string         `json:"wipEnforcement"`
+}
+
+// StatusMode selects which directories LoadBoard surfaces. "active" is
+// backlog + in-progress + code-review + done (everything the kanban board
+// shows by default). "all" adds the archive bucket.
 type StatusMode string
 
 const (
@@ -113,15 +142,16 @@ func (b *BoardService) setClient(c *cli.Client) {
 	b.triageGen++
 }
 
-// LoadBoard returns the active task set (backlog + in-progress + done),
-// pre-bucketed by status. Equivalent to LoadBoardWithMode(ctx, "active").
+// LoadBoard returns the active task set (backlog + in-progress + code-review +
+// done), pre-bucketed by status. Equivalent to LoadBoardWithMode(ctx, "active").
 func (b *BoardService) LoadBoard(ctx context.Context) (BoardSnapshot, error) {
 	return b.LoadBoardWithMode(ctx, string(StatusModeActive))
 }
 
-// LoadBoardWithMode is the archive-aware variant. mode = "active" preserves
-// M2 behavior; mode = "all" also populates Snapshot.Archive. Any other value
-// is treated as "active" so unknown modes from the frontend degrade safely.
+// LoadBoardWithMode is the archive-aware variant. mode = "active" returns
+// backlog + in-progress + code-review + done; mode = "all" also populates
+// Snapshot.Archive. Any other value is treated as "active" so unknown modes
+// from the frontend degrade safely.
 func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (BoardSnapshot, error) {
 	c := b.snapshot()
 	if c == nil {
@@ -139,16 +169,22 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 	}
 
 	snap := BoardSnapshot{
-		Backlog:    make([]Task, 0),
-		InProgress: make([]Task, 0),
-		CodeReview: make([]Task, 0),
-		Done:       make([]Task, 0),
-		Archive:    make([]Task, 0),
+		Backlog:        make([]Task, 0),
+		Ready:          make([]Task, 0),
+		InProgress:     make([]Task, 0),
+		CodeReview:     make([]Task, 0),
+		Done:           make([]Task, 0),
+		Archive:        make([]Task, 0),
+		WipLimits:      map[string]int{},
+		WipCounts:      map[string]int{},
+		WipEnforcement: "warn",
 	}
 	for _, t := range tasks {
 		switch t.Status {
 		case "backlog":
 			snap.Backlog = append(snap.Backlog, t)
+		case "ready":
+			snap.Ready = append(snap.Ready, t)
 		case "in-progress":
 			snap.InProgress = append(snap.InProgress, t)
 		case "code-review":
@@ -158,6 +194,27 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 		case "archive":
 			snap.Archive = append(snap.Archive, t)
 		}
+	}
+
+	// Second CLI call: pull the WIP metadata from `tb board --json`. This
+	// is cheap (a single re-walk of statusDirs) and keeps the frontend
+	// free of separate calls. Failures degrade silently — the buckets
+	// above are the authoritative data; the badge just won't render if
+	// the second call fails. Backend logs the error so it doesn't go
+	// silent in production.
+	var wip boardWIPSnapshot
+	if err := c.RunJSON(ctx, &wip, "board", "--json"); err == nil {
+		if wip.WipLimits != nil {
+			snap.WipLimits = wip.WipLimits
+		}
+		if wip.WipCounts != nil {
+			snap.WipCounts = wip.WipCounts
+		}
+		if wip.WipEnforcement != "" {
+			snap.WipEnforcement = wip.WipEnforcement
+		}
+	} else {
+		slog.Default().Warn("board: tb board --json failed; rendering without WIP metadata", "err", err)
 	}
 	return snap, nil
 }
@@ -281,6 +338,15 @@ type EditTaskInput struct {
 	// "leave unchanged"; "none" (case-insensitive) clears the field. Required
 	// for moves into code-review (TB-235).
 	ReviewRef string `json:"reviewRef"`
+	// TB-237: per-mode attribution pairs. Each pair mirrors the legacy
+	// (Agent, AgentStatus) shape but scoped to one kanban action. Empty
+	// means "leave unchanged"; "none" clears the line.
+	GroomedBy       string `json:"groomedBy"`
+	GroomStatus     string `json:"groomStatus"`
+	ImplementedBy   string `json:"implementedBy"`
+	ImplementStatus string `json:"implementStatus"`
+	ReviewedBy      string `json:"reviewedBy"`
+	ReviewStatus    string `json:"reviewStatus"`
 }
 
 // EditTask runs `tb edit <id> [flags…]`. Returns nil on success.
@@ -290,25 +356,64 @@ func (b *BoardService) EditTask(ctx context.Context, id string, in EditTaskInput
 		return ErrNoBoard
 	}
 	return c.Edit(ctx, id, cli.EditInput{
-		Priority:    in.Priority,
-		Type:        in.Type,
-		Size:        in.Size,
-		Module:      in.Module,
-		Tags:        in.Tags,
-		Agent:       in.Agent,
-		AgentStatus: in.AgentStatus,
-		Title:       in.Title,
-		ReviewRef:   in.ReviewRef,
+		Priority:        in.Priority,
+		Type:            in.Type,
+		Size:            in.Size,
+		Module:          in.Module,
+		Tags:            in.Tags,
+		Agent:           in.Agent,
+		AgentStatus:     in.AgentStatus,
+		Title:           in.Title,
+		ReviewRef:       in.ReviewRef,
+		GroomedBy:       in.GroomedBy,
+		GroomStatus:     in.GroomStatus,
+		ImplementedBy:   in.ImplementedBy,
+		ImplementStatus: in.ImplementStatus,
+		ReviewedBy:      in.ReviewedBy,
+		ReviewStatus:    in.ReviewStatus,
 	})
 }
 
-// MoveTask runs `tb mv <id> <status>` where status ∈ {backlog, in-progress, code-review, done}.
+// MoveTask runs `tb mv <id> <status>` where status ∈ {backlog, ready, in-progress, code-review, done}.
 func (b *BoardService) MoveTask(ctx context.Context, id, status string) error {
 	c := b.snapshot()
 	if c == nil {
 		return ErrNoBoard
 	}
 	return c.Move(ctx, id, status)
+}
+
+// ReadyTask runs `tb ready <id>`: promotes a backlog task into the ready
+// column (canonical kanban commitment point). The CLI enforces the triage
+// gate so a task missing priority or with a placeholder goal is rejected
+// here without GUI-side validation.
+func (b *BoardService) ReadyTask(ctx context.Context, id string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.Ready(ctx, id)
+}
+
+// PullNext runs `tb pull` to pull the highest-priority oldest task from
+// the ready column into in-progress. Returns nil with no movement when
+// the ready column is empty (the CLI emits the stderr hint).
+func (b *BoardService) PullNext(ctx context.Context) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.Pull(ctx, "")
+}
+
+// PullTask runs `tb pull <id>` to pull a specific ready task into
+// in-progress.
+func (b *BoardService) PullTask(ctx context.Context, id string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.Pull(ctx, id)
 }
 
 // CloseTask runs `tb close <id>` which archives the task.
@@ -332,7 +437,7 @@ func (b *BoardService) Regenerate(ctx context.Context) error {
 }
 
 // SubmitReview runs `tb review --submit <id>`. Moves an in-progress task (or
-// a review-failed backlog task) into code-review.
+// a review-failed ready/backlog task) into code-review.
 func (b *BoardService) SubmitReview(ctx context.Context, id string) error {
 	c := b.snapshot()
 	if c == nil {
@@ -368,7 +473,7 @@ func (b *BoardService) SetReviewFindings(ctx context.Context, id, body string) e
 	return c.ReviewWriteSection(ctx, id, "findings", body)
 }
 
-// FailReview moves a code-review task back to backlog with the review-failed
+// FailReview moves a code-review task back to ready with the review-failed
 // marker and persists the findings body.
 func (b *BoardService) FailReview(ctx context.Context, id, findings string) error {
 	c := b.snapshot()

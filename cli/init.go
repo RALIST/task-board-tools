@@ -82,15 +82,18 @@ func cmdInit(args []string) {
 		alreadyExists = true
 	}
 
-	if !alreadyExists {
-		// Create status directories + archive.
-		for _, dir := range append(statusDirs, "archive") {
-			p := filepath.Join(boardDir, dir)
-			if err := os.MkdirAll(p, 0755); err != nil {
-				fatal("cannot create %s: %v", p, err)
-			}
+	// Ensure status directories exist. MkdirAll is idempotent so it is safe to
+	// run for both fresh inits and refreshes — important so adding a new
+	// canonical column (e.g. `ready`) lands automatically on existing boards
+	// the next time the user runs `tb init`.
+	for _, dir := range allStatusDirs {
+		p := filepath.Join(boardDir, dir)
+		if err := os.MkdirAll(p, 0755); err != nil {
+			fatal("cannot create %s: %v", p, err)
 		}
+	}
 
+	if !alreadyExists {
 		// Create .next-id starting at 1.
 		if err := os.WriteFile(filepath.Join(boardDir, ".next-id"), []byte("1\n"), 0644); err != nil {
 			fatal("cannot create .next-id: %v", err)

@@ -18,6 +18,12 @@
 |----|-------|----------|--------|--------|
 | — | — | — | — | — |
 
+## Ready
+
+| ID | Title | Type | Priority | Size | Module |
+|----|-------|------|----------|------|--------|
+| — | — | — | — | — | — |
+
 ## Backlog
 
 | ID | Title | Type | Priority | Size | Module |

@@ -70,7 +70,9 @@ func resolveTaskDir(boardDir, id string) (string, error) {
 	if upper == "" {
 		return "", &MutationValidationError{Msg: "task id is required"}
 	}
-	for _, dir := range []string{"backlog", "in-progress", "done", "archive"} {
+	// Status dirs in canonical kanban order. Must stay in sync with
+	// gui/internal/watcher.statusDirs and cli/board.go allStatusDirs.
+	for _, dir := range []string{"backlog", "ready", "in-progress", "code-review", "done", "archive"} {
 		candidate := filepath.Join(boardDir, dir, upper)
 		info, err := os.Lstat(candidate)
 		if err != nil {

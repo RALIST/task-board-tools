@@ -7,6 +7,7 @@ import type { BoardFilter } from './stores/filter';
 function allTasks(snap: BoardSnapshot): Task[] {
   return [
     ...snap.backlog,
+    ...(snap.ready ?? []),
     ...snap.inProgress,
     ...(snap.codeReview ?? []),
     ...snap.done,
@@ -36,12 +37,18 @@ function passes(t: Task, f: BoardFilter): boolean {
 }
 
 export function applyFilter(snap: BoardSnapshot, f: BoardFilter): BoardSnapshot {
+  // WIP metadata is forwarded unchanged so column headers stay accurate
+  // even when the user filters columns down.
   return {
     backlog: snap.backlog.filter((t) => passes(t, f)),
+    ready: (snap.ready ?? []).filter((t) => passes(t, f)),
     inProgress: snap.inProgress.filter((t) => passes(t, f)),
     codeReview: (snap.codeReview ?? []).filter((t) => passes(t, f)),
     done: snap.done.filter((t) => passes(t, f)),
     archive: (snap.archive ?? []).filter((t) => passes(t, f)),
+    wipLimits: snap.wipLimits ?? {},
+    wipCounts: snap.wipCounts ?? {},
+    wipEnforcement: snap.wipEnforcement ?? 'warn',
   };
 }
 

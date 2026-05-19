@@ -43,7 +43,7 @@ vi.mock('$lib/stores/toast', () => toastMock);
 // subscribe/set object avoids the TDZ trap that vi.mock's hoisting imposes on
 // real store instances created at top level.
 const boardMocks = vi.hoisted(() => {
-  let current: any = { backlog: [], inProgress: [], codeReview: [], done: [], archive: [] };
+  let current: any = { backlog: [], inProgress: [], ready: [], codeReview: [], done: [], archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn' };
   const subs = new Set<(v: any) => void>();
   return {
     boardStore: {
@@ -57,7 +57,7 @@ const boardMocks = vi.hoisted(() => {
         for (const cb of subs) cb(current);
       },
       reset() {
-        current = { backlog: [], inProgress: [], codeReview: [], done: [], archive: [] };
+        current = { backlog: [], inProgress: [], ready: [], codeReview: [], done: [], archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn' };
         for (const cb of subs) cb(current);
       },
     },
@@ -85,7 +85,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: 'backlog',
     filePath: 'board/backlog/TB-126/TASK.md',
     agent: '',
-    agentStatus: '',
+    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
     ...overrides,
   } as Task;
 }
@@ -350,9 +350,9 @@ describe('Card.svelte epic progress (TB-204)', () => {
     boardStore.set({
       backlog: [epicTask(), makeTask({ id: 'TB-2', parent: 'TB-1', status: 'backlog' })],
       inProgress: [makeTask({ id: 'TB-3', parent: 'TB-1', status: 'in-progress' })],
-      codeReview: [],
+      ready: [], codeReview: [],
       done: [makeTask({ id: 'TB-4', parent: 'TB-1', status: 'done' })],
-      archive: [],
+      archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn',
     });
     component = mount(Card, {
       target: document.body,
@@ -367,7 +367,7 @@ describe('Card.svelte epic progress (TB-204)', () => {
   });
 
   it('renders cleanly for a 0/0 epic without misleading completion styling', async () => {
-    boardStore.set({ backlog: [epicTask()], inProgress: [], codeReview: [], done: [], archive: [] });
+    boardStore.set({ backlog: [epicTask()], inProgress: [], ready: [], codeReview: [], done: [], archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn' });
     component = mount(Card, {
       target: document.body,
       props: { task: epicTask() },
@@ -389,12 +389,12 @@ describe('Card.svelte epic progress (TB-204)', () => {
     boardStore.set({
       backlog: [epicTask()],
       inProgress: [],
-      codeReview: [],
+      ready: [], codeReview: [],
       done: [
         makeTask({ id: 'TB-2', parent: 'TB-1', status: 'done' }),
         makeTask({ id: 'TB-3', parent: 'TB-1', status: 'done' }),
       ],
-      archive: [],
+      archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn',
     });
     component = mount(Card, {
       target: document.body,
@@ -414,9 +414,9 @@ describe('Card.svelte epic progress (TB-204)', () => {
         makeTask({ id: 'TB-5', parent: '', tags: [] }),
       ],
       inProgress: [],
-      codeReview: [],
+      ready: [], codeReview: [],
       done: [],
-      archive: [],
+      archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn',
     });
     component = mount(Card, {
       target: document.body,

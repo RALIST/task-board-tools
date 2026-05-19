@@ -72,7 +72,7 @@ vi.mock('$lib/stores/triage', () => ({
 // Board store powers the Details rail's epic progress row; mocked here so
 // tests can inject child task fixtures without touching the real loader.
 const boardMocks = vi.hoisted(() => {
-  let current: any = { backlog: [], inProgress: [], codeReview: [], done: [], archive: [] };
+  let current: any = { backlog: [], inProgress: [], ready: [], codeReview: [], done: [], archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn' };
   const subs = new Set<(v: any) => void>();
   return {
     boardStore: {
@@ -86,7 +86,7 @@ const boardMocks = vi.hoisted(() => {
         for (const cb of subs) cb(current);
       },
       reset() {
-        current = { backlog: [], inProgress: [], codeReview: [], done: [], archive: [] };
+        current = { backlog: [], inProgress: [], ready: [], codeReview: [], done: [], archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn' };
         for (const cb of subs) cb(current);
       },
     },
@@ -119,7 +119,7 @@ function makeTaskFixture(overrides: Record<string, unknown> = {}) {
     status: 'backlog',
     filePath: '',
     agent: '',
-    agentStatus: '',
+    agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
     ...overrides,
   };
 }
@@ -140,7 +140,7 @@ function makeDetail(overrides: Partial<TaskDetail['metadata']> = {}): TaskDetail
       status: 'backlog',
       filePath: 'board/backlog/TB-99/TASK.md',
       agent: '',
-      agentStatus: '',
+      agentStatus: '', groomedBy: '', groomStatus: '', implementedBy: '', implementStatus: '', reviewedBy: '', reviewStatus: '',
       ...overrides,
     },
     body: '# TB-99: Attachments demo\n\nbody',
@@ -711,9 +711,9 @@ describe('TaskDrawer epic progress (TB-204)', () => {
     boardStore.set({
       backlog: [makeTaskFixture({ id: 'TB-2', parent: 'TB-1', status: 'backlog' })],
       inProgress: [makeTaskFixture({ id: 'TB-3', parent: 'TB-1', status: 'in-progress' })],
-      codeReview: [],
+      ready: [], codeReview: [],
       done: [makeTaskFixture({ id: 'TB-4', parent: 'TB-1', status: 'done' })],
-      archive: [],
+      archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn',
     } as BoardSnapshot);
 
     component = mount(TaskDrawer, {
@@ -737,7 +737,7 @@ describe('TaskDrawer epic progress (TB-204)', () => {
     );
     apiMocks.listAttachments.mockResolvedValue([]);
     boardStore.set({
-      backlog: [], inProgress: [], codeReview: [], done: [], archive: [],
+      backlog: [], inProgress: [], ready: [], codeReview: [], done: [], archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn',
     } as BoardSnapshot);
 
     component = mount(TaskDrawer, {

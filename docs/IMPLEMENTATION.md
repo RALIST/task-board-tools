@@ -184,6 +184,14 @@ Marker legend:
 
 ---
 
+## M10 — Canonical kanban (TB-239) · ☑
+
+**Deliverable**: introduce the canonical kanban `ready` column between `backlog` and `in-progress`, generalise WIP limits to per-column (`wip_limit_ready`, `wip_limit_in_progress`, `wip_limit_code_review`) with a `wip_enforcement: warn|strict` mode, add `tb ready` (commitment with triage gate) and `tb pull` (highest-priority oldest from ready), warn when `tb start` skips ready, and route `tb review --fail` back to `ready` instead of `backlog`. CLI, GUI (board service, watcher, Svelte board/column/api/store), docs and agent prompts all updated in lockstep.
+
+**Acceptance**: `tb create … && tb edit -p P1 && tb ready <ID> && tb pull` flows a single task through the new column with logged moves; un-groomed `tb ready` exits non-zero with a "needs grooming" message; `tb board --json` returns the new `ready` array plus `wipLimits`/`wipCounts`/`wipEnforcement`; the GUI renders the column with `(n/m)` headers and a red badge over the limit; failed review lands in `ready/` (not `backlog/`) with `review-failed`. Type-checks pass, all Go + Svelte tests pass.
+
+---
+
 ## M9 — Code-review column (TB-194) · ☑
 
 **Deliverable**: `code-review` is a first-class board status with managed CLI commands, a GUI column + drawer affordances, a `review` agent mode, and a `review-failed` rework loop. Detailed contract in [`board/CONVENTIONS.md`](../board/CONVENTIONS.md) → "Code review workflow"; agent prompt locked at [`gui/internal/agent/prompts/review.md`](../gui/internal/agent/prompts/review.md).

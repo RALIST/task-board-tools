@@ -11,22 +11,22 @@ import (
 
 // cmdReview owns the code-review workflow surface:
 //
-//	tb review --submit  <ID>             move in-progress (or review-failed backlog) task to code-review
+//	tb review --submit  <ID>             move in-progress (or review-failed ready/backlog) task to code-review
 //	tb review --target  <ID> file|-      replace ## Review Target
 //	tb review --notes   <ID> file|-      replace ## Reviewer Notes
 //	tb review --findings <ID> file|-     replace ## Review Findings
-//	tb review --fail    <ID> file|-      write findings + move task to backlog with review-failed tag
+//	tb review --fail    <ID> file|-      write findings + move task to ready with review-failed tag
 //
 // Exactly one mode flag is required. Section flags read replacement content
 // from a file path or "-" for stdin, mirroring `tb edit --goal`. Submit and
 // section/fail writes acquire the board lock and regenerate BOARD.md.
 func cmdReview(args []string) {
 	fs := flag.NewFlagSet("review", flag.ExitOnError)
-	submit := fs.Bool("submit", false, "submit an in-progress (or review-failed backlog) task to code-review")
+	submit := fs.Bool("submit", false, "submit an in-progress (or review-failed ready/backlog) task to code-review")
 	targetPath := fs.String("target", "", "write ## Review Target from file path or - for stdin")
 	notesPath := fs.String("notes", "", "write ## Reviewer Notes from file path or - for stdin")
 	findingsPath := fs.String("findings", "", "write ## Review Findings from file path or - for stdin")
-	failPath := fs.String("fail", "", "fail review: write findings from file|- and move task back to backlog with review-failed tag")
+	failPath := fs.String("fail", "", "fail review: write findings from file|- and move task back to ready with review-failed tag")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage:\n")
@@ -109,8 +109,10 @@ func runReviewSection(taskID, sourcePath, heading, metaLabel, humanLabel string)
 }
 
 // reviewSubmit moves a task into the code-review directory. It accepts
-// in-progress tasks (the common path) and backlog tasks tagged review-failed
-// (resubmit after rework). Other source statuses are rejected.
+// in-progress tasks (the common path) and ready/backlog tasks tagged
+// review-failed (resubmit after rework — `ready` is the canonical
+// post-fail home, `backlog` accepted for backwards compatibility). Other
+// source statuses are rejected.
 //
 // If the task lacks a ## Review Target section, a warning is emitted to
 // stderr and the move proceeds (MVP behavior — TB-194 explicitly calls for a
@@ -131,15 +133,15 @@ func reviewSubmit(taskID string) (string, error) {
 	switch ref.Status {
 	case "in-progress":
 		// happy path
-	case "backlog":
+	case "ready", "backlog":
 		if !hasTag(t.Tags, "review-failed") {
-			return "", fmt.Errorf("tb review --submit only accepts in-progress tasks (or backlog tasks tagged review-failed); %s is in backlog without review-failed", taskID)
+			return "", fmt.Errorf("tb review --submit only accepts in-progress tasks (or ready/backlog tasks tagged review-failed); %s is in %s without review-failed", taskID, ref.Status)
 		}
 		// Resubmit after rework: clear the marker on move.
 	case "code-review":
 		return fmt.Sprintf("%s is already in code-review — nothing to do", taskID), nil
 	default:
-		return "", fmt.Errorf("tb review --submit only accepts in-progress (or backlog with review-failed); %s is in %s", taskID, ref.Status)
+		return "", fmt.Errorf("tb review --submit only accepts in-progress (or ready/backlog with review-failed); %s is in %s", taskID, ref.Status)
 	}
 
 	// TB-235: pre-flight ReviewRef check so a missing-ref submit leaves
@@ -163,7 +165,7 @@ func reviewSubmit(taskID string) (string, error) {
 	}
 
 	clearedMarker := false
-	if ref.Status == "backlog" && hasTag(t.Tags, "review-failed") {
+	if (ref.Status == "ready" || ref.Status == "backlog") && hasTag(t.Tags, "review-failed") {
 		if err := reviewClearFailedMarker(boardDir, ref); err != nil {
 			return "", err
 		}
@@ -273,7 +275,8 @@ func reviewWriteSection(taskID, sourcePath, heading, metaLabel, humanLabel strin
 }
 
 // reviewFail is the failure flow: write/replace ## Review Findings, move the
-// task back to backlog, add the review-failed tag, regenerate BOARD.md.
+// task back to ready (canonical kanban — the task was already groomed, no
+// re-triage needed), add the review-failed tag, regenerate BOARD.md.
 // Rejects tasks not currently in code-review.
 func reviewFail(taskID, sourcePath string) (string, error) {
 	body, err := readReviewBodyInput(sourcePath, "review findings")
@@ -288,14 +291,14 @@ func reviewFail(taskID, sourcePath string) (string, error) {
 		return "", err
 	}
 
-	result, err := moveTaskOnBoard(boardDir, taskID, "backlog", "Failed code review — moved to backlog with review-failed marker")
+	result, err := moveTaskOnBoard(boardDir, taskID, "ready", "Failed code review — moved to ready with review-failed marker")
 	if err != nil {
 		return "", err
 	}
 	if result.Noop {
-		return fmt.Sprintf("%s is already in backlog — review-failed marker and findings were written, but no move occurred", taskID), nil
+		return fmt.Sprintf("%s is already in ready — review-failed marker and findings were written, but no move occurred", taskID), nil
 	}
-	return fmt.Sprintf("Failed review for %s: moved %s -> backlog with review-failed marker", taskID, result.SrcStatus), nil
+	return fmt.Sprintf("Failed review for %s: moved %s -> ready with review-failed marker", taskID, result.SrcStatus), nil
 }
 
 // reviewWriteFailMetadata writes the findings section and adds the

@@ -14,11 +14,21 @@ board/
   CONVENTIONS.md        — This file
   SKILL.md              — AI agent instructions for using the board
   .next-id              — Counter for next %[1]s-NNN ID
-  backlog/              — Prioritized, ready to pick up
-  in-progress/          — Currently being worked on (max 2 tasks)
+  backlog/              — Raw intake; un-groomed ideas live here
+  ready/                — Committed and pullable; WIP-limited; pulled into in-progress in priority order
+  in-progress/          — Currently being worked on (WIP-limited)
   code-review/          — Implementation work awaiting reviewer signoff
   done/                 — Completed (archive, clean periodically)
+  archive/              — Closed; hidden from BOARD.md unless explicitly inspected
 `+"```"+`
+
+Canonical kanban flow:
+
+`+"```"+`
+backlog → ready → in-progress → code-review → done → archive
+`+"```"+`
+
+`+"`backlog`"+` is the open intake queue. Promote a task to `+"`ready`"+` with `+"`tb ready <ID>`"+` once it has a priority and a real goal (the same gate `+"`tb triage`"+` uses). `+"`tb pull`"+` then pulls the highest-priority oldest ready task into `+"`in-progress`"+`. `+"`tb start <ID>`"+` is the explicit push variant — it still works from any column, but warns when called on a backlog task because it skips the commitment column.
 
 CLI tool `+"`tb`"+` manages board operations (create, move, edit, attach, assign, list, JSON views, regenerate).
 
@@ -99,10 +109,12 @@ Why this task exists. Link to the task or session where it was discovered.
 
 ### Before coding
 
-1. Run `+"`tb ls`"+` for current state
-2. Pick a task or create one with `+"`tb create \"Title\"`"+`
-3. Start it with `+"`tb start %[1]s-NNN`"+`
-4. Set the `+"`Branch`"+` field
+1. Run `+"`tb ls --status ready`"+` for the committed queue (fall back to `+"`--status all`"+` for the whole board).
+2. If `+"`ready`"+` is empty, groom a backlog task and commit it: `+"`tb edit`"+` to fix any gaps, then `+"`tb ready %[1]s-NNN`"+`.
+3. Pull the next task with `+"`tb pull`"+` (auto-picks highest-priority oldest) or `+"`tb pull %[1]s-NNN`"+` to override. `+"`tb start %[1]s-NNN`"+` still works push-style but warns when called on a backlog task.
+4. Set the `+"`Branch`"+` field once you start writing code.
+
+**Never push backlog → in-progress directly.** Promote through `+"`ready`"+` (or accept that `+"`tb start <ID>`"+` on a backlog task will warn).
 
 ### During work
 
@@ -193,9 +205,11 @@ The command reads `+"`"+`.tb.yaml`+"`"+` for the current board path and prefix, 
 tb init [path] [--board-path=board] [--prefix=%[1]s] [--refresh-docs]
 tb board [--json]
 tb create "Title" [-m module] [-d desc] [-p P2] [-T bug] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|code-review|done|archive|active|all] [--json]
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|ready|in-progress|code-review|done|archive|active|all] [--json]
 tb mv <%[1]s-NNN> <status>                                                    — Move task between statuses
-tb start <%[1]s-NNN>                                                          — Move to in-progress
+tb ready <%[1]s-NNN>                                                          — Promote backlog → ready (kanban commitment; triage-gated)
+tb pull [<%[1]s-NNN>]                                                         — Pull the highest-priority oldest ready task into in-progress
+tb start <%[1]s-NNN>                                                          — Move to in-progress (push-style; warns when source is backlog)
 tb done <%[1]s-NNN>                                                           — Move to done
 tb edit <%[1]s-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
 tb attach <%[1]s-NNN> <path>...                                               — Copy files into task attachments
@@ -206,14 +220,14 @@ tb show <%[1]s-NNN> [--json]                                                  �
 tb open <%[1]s-NNN>                                                           — Open in default editor
 tb epic <%[1]s-NNN> [--status active|archive|all]                             — Show epic progress and children
 tb triage [--json]                                                            — Find tasks needing grooming
-tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l] — Search tasks by regex
+tb grep <pattern> [--status backlog|ready|in-progress|code-review|done|archive|active|all] [-s] [-l] — Search tasks by regex
 tb scan [--apply] [--path dir]                                                — Find untagged TODOs, create tasks
 tb regenerate                                                                 — Regenerate BOARD.md
 `+"```"+`
 
 **Defaults:** type=bug, priority=P2, size=M.
 
-**Status aliases:** `+"`b`"+`=backlog, `+"`ip`"+`/`+"`wip`"+`=in-progress, `+"`cr`"+`/`+"`review`"+`=code-review, `+"`d`"+`=done
+**Status aliases:** `+"`b`"+`=backlog, `+"`r`"+`=ready, `+"`ip`"+`/`+"`wip`"+`=in-progress, `+"`cr`"+`/`+"`review`"+`=code-review, `+"`d`"+`=done
 
 **Examples:**
 
@@ -274,11 +288,24 @@ Based on the argument, perform one of:
 3. After creation, edit the generated task file to add Acceptance Criteria and any extra detail
 4. **Link related tasks:** Search the board with `+"`tb grep`"+` for tasks in the same module or with overlapping scope. Add a `+"`## Related Tasks`"+` section with bidirectional links
 
+**`+"`ready <%[1]s-NNN>`"+`**:
+
+1. Run `+"`tb ready %[1]s-NNN`"+` to promote a backlog task to the ready column (canonical kanban commitment point).
+2. The triage gate runs first — if priority is missing, the goal is a placeholder, or `+"`tb scan`"+` auto-created the task, the command rejects. Fix with `+"`tb edit`"+` and retry.
+3. WIP limits on `+"`ready`"+` are honoured: warn mode emits a stderr note, strict mode refuses the move.
+
+**`+"`pull [<%[1]s-NNN>]`"+`**:
+
+1. Run `+"`tb pull`"+` (no argument) to pull the highest-priority oldest ready task into in-progress.
+2. Run `+"`tb pull %[1]s-NNN`"+` to override selection — fails if the task isn't currently in ready.
+3. Respects `+"`wip_limit_in_progress`"+` like `+"`tb ready`"+` respects `+"`wip_limit_ready`"+`.
+
 **`+"`start <%[1]s-NNN>`"+`**:
 
-1. Run `+"`tb start %[1]s-NNN`"+`
-   - Moves the task to `+"`in-progress/`"+`, auto-logs, auto-regenerates BOARD.md
-2. Set Branch field in the task file to current git branch
+1. Run `+"`tb start %[1]s-NNN`"+` to push a task into in-progress (works from any source column).
+2. When the source is `+"`backlog`"+`, the command warns that the canonical commitment column was skipped — prefer `+"`tb ready`"+` + `+"`tb pull`"+` unless you specifically need the push.
+3. Moves the task to `+"`in-progress/`"+`, auto-logs, auto-regenerates BOARD.md.
+4. Set Branch field in the task file to current git branch.
 
 **`+"`done <%[1]s-NNN>`"+`**:
 
@@ -305,7 +332,7 @@ Based on the argument, perform one of:
 **`+"`list`"+`**:
 
 1. Run `+"`tb ls --status all`"+`
-2. Show summary: X backlog, Y in-progress, Z done
+2. Show summary: W backlog, X ready, Y in-progress, Z done (call out columns over their WIP limit if `+"`tb board --json`"+` reports them)
 
 **`+"`grep <pattern>`"+`**:
 
@@ -334,10 +361,12 @@ Based on the argument, perform one of:
 
 - ALWAYS check the board before starting work
 - NEVER code without a task in `+"`in-progress/`"+`
+- **NEVER push backlog → in-progress directly** — promote with `+"`tb ready <ID>`"+` first, then `+"`tb pull`"+` (or accept that `+"`tb start <ID>`"+` will warn when it skips the ready column)
 - **NEVER copy task files — always move** (tb handles this automatically)
 - BOARD.md is auto-generated — `+"`tb`"+` regenerates it on every move/create
 - Directories are the source of truth — `+"`BOARD.md`"+` is a derived view
 - **Link related tasks** — when creating or grooming a task, use `+"`tb grep`"+` to find related tasks. Add `+"`## Related Tasks`"+` section with bidirectional links
+- Respect WIP limits surfaced in `+"`BOARD.md`"+` column headers (`+"`(n/m)`"+` markers). If a column shows `+"`⚠`"+`, finish or move a task out before pushing more in.
 
 ### Stopping for user attention (`+"`needs-user`"+`)
 
@@ -367,9 +396,10 @@ tooltip.
 
 **Before coding:**
 
-1. Run `+"`tb ls`"+` to see the board
-2. Pick a task or create one with `+"`tb create \"Title\"`"+`
-3. Start it with `+"`tb start %[1]s-NNN`"+`
+1. Run `+"`tb ls --status ready`"+` (and fall back to `+"`--status all`"+` if you need the full board).
+2. If `+"`ready`"+` is empty, groom a backlog task and commit it: `+"`tb edit`"+` to fix any gaps, then `+"`tb ready %[1]s-NNN`"+`.
+3. Pull into in-progress with `+"`tb pull`"+` (auto-picks highest-priority oldest) or `+"`tb pull %[1]s-NNN`"+` to override.
+4. If you specifically need to push directly, `+"`tb start %[1]s-NNN`"+` still works — it just warns when the source is backlog.
 
 **During work — backlog capture:**
 When you encounter any of these, IMMEDIATELY create a backlog task:
@@ -394,9 +424,11 @@ Or run `+"`tb scan --apply`"+` to auto-create tasks from untagged TODO/FIXME/HAC
 tb init [path] [--board-path=board] [--prefix=%[1]s] [--refresh-docs]     Initialize or reconcile a board
 tb board [--json]                                                      Print board status or JSON snapshot
 tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|in-progress|code-review|done|archive|active|all] [--json]
+tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent ID] [--status backlog|ready|in-progress|code-review|done|archive|active|all] [--json]
 tb mv <%[1]s-NNN> <status>                                               Move task
-tb start <%[1]s-NNN>                                                     Start working
+tb ready <%[1]s-NNN>                                                     Promote backlog → ready (canonical kanban commitment)
+tb pull [<%[1]s-NNN>]                                                    Pull next ready task into in-progress
+tb start <%[1]s-NNN>                                                     Start working (push-style; warns when source is backlog)
 tb done <%[1]s-NNN>                                                      Mark done
 tb edit <%[1]s-NNN> [--goal file|-] [--acceptance file|-] [--user-attention file|-] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none]   Edit metadata/body sections
 tb attach <%[1]s-NNN> <path>...                                          Copy files into task attachments
@@ -407,7 +439,7 @@ tb show <%[1]s-NNN> [--json]                                             Print t
 tb open <%[1]s-NNN>                                                      Open in default editor
 tb epic <%[1]s-NNN> [--status active|archive|all]                        Show epic progress
 tb triage [--json]                                                       Find tasks needing grooming
-tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l]   Search tasks by regex
+tb grep <pattern> [--status backlog|ready|in-progress|code-review|done|archive|active|all] [-s] [-l]   Search tasks by regex
 tb scan [--apply] [--path dir]                                           Find untagged TODOs
 tb regenerate                                                            Regenerate BOARD.md
 `+"```"+`
@@ -421,7 +453,9 @@ tb regenerate                                                            Regener
 | `+"`create`"+` | `+"`new`"+` | Create a new folder-form task |
 | `+"`ls`"+` | `+"`list`"+` | List and filter tasks |
 | `+"`mv`"+` | `+"`move`"+` | Move task between statuses |
-| `+"`start`"+` | | Move task to in-progress |
+| `+"`ready`"+` | | Promote a backlog task to ready (canonical kanban commitment column) |
+| `+"`pull`"+` | | Pull the highest-priority oldest ready task into in-progress |
+| `+"`start`"+` | | Move task to in-progress (push-style; warns when source is backlog) |
 | `+"`done`"+` | | Move task to done |
 | `+"`edit`"+` | | Edit task metadata and Goal/Acceptance Criteria sections |
 | `+"`attach`"+` | | Copy or remove task attachments |
@@ -437,7 +471,7 @@ tb regenerate                                                            Regener
 
 **Defaults:** type=bug, priority=P2, size=M. Module and tags are optional.
 
-**Status aliases:** `+"`b`"+`=backlog, `+"`ip`"+`/`+"`wip`"+`=in-progress, `+"`cr`"+`/`+"`review`"+`=code-review, `+"`d`"+`=done
+**Status aliases:** `+"`b`"+`=backlog, `+"`r`"+`=ready, `+"`ip`"+`/`+"`wip`"+`=in-progress, `+"`cr`"+`/`+"`review`"+`=code-review, `+"`d`"+`=done
 
 Task IDs use the configured prefix (default: %[1]s). The prefix is optional in commands — `+"`tb start 123`"+` and `+"`tb start %[1]s-123`"+` are equivalent.
 
