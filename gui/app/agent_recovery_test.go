@@ -958,9 +958,6 @@ func TestRecoverStale_LivePIDAdoptsStubForCancel(t *testing.T) {
 	if ar == nil {
 		t.Fatalf("expected stub activeRun adopted for live recovered PID; s.active was empty")
 	}
-	if !ar.Recovered {
-		t.Errorf("stub Recovered = false, want true")
-	}
 	if ar.Pid != 7777 {
 		t.Errorf("stub Pid = %d, want 7777", ar.Pid)
 	}
@@ -1087,6 +1084,95 @@ func TestCancelRun_RecoveredLivePID_KillsAndWritesCancelled(t *testing.T) {
 	// s.active must be cleaned up: a follow-up cancel returns ErrNotRunning.
 	if err := rec.agent.CancelRun(context.Background(), "TB-1"); err == nil {
 		t.Errorf("second CancelRun expected error, got nil")
+	}
+}
+
+// TB-176: same end-to-end cancel-kill-terminal contract, but for a
+// folder-form task. State paths differ
+// (`<status>/<ID>/.agent-state.jsonl`), so a routing regression that
+// mis-targets the file-form path would slip past the file-form test
+// above without this coverage.
+func TestCancelRun_RecoveredLivePID_FolderForm_KillsAndWritesCancelled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only signals")
+	}
+	cmd := exec.Command("/bin/sh", "-c", "sleep 60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("spawn sleep: %v", err)
+	}
+	pid := cmd.Process.Pid
+	reaped := make(chan struct{})
+	go func() {
+		defer close(reaped)
+		_ = cmd.Wait()
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		<-reaped
+	})
+
+	rec, _, boardDir, c := recoveryFixtureWithTasks(t, []recoveryTaskFixture{{
+		id:          "TB-1",
+		agentField:  "codex",
+		agentStatus: "running",
+		form:        "folder",
+		events: []agent.Event{
+			{TS: "2026-05-19T10:00:00Z", RunID: "r_live_folder", TaskID: "TB-1", Event: agent.EvQueued, Agent: "codex", Mode: agent.ModeImplement.String()},
+			{TS: "2026-05-19T10:00:01Z", RunID: "r_live_folder", TaskID: "TB-1", Event: agent.EvStarted, Agent: "codex", Mode: agent.ModeImplement.String(), PID: pid},
+		},
+	}})
+	rec.monitorPollInterval = 10 * time.Millisecond
+	rec.liveFn = func(probePid int, _ string) bool {
+		return syscall.Kill(probePid, 0) == nil
+	}
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	if rec.agent.getActiveRun("TB-1") == nil {
+		t.Fatalf("recovery did not adopt a stub for the live PID")
+	}
+	if err := rec.agent.CancelRun(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("CancelRun on folder-form recovered live PID: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Errorf("recovered pid %d still alive after CancelRun", pid)
+	}
+
+	folderState := filepath.Join(boardDir, "backlog", "TB-1", ".agent-state.jsonl")
+	if agent.StatePath(boardDir, "TB-1") != folderState {
+		t.Fatalf("folder-form StatePath = %s, want %s", agent.StatePath(boardDir, "TB-1"), folderState)
+	}
+
+	finished := 0
+	for _, ev := range readJSONL(t, folderState) {
+		if ev.RunID != "r_live_folder" || ev.Event != agent.EvFinished {
+			continue
+		}
+		finished++
+		if ev.Status != agent.StatusCancelled {
+			t.Errorf("terminal status = %s, want cancelled", ev.Status)
+		}
+		if ev.Reason != "user cancelled" {
+			t.Errorf("terminal reason = %q, want user cancelled", ev.Reason)
+		}
+	}
+	if finished != 1 {
+		t.Errorf("got %d finished events for r_live_folder, want exactly 1", finished)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, ".agent-state", "TB-1.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("folder-form cancel should not write to board-root state, err=%v", err)
+	}
+
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
+		t.Errorf("AgentStatus not cancelled:\n%s", out)
 	}
 }
 

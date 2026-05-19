@@ -238,14 +238,6 @@ type activeRun struct {
 	// through closeDone so a defensive double-call is safe.
 	doneOnce sync.Once
 
-	// Recovered marks a stub activeRun installed by RecoveryService for
-	// an orphaned PID that survived a GUI/daemon restart. The runner
-	// goroutine never owns this run — only CancelRun (signal the PID)
-	// and the recovered-run monitor (observe natural exit) interact
-	// with it. The flag exists so callers can distinguish a stub from
-	// a freshly spawned run without inspecting other fields.
-	Recovered bool
-
 	mu sync.Mutex
 }
 

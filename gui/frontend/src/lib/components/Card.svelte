@@ -54,10 +54,11 @@
   // TB-182: surface a "user attention" indicator on the card so a needs-user
   // task is immediately visible on the kanban without opening the drawer.
   let needsUserAttention = $derived(task.agentStatus === 'needs-user');
-  // TB-199: review-failed marker — visible on backlog tasks that got bounced
-  // back from code-review with actionable findings. Distinct from needs-user
-  // (an autonomous-agent pause); review-failed is a workflow signal for human
-  // and auto-implement triage.
+  // TB-199 / M10 (TB-239): review-failed marker — visible on tasks that got
+  // bounced back from code-review with actionable findings. Lives on `ready`
+  // tasks post-M10 (legacy `backlog` tasks may still carry the tag). Distinct
+  // from needs-user (an autonomous-agent pause); review-failed is a workflow
+  // signal for human and auto-implement triage.
   let isReviewFailed = $derived(task.tags?.includes('review-failed') ?? false);
 
   // TB-237: per-action attribution chips. One chip per action that has at

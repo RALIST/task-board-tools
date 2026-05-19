@@ -173,7 +173,7 @@ func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDi
 		// signal the orphaned process group. The monitor below will close
 		// the stub's Done channel when the PID exits, so killActiveRun's
 		// wait unblocks regardless of whether cancel or natural exit wins.
-		stub := newRecoveredStubRun(latest.RunID, t.ID, expectedAgent, latest.Mode, latest.PID)
+		stub := newRecoveredStubRun(r.logger, latest.RunID, t.ID, expectedAgent, latest.Mode, latest.PID)
 		if r.agent != nil {
 			r.agent.adoptRecoveredRun(t.ID, stub)
 		}
@@ -299,14 +299,18 @@ func (r *RecoveryService) emitFinished(runID, taskID, status string, exitCode in
 // PID via syscall.Getpgid so killActiveRun's SIGKILL on the negative
 // pgid still cascades to grandchildren; if the lookup fails the stub
 // keeps Pgid=0 and the kill path falls back to signalling the leader
-// directly.
+// directly — losing any grandchildren the orphan may have spawned.
 //
 // The stub carries enough Agent/Mode context for recordTerminal to
 // write a per-mode-correct finished line when CancelRun (or the
 // monitor on natural exit) reaches that branch.
-func newRecoveredStubRun(runID, taskID, agentName string, mode agent.Mode, pid int) *activeRun {
+func newRecoveredStubRun(logger *slog.Logger, runID, taskID, agentName string, mode agent.Mode, pid int) *activeRun {
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {
+		if logger != nil {
+			logger.Warn("recovery: syscall.Getpgid failed; cancel will signal leader PID only",
+				"task", taskID, "run", runID, "pid", pid, "err", err)
+		}
 		pgid = 0
 	}
 	modeStr := mode.String()
@@ -314,14 +318,13 @@ func newRecoveredStubRun(runID, taskID, agentName string, mode agent.Mode, pid i
 		modeStr = agent.ModeImplement.String()
 	}
 	return &activeRun{
-		RunID:     runID,
-		TaskID:    taskID,
-		Agent:     agentName,
-		Mode:      modeStr,
-		Pid:       pid,
-		Pgid:      pgid,
-		Done:      make(chan struct{}),
-		Recovered: true,
+		RunID:  runID,
+		TaskID: taskID,
+		Agent:  agentName,
+		Mode:   modeStr,
+		Pid:    pid,
+		Pgid:   pgid,
+		Done:   make(chan struct{}),
 	}
 }
 
@@ -417,6 +420,13 @@ func (r *RecoveryService) pollRecoveredRunMonitor(ctx context.Context, c *cli.Cl
 		return true, r.markFailed(ctx, c, boardDir, t, runID, orphanedProcessExitedReason)
 	}
 	if latest.RunID != runID {
+		// A different run has surfaced for this task while a stub was
+		// installed for runID. RunAgent's ErrAlreadyRunning gate should
+		// prevent this; if it ever fires, it indicates someone is
+		// mutating JSONL out-of-band or the gate was bypassed. Log
+		// loudly so the anomaly is visible in production logs.
+		r.logger.Info("recovery: monitor observed run id change; stopping",
+			"task", t.ID, "stub_run", runID, "latest_run", latest.RunID)
 		return true, nil
 	}
 	if latest.LastFinished != nil {
@@ -470,11 +480,12 @@ func (r *RecoveryService) reconcileOrphanExit(ctx context.Context, c *cli.Client
 		return nil
 	}
 	if r.agent != nil {
+		// recordTerminal deletes s.active inside its finishOnce body,
+		// so this is the producer-of-terminal-record path. The follow-
+		// up removeActiveRun is a defensive no-op for the case where a
+		// future divergence between recordTerminal and this branch
+		// stops deleting; today both call sites agree.
 		r.agent.recordTerminal(c, ar, boardDir, agent.StatusFailed, orphanedProcessExitedReason, -1)
-		// recordTerminal calls delete itself when its finishOnce body
-		// runs, but a second finishOnce caller (e.g. a previously aborted
-		// CancelRun) would otherwise leave the entry behind. Belt-and-
-		// braces: ensure removal here when the stub is still ours.
 		r.agent.removeActiveRun(t.ID, ar)
 	}
 	return nil

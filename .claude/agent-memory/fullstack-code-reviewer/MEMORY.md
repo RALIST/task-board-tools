@@ -1,1 +1,2 @@
 - [TB-182 needs-user carve-out](project_needs_user_carveout.md) — recordTerminal preserves needs-user only over success/failed; cancelled/interrupted still write through
+- [TB-176 recovered-stub race](tb-176-recovered-stub-race.md) — cancel-vs-monitor invariants on stub activeRuns adopted for orphaned live PIDs
