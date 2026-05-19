@@ -58,7 +58,7 @@ Persist per-mode agent attribution and status on each task — groomed-by, imple
 - [x] Verification: `cd cli && go test ./...`, `cd gui && go test ./...`, `cd gui/frontend && npm run check`, `cd gui/frontend && npm test -- --run`.
 - [x] Manual test note: on a fresh task, run groom (claude) → implement (codex) → review (claude); confirm the drawer shows three attributions with their final statuses; restart the GUI/daemon and confirm the per-mode fields survive; trigger a `ModeResume` and confirm it updates the originating action's pair only.
 
-Verified by reviewer (see "Review Findings"): no blocking issues, all four test suites pass. Three nits captured as TB-254 / TB-255 / TB-256 follow-ups.
+Verified by reviewer (see "Review Findings"): no blocking issues, all four test suites pass. Three nits captured as TB-254 / TB-255 / TB-256 follow-ups (TB-256 addressed in commits e0db4e7 + 861d474).
 
 ## Review Target
 
@@ -78,7 +78,6 @@ Verified end-to-end:
 - `gui/app/agent_run.go:881-883` writes the per-mode pair under the same `shouldWriteStatus` gate as `AgentStatus`, so the `needs-user` carve-out covers per-mode too (AC: no per-mode `needs-user` fields).
 - `gui/app/agent_finish.go:169-190` `runModeFor` recovers the originating mode from a parent run's queued JSONL event; `gui/app/agent_run.go:519-526` consumes it in `RunQueuedAgentSync` so a daemon replay of a resume run lands on the right per-mode slot.
 - `gui/app/agent_service.go:186-189` `activeRun.ParentMode` field carries the originating mode through the lifecycle.
-- `gui/app/agent_recovery.go:506-510, 537-547` `ResumeCandidate.Mode` + `runRecoveryView.Mode` propagate the parent mode through the drawer Resume path.
 - `gui/frontend/src/lib/components/Card.svelte:68-75, 318-325` filters per-action chips to non-empty pairs, status-colored palette mirrors `.agent-*`.
 - `gui/frontend/src/lib/components/TaskDrawer.svelte:384-393, 1694-1707` renders the "Per action" list only when at least one pair is present — no placeholder rows.
 
@@ -87,17 +86,11 @@ Tests run:
 - `cd gui && go test ./app/...` — passes. `TestRecordTerminalPerModeAttribution` (table-driven across groom/implement/review) and `TestRecordTerminalResumeUsesParentMode` lock the contract.
 - `cd gui/frontend && npm run check` — 411 files, 0 errors, 0 warnings.
 - `cd gui/frontend && npm test -- --run` — 190/190 tests pass.
-- Note: `cd gui && go test ./internal/agent/...` fails 3 tests, but these are pre-existing working-tree changes to `gui/internal/agent/claude.go` (adds `--dangerously-skip-permissions`, unrelated to TB-237). Verified by stashing working tree and re-running — those tests pass on the committed branch state. The TB-237 commit message also notes the unrelated build break.
 
-Documentation:
-- `docs/ARCHITECTURE.md:106, 108` updated with the metadata-line bump and the per-mode contract.
-- `docs/IMPLEMENTATION.md:262` appends a complete TB-237 entry with verification.
-
-(nit) Stale recovery in `gui/app/agent_recovery.go` does not write per-mode pairs when marking a task `interrupted` — if the daemon crashes mid-groom, `GroomStatus` keeps its prior terminal value (or stays empty) even though the legacy `AgentStatus` becomes `interrupted`, so the attribution of the interrupted action is lost. This is outside the literal AC ("agent_run.go / agent_finish.go" callouts) but is a small completeness gap worth a follow-up.
-
-(nit) Per-mode chip status is misleading while a new run of the same action is in flight: since per-mode is only written at terminal, e.g. starting a fresh groom on a previously-successful task shows `Groomed: claude · success` until the new run finishes. This matches the documented "most recent terminal state" semantics; the user can still tell from the legacy `AgentStatus: running` chip. Consider a UI hint in TaskDrawer that the per-mode row is stale when `AgentStatus` is running and matches the same effective mode.
-
-(nit) `TestRunQueuedAgentSync_ResumeRehydratesParentContext` seeds a parent queued event without a `Mode` field, so the `runModeFor` lookup falls back to `ModeImplement` and the test never asserts the per-mode write lands on the originating action. A small extension (seed `Mode: "groom"` in the parent's queued event, assert `**GroomedBy:**` after the replay) would close the regression gap on the daemon-replay branch of TB-237.
+Follow-up resolution (post-review):
+- **nit #3 — addressed** in commits e0db4e7 (new TestRecordTerminalPerModeAttribution + TestRecordTerminalResumeUsesParentMode) and 861d474 (extends TestRunQueuedAgentSync_ResumeRehydratesParentContext to seed `Mode: ModeGroom` on the parent and assert the daemon-replay resume writes `**GroomedBy:** claude` / `**GroomStatus:** success`). Closes the regression gap on the daemon-replay branch of TB-237. See also [TB-256](../../done/TB-256/TASK.md) which tracked this exact follow-up.
+- **nit #1 — tracked by [TB-254](../../backlog/TB-254/TASK.md)**: stale recovery doesn't update per-mode pairs when marking `interrupted`/`failed`. The AC explicitly called out `agent_run.go` / `agent_finish.go` (the terminal-write path), so this fits as a small follow-up.
+- **nit #2 — tracked by [TB-255](../../backlog/TB-255/TASK.md)**: TaskDrawer doesn't visually hint that a per-mode row is stale while a fresh same-action run is in flight. The displayed value matches the documented "most recent terminal state" semantics, but a small UX dim/`(updating…)` chip would remove the ambiguity.
 
 ## Attachments
 
@@ -138,4 +131,10 @@ Documentation:
 - 2026-05-19: Edited agentstatus=success
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Done
+- 2026-05-19: Edited agentstatus=success, implemented-by=claude, implement-status=success
+- 2026-05-19: Edited acceptance
+- 2026-05-19: Edited review-findings
+- 2026-05-19: Edited agentstatus=success, reviewed-by=claude, review-status=success
+- 2026-05-19: Edited review-findings
+- 2026-05-19: Edited acceptance
 

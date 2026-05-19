@@ -93,11 +93,10 @@
 | TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
 | TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | P1 | M | gui |
 | TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
-| TB-253 | 2 agents are running | bug | P2 | M |  |
+| TB-253 | GUI Run History shows multiple concurrent RUNNING rows for one task | bug | P1 | M | gui |
 | TB-254 | Stale recovery should write per-mode pair when marking interrupted | tech-debt | P2 | S | gui |
 | TB-255 | TaskDrawer per-mode chip stale while same-mode run in flight | improvement | P2 | S | gui |
 | TB-256 | Test TestRunQueuedAgentSync_ResumeRehydratesParentContext should assert per-mode write on daemon replay | tech-debt | P2 | S | gui |
-| TB-257 | Stale recovery: also update per-mode pair when marking interrupted | tech-debt | P2 | S | gui |
 
 ## Recently Done
 
