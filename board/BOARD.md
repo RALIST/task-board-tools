@@ -30,7 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-236 | macOS titlebar double-click should zoom/restore window | P2 | gui | — |
+| — | — | — | — | — |
 
 ## Code Review
 
@@ -83,6 +83,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-236 | macOS titlebar double-click should zoom/restore window | bug | gui |
 | TB-235 | Require ReviewRef metadata before code-review moves | improvement | workflow |
 | TB-232 | tb-gui usage tap: chain to user's original statusline instead of replacing it | bug | gui |
 | TB-231 | Address TB-130 adversarial review findings | bug | gui |
@@ -132,4 +133,3 @@
 | TB-168 | TB-93/GUI: test infra cleanup - hardcoded sleeps, /tmp/tb fallback, idDirRe negative case | tech-debt | gui |
 | TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |
 | TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | gui |
-| TB-165 | TB-93/GUI: empty-state hint should say 'drag onto this drawer' not 'onto the task' | improvement | gui |
