@@ -4,10 +4,11 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 2/4 | backlog | gui |
+| TB-177 | Auto task implementation | 0/4 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
+| TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | code-review | tooling |
 
 ## Finished Epics
 
@@ -27,16 +28,19 @@
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 
-## In Progress (0/2)
+## In Progress (2/2 ⚠)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-176 | Track PID of launched agents | P2 | gui | — |
+| TB-206 | Setup golangci-lint for project and initial run it | P2 | tooling | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
+| TB-205 | Setup ESLint and dead-code check for frontend | P2 | tooling | — |
+| TB-237 | Save diffrent agent actions in diffrent fields | P2 | cli | — |
 | TB-238 | Update implement.md agent prompt to set ReviewRef before submit | P2 | workflow | — |
 
 ## Ready
@@ -68,8 +72,9 @@
 | TB-173 | GUI: persist auto-groom setting and toggle | feature | P1 | M | gui |
 | TB-174 | GUI: auto-groom triage tasks via groom-mode daemon runs | feature | P1 | M | gui |
 | TB-175 | GUI: surface auto-groom feedback and manual fallback | feature | P1 | S | gui |
-| TB-176 | Track PID of launched agents | bug | P2 | M | gui |
 | TB-177 | Auto task implementation | feature | P0 | L | gui |
+| TB-178 | GUI: persist auto-implement settings and query | feature | P0 | M | gui |
+| TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |
 | TB-180 | GUI: show auto-implement controls and feedback | feature | P0 | S | gui |
 | TB-186 | Change parent task | feature | P2 | L | gui |
 | TB-187 | Quick add task to epic | improvement | P2 | M | gui/frontend |
@@ -78,11 +83,18 @@
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
-| TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
-| TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
-| TB-226 | CLI: preserve literal command examples in task creation | bug | P1 | S | cli |
 | TB-233 | Auto-implement priority: rank review-failed backlog tasks first | improvement | P2 | S | gui |
-| TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P3 | S | gui |
+| TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P2 | S | gui |
+| TB-241 | GUI: Resume button enabled for interrupted tasks with no captured session | bug | P2 | S | gui |
+| TB-242 | Agent runner blocks on stdout EOF when child processes inherit pipes | bug | P1 | M | gui |
+| TB-244 | Periodic re-recovery for stale agent runs | improvement | P2 | M | gui |
+| TB-246 | Regenerate darwin/Assets.car on working Xcode env | tech-debt | P2 | S | gui |
+| TB-247 | Triage TB-205 knip first-pass findings | tech-debt | P2 | S | gui-frontend |
+| TB-248 | Manual macOS verification of Task Board Tools branding | improvement | P2 | S | gui |
+| TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
+| TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
+| TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | P1 | M | gui |
+| TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
 
 ## Recently Done
 
@@ -97,6 +109,7 @@
 | TB-229 | CLI: reconcile .tb.yaml with annotated config template | improvement | cli |
 | TB-228 | CLI: make init refresh existing boards by default | improvement | cli |
 | TB-227 | CLI: refresh generated board docs for existing boards | improvement | cli |
+| TB-226 | CLI: preserve literal command examples in task creation | bug | cli |
 | TB-225 | Ask user to init board from GUI when he tries to open folder without initialized tb status | feature | gui |
 | TB-224 | Support task-root attachments | improvement | cli/gui |
 | TB-223 | Audit secondary docs for stale layout/status | improvement | docs |
@@ -131,10 +144,9 @@
 | TB-183 | CLI: add user-attention agent status and note section | feature | cli |
 | TB-182 | Add special labes\tags\status for user attention | feature | agent |
 | TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
-| TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | gui |
-| TB-178 | GUI: persist auto-implement settings and query | feature | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
 | TB-168 | TB-93/GUI: test infra cleanup - hardcoded sleeps, /tmp/tb fallback, idDirRe negative case | tech-debt | gui |
 | TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |
+| TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | gui |
