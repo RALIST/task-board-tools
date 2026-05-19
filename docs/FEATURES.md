@@ -31,7 +31,7 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - New optional fields `**Agent:**` and `**AgentStatus:**` in task `.md`.
 - Parsed by `parseTaskFile`. Empty if absent.
 - Settable via `tb edit -a <agent> --agent-status <status>`.
-- `AgentStatus` enum: `queued | running | success | failed | cancelled | interrupted | needs-user`. `needs-user` (TB-182) is the autonomous-agent handoff — the task pauses with a `## User Attention` section, automation skips it, and the user clears with `tb edit <ID> --agent-status none`.
+- `AgentStatus` enum: `queued | running | success | failed | cancelled | interrupted | lost | needs-user`. `failed` is reserved for agent-reported failures; `interrupted` and `lost` are recovery-initiated daemon-loss states, with only `interrupted` carrying a resumable session. `needs-user` (TB-182) is the autonomous-agent handoff — the task pauses with a `## User Attention` section, automation skips it, and the user clears with `tb edit <ID> --agent-status none`.
 - **Acceptance**: `tb edit WS-1 -a claude --agent-status queued && tb show WS-1 | grep Agent` shows both fields.
 
 ### F1.3 — JSON output ☑
@@ -162,7 +162,7 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ### F4.3 — Live run log in drawer ☑
 - `AgentRunLog` panel inside drawer streams stdout lines as they arrive (via `agent:run-log` events).
-- Shows status pill: queued / running / success / failed.
+- Shows status pill: queued / running / success / failed / cancelled / interrupted / lost.
 - **Acceptance**: log lines appear in UI within ~1s of agent emitting them.
 
 ### F4.4 — Cancel run ☑
@@ -191,11 +191,11 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ### F5.2 — Stale-running recovery ☑
 - On daemon activation, scans for tasks with `AgentStatus: running`.
-- Checks last run in JSONL; if no `finished` event and PID is dead → write synthetic `finished{status: failed, reason: "stale after restart"}` event, set `AgentStatus: failed`. The pid-liveness probe accepts npm-shebang scripts (`node` argv containing `/path/to/claude`) so a Node-wrapped agent is recognised as alive.
+- Checks last run in JSONL; if no `finished` event and PID is dead → write a recovery terminal event. Captured session id becomes `finished{status: interrupted, reason: "interrupted by daemon restart"}` and `AgentStatus: interrupted`; no captured session becomes `finished{status: lost, reason: "stale after restart"}` and `AgentStatus: lost`. The pid-liveness probe accepts npm-shebang scripts (`node` argv containing `/path/to/claude`) so a Node-wrapped agent is recognised as alive.
 - **Carve-outs**:
   - If `AgentStatus: cancelled` is seen, OR the latest JSONL event for the latest run is `finished{status: cancelled}`, reconcile to `cancelled` and never overwrite as `failed`. JSONL intent outranks `.md` state during recovery.
   - If PID is still alive, leave the task alone — **M5 does not re-attach to live runs**. Re-attach (resume streaming output of a still-running agent) is intentionally deferred beyond M5. Conservative: avoids killing someone else's process and avoids surprising re-stream of stale output.
-- **Acceptance 1**: start an agent, `kill -9` the GUI process, restart GUI; the stale task is marked failed; the task's agent-state JSONL has the recovery event.
+- **Acceptance 1**: start an agent, `kill -9` the GUI process, restart GUI; the stale task is marked `interrupted` if a session id was captured, otherwise `lost`; the task's agent-state JSONL has the recovery event.
 - **Acceptance 2**: cancel a task via F4.4, then `kill -9` the GUI mid-cancel; restart; task remains `cancelled` (recovery does not turn it into `failed`).
 
 ### F5.3 — Concurrency control ☑
@@ -210,10 +210,10 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ### F5.5 — Agent session resume (TB-130) ☑
 - Every run captures the agent CLI's `session_id` as a `session` JSONL event written immediately after `started` (PID is durable first). Claude pre-allocates the UUID and passes `--session-id <uuid>`; Codex emits its id mid-stream and the `codex exec --json` translator parses it via an `OnSessionID` callback.
-- Stale-recovery's dead-PID branch now splits: SessionID captured → `interrupted` (Resume button surfaces); no SessionID → existing `failed`. The cancelled carve-out still wins — a user-cancelled run with a SessionID stays `cancelled`, never `interrupted`.
+- Stale-recovery's dead-PID branch now splits: SessionID captured → `interrupted` (Resume button surfaces); no SessionID → `lost` (no Resume, because there is no captured session to continue). The cancelled carve-out still wins — a user-cancelled run with a SessionID stays `cancelled`, never `interrupted`.
 - Resume re-invokes the agent CLI with its native flag (`claude -r <uuid>` / `codex exec --json resume <uuid> <prompt>`), in the parent run's persisted cwd, with the parent's `TB_`-prefixed env replayed. The new run's `queued` event carries `resumed_from` + `resumed_from_run` so the UI shows a `↻ r_xxxx` chip linking back to the parent.
 - **Security**: only env keys prefixed `TB_` are persisted in JSONL `run_env`; credential vars never reach disk.
-- **Acceptance**: 12 sub-tasks (TB-131..TB-142). Fake-runner integration tests in `gui/app/agent_run_test.go` (TestResumeCycle_KillRecoverResume, TestResumeCycle_KillBeforeSessionStaysFailed) drive the full kill → interrupted → resume cycle without real Claude/Codex binaries.
+- **Acceptance**: 12 sub-tasks (TB-131..TB-142). Fake-runner integration tests in `gui/app/agent_run_test.go` (TestResumeCycle_KillRecoverResume, TestResumeCycle_KillBeforeSessionStaysLost) drive the full kill → interrupted → resume cycle without real Claude/Codex binaries.
 
 ---
 

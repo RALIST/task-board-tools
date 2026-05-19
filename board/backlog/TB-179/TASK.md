@@ -23,7 +23,7 @@ Teach the GUI daemon to enqueue safe implementation-mode runs for committed `rea
 
 - Depends on **TB-178**.
 - Only ready tasks are eligible. Backlog, in-progress, code-review, done, archive, and triage-reported/stale tasks are always skipped even when the query matches.
-- Only tasks with blank `AgentStatus` are eligible for automatic first runs; queued, running, success, failed, cancelled, interrupted, and needs-user statuses are not retried automatically.
+- Only tasks with blank `AgentStatus` are eligible for automatic first runs; queued, running, success, failed, cancelled, interrupted, lost, and needs-user statuses are not retried automatically.
 - Use the task's assigned `Agent` when present; otherwise use the configured `default_agent` as the effective runner.
 - Move the selected task to in-progress through the canonical board path before or at run start; respect existing daemon worker limits, active-run dedupe, cancellation, restart recovery, JSONL/log placement, and Wails run events.
 - Respect the epic ordering gate from TB-267 before applying the review-failed priority boost from TB-233.
@@ -49,7 +49,7 @@ Teach the GUI daemon to enqueue safe implementation-mode runs for committed `rea
 - [ ] Watcher-driven updates enqueue a newly eligible matching task once, and active-set/durable status checks prevent duplicate runs across rapid file events and app restart.
 - [ ] Backlog tasks returned by `BoardService.Triage()` are skipped regardless of query match, with test coverage for a task missing acceptance criteria or module.
 - [ ] Assigned-agent tasks run with their assigned agent; unassigned eligible tasks run with the default agent and emit queued/started/finished JSONL events with `mode=implement`.
-- [ ] Failed, cancelled, success, interrupted, needs-user, queued, and running tasks are not auto-retried unless a future task explicitly defines a retry policy; ready `review-failed` tasks with blank `AgentStatus` remain eligible.
+- [ ] Failed, cancelled, success, interrupted, lost, needs-user, queued, and running tasks are not auto-retried unless a future task explicitly defines a retry policy; ready `review-failed` tasks with blank `AgentStatus` remain eligible.
 - [ ] Integration-style Go tests use a fake runner/board to cover disabled, no-default, query mismatch, backlog skip, ready eligible task, assigned-agent, default-agent fallback, duplicate-event dedupe, WIP-blocked move, epic-order blocked task, review-failed eligible task, and restart scan behavior.
 - [ ] Verification includes `cd gui && go test ./...`.
 

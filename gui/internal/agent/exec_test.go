@@ -478,9 +478,9 @@ echo ok
 }
 
 // TestCodexRunner_ResumeArgs is the TB-139 contract: in ModeResume +
-// non-empty SessionID, args become `exec --json resume <uuid>
+// non-empty SessionID, args become `exec --yolo --json resume <uuid>
 // <prompt>` — codex's documented resume invocation form. Fresh runs
-// keep `exec --json <prompt>` from TB-134.
+// keep `exec --yolo --json <prompt>` from TB-134.
 func TestCodexRunner_ResumeArgs(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "argv")
 	dir := makeStubScript(t, "codex", `
@@ -507,7 +507,7 @@ echo ok
 		t.Fatalf("argv file: %v", err)
 	}
 	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	want := []string{"exec", "--json", "resume", uuid, "continue"}
+	want := []string{"exec", "--yolo", "--json", "resume", uuid, "continue"}
 	if len(args) != len(want) {
 		t.Fatalf("argv length: got %d want %d (%#v)", len(args), len(want), args)
 	}
@@ -547,7 +547,7 @@ echo ok
 	// TB-130: codex exec switched to --json so we can parse session_id
 	// from the structured stream (codex doesn't accept a pre-allocated
 	// session id like Claude does).
-	if len(args) != 3 || args[0] != "exec" || args[1] != "--json" || args[2] != "do the thing" {
+	if len(args) != 4 || args[0] != "exec" || args[1] != "--yolo" || args[2] != "--json" || args[3] != "do the thing" {
 		t.Fatalf("argv: %#v", args)
 	}
 }

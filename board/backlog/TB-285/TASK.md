@@ -70,4 +70,7 @@ Make `tb scan --apply` create each generated backlog task in folder form (`<boar
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited goal
 - 2026-05-19: Edited agentstatus=interrupted
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited agentstatus=interrupted
 

@@ -607,6 +607,7 @@
   .agent-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .agent-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
   .agent-interrupted { background: rgba(245, 158, 11, 0.22); color: #f59e0b; }
+  .agent-lost { background: rgba(236, 72, 153, 0.18); color: #ec4899; }
   .agent-needs-user { background: rgba(168, 85, 247, 0.22); color: #a855f7; }
   .agent-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
   .agent-glyph {
@@ -636,6 +637,7 @@
   .per-action-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .per-action-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
   .per-action-interrupted { background: rgba(245, 158, 11, 0.22); color: #f59e0b; }
+  .per-action-lost { background: rgba(236, 72, 153, 0.18); color: #ec4899; }
   .per-action-needs-user { background: rgba(168, 85, 247, 0.22); color: #a855f7; }
   .per-action-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
   .per-action-glyph {

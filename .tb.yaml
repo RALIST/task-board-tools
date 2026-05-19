@@ -19,7 +19,7 @@ prefix: TB
 # WIP enforcement: 'warn' (default) emits a stderr warning when a
 # move would exceed the destination column's limit. 'strict' rejects
 # the move with a non-zero exit so the source state is left untouched.
-# wip_enforcement: warn
+wip_enforcement: warn
 
 # File extensions scanned by `tb scan`.
 scan_extensions: .go,.ts,.svelte,.js

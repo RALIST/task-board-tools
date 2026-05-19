@@ -31,7 +31,7 @@ type Task struct {
 	Status          string `json:"status"`          // directory name: backlog, ready, in-progress, code-review, done, archive
 	FilePath        string `json:"filePath"`        // relative path from project root
 	Agent           string `json:"agent"`           // claude | codex | "" (optional) — most recent run
-	AgentStatus     string `json:"agentStatus"`     // queued | running | success | failed | cancelled | interrupted | needs-user | "" (optional) — most recent run
+	AgentStatus     string `json:"agentStatus"`     // queued | running | success | failed | cancelled | interrupted | lost | needs-user | "" (optional) — most recent run
 	GroomedBy       string `json:"groomedBy"`       // TB-237: agent that last ran ModeGroom
 	GroomStatus     string `json:"groomStatus"`     // TB-237: terminal status of last groom run
 	ImplementedBy   string `json:"implementedBy"`   // TB-237: agent that last ran ModeImplement
@@ -45,11 +45,11 @@ type Task struct {
 var validAgents = map[string]bool{"claude": true, "codex": true}
 
 // validAgentStatuses enumerates the AgentStatus enum. `cancelled` is
-// user-initiated and `interrupted` is recovery-initiated; M5 stale-recovery
-// must never overwrite either. The validator allows both values so the same
-// `tb edit --agent-status` path used by recovery can write them; the
-// "nothing manual writes interrupted" rule lives in code+docs, not here
-// (matching the cancelled precedent).
+// user-initiated; `interrupted` and `lost` are recovery-initiated; M5
+// stale-recovery must never overwrite cancelled. The validator allows the
+// recovery values so the same `tb edit --agent-status` path used by recovery
+// can write them; the "nothing manual writes recovery statuses" rule lives
+// in code+docs, not here (matching the cancelled precedent).
 //
 // `needs-user` is the agent-attention handoff (TB-182): an autonomous agent
 // stopped mid-run because user input is required. The agent writes both the
@@ -64,6 +64,7 @@ var validAgentStatuses = map[string]bool{
 	"failed":      true,
 	"cancelled":   true,
 	"interrupted": true,
+	"lost":        true,
 	"needs-user":  true,
 }
 

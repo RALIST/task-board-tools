@@ -635,50 +635,54 @@ func TestEditAgentStatusNeedsUser(t *testing.T) {
 	assertNotContains(t, metadataHeader(content), "**AgentStatus:**")
 }
 
-// TestEditAgentStatusInterrupted confirms the validator accepts the
-// `interrupted` value the recovery path needs to write. The "nothing
-// manual writes interrupted" rule is convention-based (same precedent
-// as `cancelled`), not enforced here.
-func TestEditAgentStatusInterrupted(t *testing.T) {
-	initial := strings.Join([]string{
-		"# TB-1: Existing Task",
-		"",
-		"**Type:** bug",
-		"**Priority:** P2",
-		"**Size:** M",
-		"**Module:** cli",
-		"**Agent:** claude",
-		"**AgentStatus:** running",
-		"**Branch:** -",
-		"",
-		"## Goal",
-		"",
-		"Cover the interrupted status round-trip.",
-		"",
-		"## Log",
-		"",
-		"- 2026-05-14: Created",
-		"",
-	}, "\n")
+// TestEditAgentStatusRecoveryValues confirms the validator accepts the
+// recovery-only values the daemon needs to write. The "nothing manual writes
+// recovery statuses" rule is convention-based (same precedent as
+// `cancelled`), not enforced here.
+func TestEditAgentStatusRecoveryValues(t *testing.T) {
+	for _, status := range []string{"interrupted", "lost"} {
+		t.Run(status, func(t *testing.T) {
+			initial := strings.Join([]string{
+				"# TB-1: Existing Task",
+				"",
+				"**Type:** bug",
+				"**Priority:** P2",
+				"**Size:** M",
+				"**Module:** cli",
+				"**Agent:** claude",
+				"**AgentStatus:** running",
+				"**Branch:** -",
+				"",
+				"## Goal",
+				"",
+				"Cover the recovery status round-trip.",
+				"",
+				"## Log",
+				"",
+				"- 2026-05-14: Created",
+				"",
+			}, "\n")
 
-	boardDir := newCommandTestBoard(t)
-	taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
-	if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
-		t.Fatalf("write task: %v", err)
+			boardDir := newCommandTestBoard(t)
+			taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+			if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+				t.Fatalf("write task: %v", err)
+			}
+
+			out := captureStdout(t, func() {
+				cmdEdit([]string{"TB-1", "--agent-status", status})
+			})
+			assertContains(t, out, "agentstatus="+status)
+
+			data, err := os.ReadFile(taskPath)
+			if err != nil {
+				t.Fatalf("read task: %v", err)
+			}
+			content := string(data)
+			assertContains(t, content, "**AgentStatus:** "+status)
+			assertContains(t, content, ": Edited agentstatus="+status)
+		})
 	}
-
-	out := captureStdout(t, func() {
-		cmdEdit([]string{"TB-1", "--agent-status", "interrupted"})
-	})
-	assertContains(t, out, "agentstatus=interrupted")
-
-	data, err := os.ReadFile(taskPath)
-	if err != nil {
-		t.Fatalf("read task: %v", err)
-	}
-	content := string(data)
-	assertContains(t, content, "**AgentStatus:** interrupted")
-	assertContains(t, content, ": Edited agentstatus=interrupted")
 }
 
 // TestEditPerModeAttribution exercises the TB-237 per-mode pairs end-to-end:

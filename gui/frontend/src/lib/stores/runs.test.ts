@@ -205,15 +205,17 @@ describe('runsStore', () => {
 });
 
 describe('deriveEffectiveRunStatus', () => {
-  it('downgrades running to interrupted when AgentStatus is terminal', () => {
-    for (const term of ['success', 'failed', 'cancelled', 'interrupted', 'needs-user']) {
-      expect(deriveEffectiveRunStatus('running', term)).toBe('interrupted');
+  it('uses the known terminal AgentStatus when a run row is still running', () => {
+    for (const term of ['success', 'failed', 'cancelled', 'interrupted', 'lost', 'needs-user'] as const) {
+      expect(deriveEffectiveRunStatus('running', term)).toBe(term);
     }
   });
 
-  it('downgrades queued to interrupted when AgentStatus is terminal', () => {
-    expect(deriveEffectiveRunStatus('queued', 'success')).toBe('interrupted');
-    expect(deriveEffectiveRunStatus('queued', 'failed')).toBe('interrupted');
+  it('uses the known terminal AgentStatus when a run row is still queued', () => {
+    expect(deriveEffectiveRunStatus('queued', 'success')).toBe('success');
+    expect(deriveEffectiveRunStatus('queued', 'failed')).toBe('failed');
+    expect(deriveEffectiveRunStatus('queued', 'lost')).toBe('lost');
+    expect(deriveEffectiveRunStatus('queued', 'needs-user')).toBe('needs-user');
   });
 
   it('preserves running when AgentStatus is also running (live run)', () => {
@@ -227,7 +229,7 @@ describe('deriveEffectiveRunStatus', () => {
   });
 
   it('does not touch terminal run statuses', () => {
-    for (const term of ['success', 'failed', 'cancelled', 'interrupted'] as const) {
+    for (const term of ['success', 'failed', 'cancelled', 'interrupted', 'lost', 'needs-user'] as const) {
       // Even if AgentStatus is terminal, a terminal run keeps its own status.
       expect(deriveEffectiveRunStatus(term, 'success')).toBe(term);
       expect(deriveEffectiveRunStatus(term, 'running')).toBe(term);

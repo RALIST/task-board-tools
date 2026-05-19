@@ -2185,6 +2185,7 @@
   .pill-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .pill-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
   .pill-interrupted { background: rgba(245, 158, 11, 0.22); color: #f59e0b; }
+  .pill-lost { background: rgba(236, 72, 153, 0.18); color: #ec4899; }
   .pill-needs-user { background: rgba(168, 85, 247, 0.22); color: #a855f7; }
   .pill-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
 

@@ -18,6 +18,7 @@ func TestConventionsTemplateStaysPolicyFocused(t *testing.T) {
 		"WIP",
 		"Related Tasks",
 		"AgentStatus",
+		"`lost`",
 		"Every done task needs evidence",
 		"Implementation tasks should point to a commit or review artifact that includes the task ID",
 		"Spikes should link or attach the investigation result",

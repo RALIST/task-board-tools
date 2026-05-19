@@ -27,13 +27,14 @@ Make auto-groom visible and understandable in the GUI while preserving the exist
 
 ## Acceptance Criteria
 
-- [ ] With auto-groom disabled, triage indicators still open the drawer and emphasize the existing manual Groom button; clicking Groom starts a `mode=groom` run exactly as M6 does today.
-- [ ] With auto-groom enabled and a valid default agent, a triaged card/drawer shows clear queued/running/success/failure feedback for the automatic groom run using existing run events and run history; Cancel still cancels the active groom run.
-- [ ] With auto-groom enabled but `default_agent=none`, the GUI shows an actionable message that the user must set a default agent in Settings; no silent failure and no raw backend error is shown.
-- [ ] The manual Groom button remains available for explicit user retries even if the task was skipped by the auto-groom dedupe guard.
-- [ ] Vitest/Svelte tests cover disabled mode, enabled-with-default mode, enabled-without-default message, and the manual Groom fallback staying available.
+- [ ] With auto-groom disabled, triage indicators still open the drawer and emphasize the existing manual Groom button; clicking Groom starts a `mode=groom` run exactly as M6 does today; no auto-groom chips render on the card.
+- [ ] With auto-groom enabled and a valid default agent, a triaged card/drawer shows clear queued/running/success/failure feedback for the automatic groom run using existing `runsForTask`/`mode=groom` events and run history; Cancel still cancels the active groom run via the shared path.
+- [ ] When a task is inside its settle window, the Card renders a subtle "waiting" pill (inside `.groom-slot`) and the drawer shows an actionable line "Auto-groom will run in ~Nm — keep editing or attaching files to reset the window." Without that pill, a settling task should not look ignored.
+- [ ] With auto-groom enabled but `default_agent=none`, the GUI shows an actionable message that the user must set a default agent in Settings, driven by edge-triggered `auto-groom:needs-default-agent` / `auto-groom:default-agent-cleared` Wails events — no silent failure, no raw backend error, and no event spam.
+- [ ] The manual Groom button remains available for explicit user retries even if the task was skipped by the auto-groom dedupe or settle guards.
+- [ ] Vitest/Svelte tests cover disabled mode, enabled-with-default mode, enabled-without-default message, settle-waiting pill rendering, dismissal of the no-default warning on default-agent change, and the manual Groom fallback staying available.
 - [ ] Verification passes: `cd gui/frontend && npm run check`; `cd gui/frontend && npm test -- --run`.
-- [ ] Manual test: set `default_agent=codex`, enable auto-groom, create a placeholder backlog task, confirm it visibly queues/runs as `groom`; disable auto-groom, create another placeholder task, confirm only the needs-grooming indicator/manual Groom path appears; set default agent to `none` while enabled and confirm the warning appears.
+- [ ] Manual test: set `default_agent=codex`, enable auto-groom with `auto_groom_settle_minutes=5`, create a placeholder backlog task — Card shows the waiting pill; attach a screenshot to reset the window; after expiry, the task auto-grooms as `mode=groom`. With `auto_groom_settle_minutes=0` it auto-grooms immediately. Disable auto-groom, create another placeholder, confirm only the needs-grooming indicator/manual Groom path appears; set default agent to `none` while enabled and confirm the warning appears once and clears once when the user picks a real agent.
 
 ## Related Tasks
 
@@ -51,4 +52,5 @@ Make auto-groom visible and understandable in the GUI while preserving the exist
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-20: Edited acceptance
 

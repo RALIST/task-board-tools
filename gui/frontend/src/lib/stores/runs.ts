@@ -21,7 +21,7 @@ export interface Run {
   queuedAt: string;
   startedAt: string;
   finishedAt: string;
-  status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'interrupted' | '';
+  status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'interrupted' | 'lost' | 'needs-user' | '';
   exitCode: number;
   logPath: string;
   // TB-130 resume linkage. sessionId is the agent-side conversation id
@@ -76,7 +76,7 @@ export function setRunsForTask(taskId: string, list: Run[]): void {
 }
 
 /** Status precedence used to decide which side of a merge wins:
- *  terminal (success/failed/cancelled) > running > queued > unset. */
+ *  terminal (success/failed/cancelled/interrupted/lost/needs-user) > running > queued > unset. */
 function statusRank(status: Run['status']): number {
   switch (status) {
     case '':
@@ -233,14 +233,6 @@ export function _resetRunsStoreForTesting(): void {
   selectedRunID.set(null);
 }
 
-/** Task-level AgentStatus values that mean the task is no longer
- * running an active agent. Includes `needs-user` because the agent
- * stopped intentionally and is awaiting user input — no live process
- * is running, so a still-`running` JSONL run is orphaned by definition. */
-const TERMINAL_AGENT_STATUSES = new Set([
-  'success', 'failed', 'cancelled', 'interrupted', 'needs-user',
-]);
-
 /** Returns the run status to show in the GUI given the run's JSONL-derived
  * status and the task-level AgentStatus.
  *
@@ -256,14 +248,11 @@ const TERMINAL_AGENT_STATUSES = new Set([
  *     and the daemon was killed before the run-end record was written,
  *   - a stray manual `tb edit` set AgentStatus while a stale run lingered.
  *
- * In those cases the drawer's status pill would show RUNNING forever
- * while the kanban card correctly displays the terminal AgentStatus.
- * This helper resolves the divergence at the display layer: a running/
- * queued run is downgraded to `interrupted` when the task's AgentStatus
- * is terminal. `interrupted` is the safest synthetic value — it conveys
- * "outcome unknown" without claiming success that wasn't observed, and
- * matches the semantics of orphaned runs elsewhere in the codebase
- * (TB-130 daemon-restart recovery).
+ * In those cases the drawer's status pill would show RUNNING forever while
+ * the kanban card correctly displays the terminal AgentStatus. This helper
+ * resolves the divergence at the display layer: a running/queued run adopts
+ * the task's known terminal status. That keeps real `failed`, `cancelled`,
+ * and `needs-user` outcomes distinct from `lost`.
  *
  * The JSONL on disk is NOT mutated by this function — it's a pure UI
  * derivation. Run-history rendering, the agent-section pill, and the
@@ -271,8 +260,9 @@ const TERMINAL_AGENT_STATUSES = new Set([
  * presents a coherent state.
  */
 export function deriveEffectiveRunStatus(runStatus: Run['status'], taskAgentStatus: string): Run['status'] {
-  if ((runStatus === 'running' || runStatus === 'queued') && TERMINAL_AGENT_STATUSES.has(taskAgentStatus)) {
-    return 'interrupted';
+  if (runStatus === 'running' || runStatus === 'queued') {
+    const terminal = taskTerminalStatusToRunStatus(taskAgentStatus);
+    if (terminal) return terminal;
   }
   return runStatus;
 }
@@ -296,6 +286,20 @@ function emptyRun(runId: string): Run {
 
 function normalize(r: Run): Run {
   return { ...r, taskId: r.taskId ?? '', mode: normalizeMode(r.mode) };
+}
+
+function taskTerminalStatusToRunStatus(status: string): Run['status'] | null {
+  switch (status) {
+    case 'success':
+    case 'failed':
+    case 'cancelled':
+    case 'interrupted':
+    case 'lost':
+    case 'needs-user':
+      return status;
+    default:
+      return null;
+  }
 }
 
 function compareDesc(a: Run, b: Run): number {

@@ -15,7 +15,7 @@ Surface the Resume action whenever the latest run has a captured `session_id`, r
 
 ## Acceptance Criteria
 
-- [ ] `ResumeAgent` in `gui/app/agent_run.go` (around the `ErrCannotResume` check) no longer gates on `AgentStatus == "interrupted"` alone. Eligibility is: latest run from `resumableSessionID` returned ok=true (`gui/app/agent_recovery.go:414-436`) AND status is one of `{interrupted, failed, cancelled, success}` (i.e. any terminal state with a captured session). `queued` / `running` / `needs-user` remain blocked.
+- [ ] `ResumeAgent` in `gui/app/agent_run.go` (around the `ErrCannotResume` check) no longer gates on `AgentStatus == "interrupted"` alone. Eligibility is: latest run from `resumableSessionID` returned ok=true (`gui/app/agent_recovery.go:730-755`) AND status is one of `{interrupted, lost, failed, cancelled, success}` (i.e. any terminal state with a captured session). `queued` / `running` / `needs-user` remain blocked.
 - [ ] `ErrCannotResume` is kept for the no-session case (so the message remains accurate) and reworded; the comment at `gui/app/agent_service.go:49-52` is updated to reflect the new policy.
 - [ ] Frontend (`gui/frontend/src/lib/components/TaskDrawer.svelte` or equivalent) surfaces the Resume button whenever the backend reports a resumable candidate — driven by a service call or the existing `agent:run-finished` payload, not by a hardcoded status string.
 - [ ] Resuming from `failed`, `success`, or `cancelled` does NOT silently clear the user's intent — show the source status next to the button (e.g. "Resume failed run") so the action is intentional.
@@ -36,4 +36,3 @@ Surface the Resume action whenever the latest run has a captured `session_id`, r
 - 2026-05-19: Edited agentstatus=running
 - 2026-05-19: Edited agentstatus=interrupted
 - 2026-05-19: Committed — moved to ready
-

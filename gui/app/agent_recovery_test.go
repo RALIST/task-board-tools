@@ -20,6 +20,8 @@ import (
 	"tools/tb-gui/internal/cli"
 )
 
+const recoveryStatusLost = agent.Status("lost")
+
 // recoveryFixture builds a real `tb` board with one task whose .md
 // says AgentStatus=running. The caller supplies JSONL events that
 // should be present at .agent-state/<ID>.jsonl. Returns the wired
@@ -131,7 +133,7 @@ func recoveryTaskBody(id, agentField, agentStatus string) string {
 		"**Branch:** —\n**Agent:** "+agentField+"\n**AgentStatus:** "+agentStatus, 1)
 }
 
-func TestRecoverStale_NoFinished_DeadPID_MarksFailed(t *testing.T) {
+func TestRecoverStale_NoFinished_DeadPID_MarksLost(t *testing.T) {
 	events := []agent.Event{
 		{TS: "2026-05-13T10:00:00Z", RunID: "r_aaaa", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
 		{TS: "2026-05-13T10:00:01Z", RunID: "r_aaaa", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 99999},
@@ -142,30 +144,30 @@ func TestRecoverStale_NoFinished_DeadPID_MarksFailed(t *testing.T) {
 		t.Fatalf("RecoverStale: %v", err)
 	}
 
-	// JSONL now has a finished{failed} line.
+	// JSONL now has a finished{lost} line.
 	final := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
 	if len(final) < 3 {
 		t.Fatalf("expected synthetic finished; have %d events", len(final))
 	}
 	last := final[len(final)-1]
-	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
+	if last.Event != agent.EvFinished || last.Status != recoveryStatusLost {
 		t.Errorf("last event: %+v", last)
 	}
 	if last.Reason != "stale after restart" {
 		t.Errorf("reason: %q", last.Reason)
 	}
 
-	// AgentStatus on disk now reads failed.
+	// AgentStatus on disk now reads lost.
 	out, err := c.Run(context.Background(), "show", "TB-1")
 	if err != nil {
 		t.Fatalf("tb show: %v", err)
 	}
-	if !strings.Contains(string(out), "**AgentStatus:** failed") {
-		t.Fatalf("AgentStatus not failed:\n%s", out)
+	if !strings.Contains(string(out), "**AgentStatus:** lost") {
+		t.Fatalf("AgentStatus not lost:\n%s", out)
 	}
 }
 
-func TestRecoverStale_MixedFileAndFolderTasksMarkFailedInOwnLayouts(t *testing.T) {
+func TestRecoverStale_MixedFileAndFolderTasksMarkLostInOwnLayouts(t *testing.T) {
 	rec, _, boardDir, c := recoveryFixtureWithTasks(t, []recoveryTaskFixture{
 		{
 			id:          "TB-1",
@@ -219,15 +221,15 @@ func TestRecoverStale_MixedFileAndFolderTasksMarkFailedInOwnLayouts(t *testing.T
 	} {
 		events := readJSONL(t, tc.path)
 		last := events[len(events)-1]
-		if last.Event != agent.EvFinished || last.Status != agent.StatusFailed || last.Reason != "stale after restart" {
-			t.Fatalf("%s last event: %+v, want stale failed", tc.id, last)
+		if last.Event != agent.EvFinished || last.Status != recoveryStatusLost || last.Reason != "stale after restart" {
+			t.Fatalf("%s last event: %+v, want stale lost", tc.id, last)
 		}
 		out, err := c.Run(context.Background(), "show", tc.id)
 		if err != nil {
 			t.Fatalf("tb show %s: %v", tc.id, err)
 		}
-		if !strings.Contains(string(out), "**AgentStatus:** failed") {
-			t.Fatalf("%s AgentStatus not failed:\n%s", tc.id, out)
+		if !strings.Contains(string(out), "**AgentStatus:** lost") {
+			t.Fatalf("%s AgentStatus not lost:\n%s", tc.id, out)
 		}
 	}
 
@@ -300,7 +302,7 @@ func TestRecoverStale_FolderLivePID_SkipsRecovery(t *testing.T) {
 	}
 }
 
-func TestRecoverStale_LivePIDMonitorMarksFileAndFolderRunsFailedWhenPIDExits(t *testing.T) {
+func TestRecoverStale_LivePIDMonitorMarksFileAndFolderRunsLostWhenPIDExits(t *testing.T) {
 	rec, _, boardDir, c := recoveryFixtureWithTasks(t, []recoveryTaskFixture{
 		{
 			id:          "TB-1",
@@ -362,15 +364,68 @@ func TestRecoverStale_LivePIDMonitorMarksFileAndFolderRunsFailedWhenPIDExits(t *
 		waitForCondition(t, time.Second, func() bool {
 			events := readJSONL(t, agent.StatePath(boardDir, id))
 			last := events[len(events)-1]
-			if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
+			if last.Event != agent.EvFinished || last.Status != recoveryStatusLost {
 				return false
 			}
 			if last.Reason != "orphaned process exited after restart" {
 				t.Fatalf("%s reason = %q, want orphaned process exited after restart", id, last.Reason)
 			}
 			out, err := c.Run(context.Background(), "show", id)
-			return err == nil && strings.Contains(string(out), "**AgentStatus:** failed")
+			return err == nil && strings.Contains(string(out), "**AgentStatus:** lost")
 		})
+	}
+}
+
+func TestRecoverStale_NoJSONL_MarksLostAndEmitsLost(t *testing.T) {
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "claude", nil)
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+
+	final := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if len(final) != 1 {
+		t.Fatalf("expected one synthetic finished event, got %d: %+v", len(final), final)
+	}
+	last := final[len(final)-1]
+	if last.Event != agent.EvFinished || last.Status != recoveryStatusLost {
+		t.Fatalf("last event: %+v, want finished{lost}", last)
+	}
+	if last.Reason != "running without JSONL" {
+		t.Fatalf("reason = %q, want running without JSONL", last.Reason)
+	}
+
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** lost") {
+		t.Fatalf("AgentStatus not lost:\n%s", out)
+	}
+
+	em, ok := rec.agent.emitter.(*recordingEmitter)
+	if !ok {
+		t.Fatalf("unexpected emitter type %T", rec.agent.emitter)
+	}
+	var found map[string]any
+	for _, ev := range em.events {
+		if ev.Name != "agent:run-finished" || len(ev.Payload) == 0 {
+			continue
+		}
+		p, ok := ev.Payload[0].(map[string]any)
+		if ok && p["task_id"] == "TB-1" {
+			found = p
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("missing agent:run-finished event; events=%+v", em.events)
+	}
+	if found["status"] != "lost" {
+		t.Fatalf("finished status payload = %#v, want lost", found["status"])
+	}
+	if _, hasSession := found["session_id"]; hasSession {
+		t.Fatalf("lost no-JSONL payload must not carry session_id: %+v", found)
 	}
 }
 
@@ -641,7 +696,7 @@ func TestRecoverStale_OldStartedSchema_FallsBackToQueuedAgent(t *testing.T) {
 	}
 }
 
-// --- TB-137: interrupted-vs-failed branching tests ---
+// --- TB-137/TB-251: interrupted-vs-lost branching tests ---
 
 // TestRecoverStale_DeadPIDWithSessionID_MarksInterrupted is the
 // positive case for TB-130: when the latest run captured a SessionID
@@ -687,12 +742,11 @@ func TestRecoverStale_DeadPIDWithSessionID_MarksInterrupted(t *testing.T) {
 	}
 }
 
-// TestRecoverStale_DeadPIDNoSessionID_MarksFailedUnchanged confirms
-// the dead-PID branch still resolves to `failed` (with the original
-// "stale after restart" reason) when no SessionID was captured. Resume
-// isn't possible without one, so widening to `interrupted` would just
-// hide the dead end from the user.
-func TestRecoverStale_DeadPIDNoSessionID_MarksFailedUnchanged(t *testing.T) {
+// TestRecoverStale_DeadPIDNoSessionID_MarksLost confirms the dead-PID
+// branch resolves to `lost` (with the original "stale after restart"
+// reason) when no SessionID was captured. The daemon lost the run result,
+// so recovery must not claim the agent itself failed.
+func TestRecoverStale_DeadPIDNoSessionID_MarksLost(t *testing.T) {
 	events := []agent.Event{
 		{TS: "2026-05-14T10:00:00Z", RunID: "r_nofs", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
 		{TS: "2026-05-14T10:00:01Z", RunID: "r_nofs", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 9999},
@@ -706,15 +760,15 @@ func TestRecoverStale_DeadPIDNoSessionID_MarksFailedUnchanged(t *testing.T) {
 	}
 	final := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
 	last := final[len(final)-1]
-	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
-		t.Errorf("last event: %+v, want finished{failed}", last)
+	if last.Event != agent.EvFinished || last.Status != recoveryStatusLost {
+		t.Errorf("last event: %+v, want finished{lost}", last)
 	}
 	if last.Reason != "stale after restart" {
 		t.Errorf("reason: %q, want %q", last.Reason, "stale after restart")
 	}
 	out, _ := c.Run(context.Background(), "show", "TB-1")
-	if !strings.Contains(string(out), "**AgentStatus:** failed") {
-		t.Fatalf("AgentStatus not failed:\n%s", out)
+	if !strings.Contains(string(out), "**AgentStatus:** lost") {
+		t.Fatalf("AgentStatus not lost:\n%s", out)
 	}
 }
 
@@ -744,8 +798,8 @@ func TestRecoverStale_TerminalizesOlderStartedOnlyRunsBeforeListRuns(t *testing.
 	if statuses["r_old_session"] != string(agent.StatusInterrupted) {
 		t.Fatalf("old run status = %q, want interrupted (all runs: %+v)", statuses["r_old_session"], runs)
 	}
-	if statuses["r_new_no_session"] != string(agent.StatusFailed) {
-		t.Fatalf("new run status = %q, want failed (all runs: %+v)", statuses["r_new_no_session"], runs)
+	if statuses["r_new_no_session"] != string(recoveryStatusLost) {
+		t.Fatalf("new run status = %q, want lost (all runs: %+v)", statuses["r_new_no_session"], runs)
 	}
 	for _, run := range runs {
 		if run.Status == "running" || run.Status == "queued" {
@@ -757,8 +811,8 @@ func TestRecoverStale_TerminalizesOlderStartedOnlyRunsBeforeListRuns(t *testing.
 	if err != nil {
 		t.Fatalf("tb show: %v", err)
 	}
-	if !strings.Contains(string(out), "**AgentStatus:** failed") {
-		t.Fatalf("latest run should drive task AgentStatus=failed:\n%s", out)
+	if !strings.Contains(string(out), "**AgentStatus:** lost") {
+		t.Fatalf("latest run should drive task AgentStatus=lost:\n%s", out)
 	}
 }
 
@@ -887,7 +941,7 @@ func waitForCondition(t *testing.T, timeout time.Duration, ok func() bool) {
 //
 // These exercise the helper directly without a tb binary fixture — only
 // AppendEvent + os scaffolding. resumableSessionID is the gate for the
-// Resume button and for recovery's interrupted-vs-failed branch (TB-137),
+// Resume button and recovery's interrupted-vs-lost branch (TB-137/TB-251),
 // so its "latest run only" invariant is the contract we lock down here.
 
 func resumableSessionTestBoard(t *testing.T) string {
@@ -980,12 +1034,12 @@ func TestRecoverStale_CodeReviewBucket_ReconcilesRunning(t *testing.T) {
 		t.Fatalf("expected synthetic finished for code-review task; have %d events", len(final))
 	}
 	last := final[len(final)-1]
-	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
-		t.Errorf("last event: %+v; want finished{failed}", last)
+	if last.Event != agent.EvFinished || last.Status != recoveryStatusLost {
+		t.Errorf("last event: %+v; want finished{lost}", last)
 	}
 	out, _ := c.Run(context.Background(), "show", "TB-1")
-	if !strings.Contains(string(out), "**AgentStatus:** failed") {
-		t.Fatalf("AgentStatus not reconciled to failed:\n%s", out)
+	if !strings.Contains(string(out), "**AgentStatus:** lost") {
+		t.Fatalf("AgentStatus not reconciled to lost:\n%s", out)
 	}
 }
 
@@ -1012,12 +1066,12 @@ func TestRecoverStale_ArchiveBucket_ReconcilesRunning(t *testing.T) {
 
 	final := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
 	last := final[len(final)-1]
-	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
-		t.Errorf("last event: %+v; want finished{failed}", last)
+	if last.Event != agent.EvFinished || last.Status != recoveryStatusLost {
+		t.Errorf("last event: %+v; want finished{lost}", last)
 	}
 	out, _ := c.Run(context.Background(), "show", "TB-1")
-	if !strings.Contains(string(out), "**AgentStatus:** failed") {
-		t.Fatalf("AgentStatus not reconciled to failed:\n%s", out)
+	if !strings.Contains(string(out), "**AgentStatus:** lost") {
+		t.Fatalf("AgentStatus not reconciled to lost:\n%s", out)
 	}
 }
 

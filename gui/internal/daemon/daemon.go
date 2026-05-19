@@ -87,8 +87,8 @@ type Agent interface {
 type Recovery interface {
 	// RecoverStale scans the board's .agent-state for tasks with
 	// AgentStatus=running whose JSONL lacks a `finished` event and
-	// whose PID is dead. Writes synthetic finished{failed} (or
-	// finished{cancelled} per the carve-out) and updates AgentStatus.
+	// whose PID is dead. Writes synthetic finished{lost/interrupted}
+	// (or finished{cancelled} per the carve-out) and updates AgentStatus.
 	RecoverStale(ctx context.Context, boardDir string) error
 }
 

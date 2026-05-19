@@ -26,12 +26,13 @@ Add a persisted `auto_groom_enabled` preference and Settings panel toggle that c
 
 ## Acceptance Criteria
 
-- [ ] `Preferences` includes `AutoGroomEnabled bool` with JSON key `auto_groom_enabled`; missing field reads as `false`; `SettingsService` exposes `GetAutoGroomEnabled() bool` and `SetAutoGroomEnabled(bool) error`.
-- [ ] Go tests cover missing-file default, true/false round trip, and partial/corrupt preference files without regressing existing `max_workers`, timeout, default-agent, or CLI-path normalization.
-- [ ] Wails/API wrappers and `preferencesStore` expose `autoGroomEnabled` plus a setter; store tests cover load, optimistic save, and rollback on setter failure.
-- [ ] `SettingsPanel.svelte` renders an `Enable auto groom` toggle with normal dirty-state/save/toast behavior and inline guidance when it is enabled while `default_agent` is `none`.
+- [ ] `Preferences` includes `AutoGroomEnabled bool` (JSON key `auto_groom_enabled`, default `false`) and `AutoGroomSettleMinutes int` (JSON key `auto_groom_settle_minutes`, default `5`, clamped to `[0, 60]`); missing fields read as defaults; `SettingsService` exposes `Get/SetAutoGroomEnabled` and `Get/SetAutoGroomSettleMinutes`.
+- [ ] Go tests cover missing-file default, true/false and value round trip, out-of-range clamping for the settle minutes, and partial/corrupt preference files without regressing existing `max_workers`, timeout, default-agent, or CLI-path normalization.
+- [ ] Wails/API wrappers and `preferencesStore` expose `autoGroomEnabled` + `autoGroomSettleMinutes` plus setters; store tests cover load, optimistic save, and rollback on setter failure for both fields.
+- [ ] `SettingsPanel.svelte` renders an `Enable auto groom` toggle, a numeric `Auto-groom settle window` input (disabled when the toggle is off), normal dirty-state/save/toast behavior, and inline guidance when auto-groom is enabled while `default_agent` is `none`.
+- [ ] Board view header exposes a compact Enable/Disable auto-groom toggle wired to the same `auto_groom_enabled` preference as the Settings panel; flipping either surface updates the other reactively (shared `preferencesStore`) and shows the no-default-agent warning style when applicable.
 - [ ] Verification passes: `cd gui && go test ./...`; `cd gui/frontend && npm run check`; `cd gui/frontend && npm test -- --run`.
-- [ ] Manual test: open Settings, toggle `Enable auto groom`, save, close/reopen Settings, confirm the value persists; set default agent to `none` and confirm the panel tells the user to set a default agent before automation can run.
+- [ ] Manual test: open Settings, toggle `Enable auto groom`, change the settle window value, save, close/reopen Settings, confirm the values persist; flip the header toggle and confirm Settings reflects it; set default agent to `none` and confirm both surfaces tell the user to set a default agent before automation can run.
 
 ## Related Tasks
 
@@ -48,4 +49,7 @@ Add a persisted `auto_groom_enabled` preference and Settings panel toggle that c
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-20: Edited acceptance
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
 

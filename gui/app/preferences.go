@@ -42,6 +42,22 @@ const (
 // agent dropdown. "none" means leave unassigned unless the user chooses one.
 var DefaultAgentValues = []string{"none", "claude", "codex"}
 
+// AutoGroomEnabledDefault is the default for the auto-groom feature.
+// Off so existing users opt in deliberately.
+const AutoGroomEnabledDefault = false
+
+// AutoGroomSettleMinutesDefault is the default settle window before a
+// freshly-created or edited backlog task becomes eligible for auto-groom.
+// Five minutes gives users time to attach files and refine the task.
+const AutoGroomSettleMinutesDefault = 5
+
+// AutoGroomSettleMinutesMin / AutoGroomSettleMinutesMax bracket the user-tunable
+// settle window in minutes. Zero opts out of the window entirely.
+const (
+	AutoGroomSettleMinutesMin = 0
+	AutoGroomSettleMinutesMax = 60
+)
+
 // Preferences is the persisted tuning knob set. Fields are JSON-tagged
 // in snake_case so a future settings UI (M7) can serialise the same
 // shape directly from a hand-edited form.
@@ -51,6 +67,8 @@ type Preferences struct {
 	DefaultAgent            string `json:"default_agent"`
 	CLIPath                 string `json:"cli_path"`
 	DisablePeriodicRecovery bool   `json:"disable_periodic_recovery"`
+	AutoGroomEnabled        bool   `json:"auto_groom_enabled"`
+	AutoGroomSettleMinutes  int    `json:"auto_groom_settle_minutes"`
 }
 
 // preferencesPath returns the absolute path the preferences file lives
@@ -168,6 +186,45 @@ func (s *SettingsService) SetPeriodicRecoveryEnabled(enabled bool) error {
 	return nil
 }
 
+// GetAutoGroomEnabled returns whether the GUI auto-groom coordinator may
+// start grooming runs for triage-flagged backlog tasks. Missing preferences
+// default to false (opt-in feature).
+func (s *SettingsService) GetAutoGroomEnabled() bool {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return AutoGroomEnabledDefault
+	}
+	return prefs.AutoGroomEnabled
+}
+
+// SetAutoGroomEnabled persists the auto-groom on/off toggle.
+func (s *SettingsService) SetAutoGroomEnabled(enabled bool) error {
+	return s.updatePreferences(func(prefs *Preferences) {
+		prefs.AutoGroomEnabled = enabled
+	})
+}
+
+// GetAutoGroomSettleMinutes returns the configured settle window before a
+// freshly created or edited backlog task becomes eligible for auto-groom.
+// Clamped to [AutoGroomSettleMinutesMin, AutoGroomSettleMinutesMax]; missing
+// values yield AutoGroomSettleMinutesDefault.
+func (s *SettingsService) GetAutoGroomSettleMinutes() int {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return AutoGroomSettleMinutesDefault
+	}
+	return clampAutoGroomSettleMinutes(prefs.AutoGroomSettleMinutes, s.logger)
+}
+
+// SetAutoGroomSettleMinutes persists the settle window after clamping.
+func (s *SettingsService) SetAutoGroomSettleMinutes(n int) error {
+	return s.updatePreferences(func(prefs *Preferences) {
+		prefs.AutoGroomSettleMinutes = n
+	})
+}
+
 func clampMaxWorkers(n int, logger *slog.Logger) int {
 	if n < MaxWorkersMin {
 		if n != 0 {
@@ -201,6 +258,25 @@ func clampAgentTimeoutMinutes(n int, logger *slog.Logger) int {
 	return n
 }
 
+// clampAutoGroomSettleMinutes coerces the persisted value into the allowed
+// [Min, Max] range. Negative or missing-on-an-existing-file values fall
+// back to the default; the field is a non-pointer int so we cannot
+// distinguish "absent" from "explicit 0" at this layer. Zero is treated
+// as an explicit opt-out and passes through unchanged.
+func clampAutoGroomSettleMinutes(n int, logger *slog.Logger) int {
+	if n < AutoGroomSettleMinutesMin {
+		logger.Warn("preferences: auto_groom_settle_minutes below min; clamping",
+			"value", n, "min", AutoGroomSettleMinutesMin)
+		return AutoGroomSettleMinutesMin
+	}
+	if n > AutoGroomSettleMinutesMax {
+		logger.Warn("preferences: auto_groom_settle_minutes above max; clamping",
+			"value", n, "max", AutoGroomSettleMinutesMax)
+		return AutoGroomSettleMinutesMax
+	}
+	return n
+}
+
 func normalizeDefaultAgent(agent string, logger *slog.Logger) string {
 	trimmed := strings.ToLower(strings.TrimSpace(agent))
 	if trimmed == "" {
@@ -218,9 +294,11 @@ func normalizeDefaultAgent(agent string, logger *slog.Logger) string {
 
 func defaultPreferences() Preferences {
 	return Preferences{
-		MaxWorkers:          MaxWorkersDefault,
-		AgentTimeoutMinutes: AgentTimeoutMinutesDefault,
-		DefaultAgent:        "none",
+		MaxWorkers:             MaxWorkersDefault,
+		AgentTimeoutMinutes:    AgentTimeoutMinutesDefault,
+		DefaultAgent:           "none",
+		AutoGroomEnabled:       AutoGroomEnabledDefault,
+		AutoGroomSettleMinutes: AutoGroomSettleMinutesDefault,
 	}
 }
 
@@ -228,6 +306,7 @@ func normalizePreferences(prefs Preferences, logger *slog.Logger) Preferences {
 	prefs.MaxWorkers = clampMaxWorkers(prefs.MaxWorkers, logger)
 	prefs.AgentTimeoutMinutes = clampAgentTimeoutMinutes(prefs.AgentTimeoutMinutes, logger)
 	prefs.DefaultAgent = normalizeDefaultAgent(prefs.DefaultAgent, logger)
+	prefs.AutoGroomSettleMinutes = clampAutoGroomSettleMinutes(prefs.AutoGroomSettleMinutes, logger)
 	return prefs
 }
 

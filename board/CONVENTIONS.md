@@ -96,9 +96,10 @@ Do not use `archive` as a shortcut for unfinished work or as a substitute for ev
 | `queued` | Assigned, waiting for a worker. |
 | `running` | Currently executing. |
 | `success` | Last run finished with exit code 0. |
-| `failed` | Last run finished with a non-zero exit code or runtime error. |
+| `failed` | Last run finished with a non-zero exit code or runtime error from the agent runner. |
 | `cancelled` | User-initiated cancel. |
-| `interrupted` | Recovery-initiated; daemon crashed mid-run with a captured session id. |
+| `interrupted` | Recovery-initiated; daemon crashed mid-run with a captured session id, so Resume is available. |
+| `lost` | Recovery-initiated; daemon lost the terminal run result and no resumable session was captured. |
 | `needs-user` | Agent stopped because user input is required. Automation should skip the task until a human clears it. |
 
 Autonomous agents that cannot continue safely use the `needs-user` handoff. The task should include a `User Attention` section with:

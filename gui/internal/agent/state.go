@@ -35,11 +35,13 @@ const (
 // event's `status` field and (in lockstep) into the task's `AgentStatus`
 // metadata.
 //
-// StatusInterrupted is the recovery-initiated terminal state: the daemon
-// crashed mid-run with a captured SessionID. The user can choose to
-// Resume the previous session. By convention nothing manual writes
-// `interrupted` — only `RecoverStale` does (mirror of how nothing manual
-// writes `cancelled` from outside the cancel path).
+// StatusInterrupted is the recovery-initiated terminal state for daemon loss
+// with a captured SessionID. The user can choose to Resume the previous
+// session. StatusLost is also recovery-initiated: the daemon lost track of a
+// run before a terminal event was written and cannot prove the agent failed.
+// By convention nothing manual writes either recovery status — only
+// `RecoverStale` does (mirror of how nothing manual writes `cancelled` from
+// outside the cancel path).
 type Status string
 
 const (
@@ -47,6 +49,7 @@ const (
 	StatusFailed      Status = "failed"
 	StatusCancelled   Status = "cancelled"
 	StatusInterrupted Status = "interrupted"
+	StatusLost        Status = "lost"
 )
 
 // Event is the union-shape every JSONL line decodes into. Fields are

@@ -81,6 +81,10 @@ type SettingsServiceBindings = typeof SettingsService & {
   SetCLIPath: (path: string) => Promise<void>;
   GetPeriodicRecoveryEnabled: () => Promise<boolean>;
   SetPeriodicRecoveryEnabled: (enabled: boolean) => Promise<void>;
+  GetAutoGroomEnabled: () => Promise<boolean>;
+  SetAutoGroomEnabled: (enabled: boolean) => Promise<void>;
+  GetAutoGroomSettleMinutes: () => Promise<number>;
+  SetAutoGroomSettleMinutes: (n: number) => Promise<void>;
 };
 
 const settingsService = SettingsService as unknown as SettingsServiceBindings;
@@ -389,6 +393,22 @@ export async function getPeriodicRecoveryEnabled(): Promise<boolean> {
 
 export async function setPeriodicRecoveryEnabled(enabled: boolean): Promise<void> {
   await requireSettingsMethod('SetPeriodicRecoveryEnabled')(enabled);
+}
+
+export async function getAutoGroomEnabled(): Promise<boolean> {
+  return await requireSettingsMethod('GetAutoGroomEnabled')();
+}
+
+export async function setAutoGroomEnabled(enabled: boolean): Promise<void> {
+  await requireSettingsMethod('SetAutoGroomEnabled')(enabled);
+}
+
+export async function getAutoGroomSettleMinutes(): Promise<number> {
+  return await requireSettingsMethod('GetAutoGroomSettleMinutes')();
+}
+
+export async function setAutoGroomSettleMinutes(n: number): Promise<void> {
+  await requireSettingsMethod('SetAutoGroomSettleMinutes')(n);
 }
 
 // Error-message heuristics — the Wails bridge stringifies Go errors, so

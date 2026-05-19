@@ -22,7 +22,7 @@ Add soft deterministic reconciliation for the staged autonomous flow so daemon-o
 - "Soft" means only perform deterministic moves when objective markers prove the intended state. Otherwise log/diagnose and leave the task alone.
 - Use managed CLI operations (`tb ready`, `tb pull <ID>`, `tb review --submit`, `tb review --fail`, `tb done`, or `tb edit`) so locks, atomic writes, WIP checks, and `BOARD.md` regeneration stay centralized.
 - Do not parse arbitrary prose to decide pass/fail. Use status, run mode, terminal state, tags, ReviewRef, managed review pass/fail commands, Review Findings presence, and triage eligibility only.
-- Never override `needs-user`, `cancelled`, or unresolved `interrupted` states.
+- Never override `needs-user`, `cancelled`, unresolved `interrupted`, or `lost` states.
 - Reconciliation skips must be durable enough to avoid hot loops on every watcher event, especially when WIP strict mode blocks a managed move after earlier metadata writes.
 - Do not create a second scheduler. This task adds reconciliation to the existing daemon hooks.
 
@@ -37,7 +37,7 @@ Add soft deterministic reconciliation for the staged autonomous flow so daemon-o
 - [ ] WIP-blocked or partially-applied reconciliation attempts record a durable skip/backoff marker keyed to task + attempted transition + relevant fingerprint so the daemon does not retry immediately on every watcher reload.
 - [ ] Review-failed repair handles the `tb review --fail` partial-write corner case: if findings/tag were written but strict WIP blocked the code-review -> ready move, the daemon surfaces/backoffs the blocked move instead of repeatedly rewriting findings/tag.
 - [ ] Reconciliation clears no state except where a sibling task explicitly defines it (TB-268 owns retry-blocking AgentStatus cleanup).
-- [ ] Tests cover each repair path, each skip path, WIP-limit behavior for ready/in-progress/code-review, WIP-blocked backoff/no-hot-loop behavior, and `needs-user`/`cancelled`/`interrupted` preservation.
+- [ ] Tests cover each repair path, each skip path, WIP-limit behavior for ready/in-progress/code-review, WIP-blocked backoff/no-hot-loop behavior, and `needs-user`/`cancelled`/`interrupted`/`lost` preservation.
 - [ ] Verification includes `cd gui && go test ./...`.
 
 ## Related Tasks

@@ -45,9 +45,9 @@ func (r *ClaudeRunner) Run(ctx context.Context, in RunInput) (RunResult, error) 
 	args := []string{"-p", in.Prompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"}
 	if in.SessionID != "" {
 		if in.Mode == ModeResume {
-			args = append(args, "-r", in.SessionID, "--dangerously-skip-permissions")
+			args = append(args, "-r", in.SessionID)
 		} else {
-			args = append(args, "--session-id", in.SessionID, "--dangerously-skip-permissions")
+			args = append(args, "--session-id", in.SessionID)
 		}
 	}
 	res, _ := runExternal(ctx, in, "claude", args)

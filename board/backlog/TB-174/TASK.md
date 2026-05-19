@@ -30,15 +30,16 @@ Add an auto-groom coordinator that queues groom-mode agent runs for backlog task
 
 ## Acceptance Criteria
 
-- [ ] Auto-groom runs on the same lifecycle hooks that make sense for automation: after board activation, after enabling the preference, and after triage-relevant watcher invalidation (`board:reloaded` and `task:updated:<id>`), without adding per-card shell-outs.
-- [ ] With `auto_groom_enabled=true` and `default_agent=claude|codex`, a backlog task returned by `BoardService.Triage()` and not already queued/running gets queued for a groom run: `Agent` is set from `default_agent` only when absent, `AgentStatus` becomes `queued`, JSONL/Wails queued data carries `mode=groom`, and daemon execution uses `GroomingDecorator` rather than the implement prompt.
-- [ ] After a daemon-owned groom run finishes successfully, the coordinator re-checks `BoardService.Triage()` / `tb triage --json`; if the task is no longer reported, it runs `tb ready <ID>` so the task lands in the canonical commitment column.
-- [ ] If the task still appears in triage after a successful groom, it remains in backlog and the coordinator records/logs a guarded skip instead of looping immediately.
-- [ ] With `auto_groom_enabled=false`, no automatic enqueue happens on activation or watcher events; the existing manual Groom button remains the only grooming entry point.
-- [ ] With `default_agent=none` or an unreadable preference, no task metadata or JSONL is written and a structured backend status/diagnostic is available for the frontend to tell the user to set a default agent.
-- [ ] Deduplication is durable enough to avoid loops: queued/running/active tasks are skipped, duplicate watcher events do not enqueue duplicate runs, and an unchanged task with a completed auto-groom attempt for the same triage-reason fingerprint is not auto-groomed again until the task changes or the user manually clicks Groom.
-- [ ] Backend tests cover startup scan, watcher-triggered scan, disabled preference, missing default agent, task with/without existing `Agent`, queued/running skip, duplicate event skip, `mode=groom` preservation through daemon pickup, post-groom promotion to ready, and post-groom still-needs-triage skip.
-- [ ] Verification passes: `cd gui && go test ./...` (include race/fake-daemon coverage if new concurrent state is introduced).
+- [ ] Auto-groom runs on the same lifecycle hooks that make sense for automation: after board activation, after enabling the preference, after triage-relevant watcher invalidation (`board:reloaded` and `task:updated:<id>`), and on a deferred timer when a task's settle window expires — without adding per-card shell-outs.
+- [ ] With `auto_groom_enabled=true` and `default_agent=claude|codex`, a backlog task returned by `BoardService.Triage()` and not already queued/running gets queued for a groom run: `Agent` is set from `default_agent` only when absent, `AgentStatus` becomes `queued`, JSONL/Wails queued data carries `mode=groom` plus a `triage_hash`, and daemon execution uses `GroomingDecorator` rather than the implement prompt.
+- [ ] A settle window is enforced: a task is only eligible for auto-groom once `now - max(task_mtime, created_at) ≥ auto_groom_settle_minutes`. Tasks inside the window are skipped with `reason="settle"` and a single deferred rescan is armed at `eligibleAt`; any subsequent edit/attachment that bumps mtime re-arms the timer; `auto_groom_settle_minutes=0` disables the window.
+- [ ] After a daemon-owned groom run finishes successfully, the coordinator re-checks `BoardService.Triage()`; if the task is no longer reported, it runs `tb ready <ID>` via `BoardService.ReadyTask` so the task lands in the canonical commitment column. On promotion failure a single `auto-groom:promote-failed` Wails event is emitted; no retry loop.
+- [ ] If the task still appears in triage after a successful groom, it stays in backlog and the coordinator emits a single `auto-groom:guarded-skip` event and records a guarded skip. Subsequent scans skip silently via the `triage_hash` dedupe.
+- [ ] With `auto_groom_enabled=false`, no automatic enqueue happens on activation, watcher events, or deferred ticks; the existing manual Groom button remains the only grooming entry point.
+- [ ] With `default_agent=none` or an unreadable preference, no task metadata or JSONL is written. `auto-groom:needs-default-agent` is emitted **only on state transition** into the no-default state; its companion `auto-groom:default-agent-cleared` is emitted exactly once when the user fixes the setting. Scans in steady-state do not spam either event.
+- [ ] Deduplication is durable: `gui/internal/agent/state.go` `Event` carries an optional `triage_hash` field written on `mode=groom` `queued`/`finished` events; `LastGroomTriageHash(boardDir, taskID)` reads the most-recent successful groom hash from `.agent-state.jsonl`. Queued/running/active tasks are skipped, duplicate watcher events do not enqueue duplicate runs, and an unchanged task with a completed auto-groom attempt for the same triage-reason fingerprint is not auto-groomed again until the task changes or the user manually clicks Groom.
+- [ ] Backend tests cover startup scan, watcher-triggered scan, disabled preference, missing default agent (with edge-triggered emission asserted), state-cleared transition, settle window (skip, deferred-tick fire, re-arm on edit, opt-out at 0), task with/without existing `Agent`, queued/running skip, duplicate event coalescing, `mode=groom` preservation through daemon pickup, post-groom promotion to ready, and post-groom still-needs-triage skip.
+- [ ] Verification passes: `cd gui && go test ./... -race` (include race/fake-daemon coverage if new concurrent state is introduced).
 
 ## Related Tasks
 
@@ -59,3 +60,5 @@ Add an auto-groom coordinator that queues groom-mode agent runs for backlog task
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-20: Edited acceptance
+

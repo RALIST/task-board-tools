@@ -334,13 +334,13 @@ func TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart(t *testing.
 
 	waitForCondition(t, 3*time.Second, func() bool {
 		out, err := c.Run(context.Background(), "show", "TB-1")
-		return err == nil && strings.Contains(string(out), "**AgentStatus:** failed")
+		return err == nil && strings.Contains(string(out), "**AgentStatus:** lost")
 	})
 
 	events := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
 	last := events[len(events)-1]
-	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
-		t.Fatalf("last event: %+v, want finished{failed}", last)
+	if last.Event != agent.EvFinished || last.Status != agent.StatusLost {
+		t.Fatalf("last event: %+v, want finished{lost}", last)
 	}
 	if last.RunID != "r_periodic" {
 		t.Fatalf("finished run id: got %q, want r_periodic", last.RunID)

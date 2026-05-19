@@ -1497,13 +1497,14 @@ func TestRunQueuedAgentSync_ResumeRejectsMissingParent(t *testing.T) {
 	}
 }
 
-// TestResumeCycle_KillBeforeSessionStaysFailed locks the negative
+// TestResumeCycle_KillBeforeSessionStaysLost locks the negative
 // contract: when the mid-flight kill happens BEFORE a session id was
-// captured, recovery falls through to `failed` (resume isn't possible
+// captured, recovery falls through to `lost` (resume isn't possible
 // without a session id, so widening to `interrupted` would just hide
 // the dead end). This is the regression gate that prevents future
-// refactors from making every dead-PID run resumable.
-func TestResumeCycle_KillBeforeSessionStaysFailed(t *testing.T) {
+// refactors from making every dead-PID run resumable or calling it an
+// agent failure.
+func TestResumeCycle_KillBeforeSessionStaysLost(t *testing.T) {
 	stub := &stubRunner{name: "claude", exitCode: 0}
 	svc, _ := realTbBoardForRun(t, "claude", stub)
 	c := svc.board.snapshot()
@@ -1532,13 +1533,13 @@ func TestResumeCycle_KillBeforeSessionStaysFailed(t *testing.T) {
 	}
 
 	out, _ := c.Run(context.Background(), "show", "TB-1")
-	if !strings.Contains(string(out), "**AgentStatus:** failed") {
-		t.Fatalf("AgentStatus must be failed (no SessionID to resume):\n%s", out)
+	if !strings.Contains(string(out), "**AgentStatus:** lost") {
+		t.Fatalf("AgentStatus must be lost (no SessionID to resume):\n%s", out)
 	}
 
 	// ResumeAgent must reject with ErrCannotResume.
 	if _, err := svc.ResumeAgent(context.Background(), "TB-1"); !errors.Is(err, ErrCannotResume) {
-		t.Fatalf("ResumeAgent on failed task: got %v, want ErrCannotResume", err)
+		t.Fatalf("ResumeAgent on lost task: got %v, want ErrCannotResume", err)
 	}
 }
 

@@ -38,7 +38,9 @@ type pidLivenessFunc func(pid int, expectedAgent string) bool
 //     and a session was captured → append synthetic finished{interrupted}
 //     so the latest run can be resumed.
 //   - JSONL has no finished event, the started PID is dead per pidAlive,
-//     and no session was captured → append synthetic finished{failed}.
+//     and no session was captured → append synthetic finished{lost}.
+//   - No JSONL exists for a running task → append synthetic finished{lost}
+//     with a generated run_id.
 //   - JSONL has no finished event AND the PID is alive → leave the
 //     task alone. M5 does not re-attach to live runs.
 //
@@ -152,9 +154,9 @@ func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDi
 				"task", t.ID)
 			return nil
 		}
-		r.logger.Warn("recovery: AgentStatus=running but no JSONL run; flipping to failed",
+		r.logger.Warn("recovery: AgentStatus=running but no JSONL run; marking lost",
 			"task", t.ID)
-		return r.markFailed(ctx, c, boardDir, t, "", "running without JSONL")
+		return r.markLost(ctx, c, boardDir, t, "", "running without JSONL")
 	}
 
 	latestIndex := len(runs) - 1
@@ -237,13 +239,13 @@ func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDi
 			continue
 		}
 
-		r.logger.Info("recovery: stale running; marking failed",
+		r.logger.Info("recovery: stale running; marking lost",
 			"task", t.ID, "run", run.RunID, "pid", run.PID, "agent", expectedAgent)
 		if isLatest {
-			if err := r.markFailed(ctx, c, boardDir, t, run.RunID, "stale after restart"); err != nil {
+			if err := r.markLost(ctx, c, boardDir, t, run.RunID, "stale after restart"); err != nil {
 				return err
 			}
-		} else if err := r.appendRecoveredFinished(boardDir, t.ID, run.RunID, agent.StatusFailed, -1, "stale after restart", ""); err != nil {
+		} else if err := r.appendRecoveredFinished(boardDir, t.ID, run.RunID, agent.StatusLost, -1, "stale after restart", ""); err != nil {
 			return err
 		}
 	}
@@ -275,8 +277,7 @@ func (r *RecoveryService) appendRecoveredFinished(boardDir, taskID, runID string
 
 // markInterrupted appends synthetic finished{interrupted} JSONL for
 // the given run_id and sets AgentStatus=interrupted via tb edit.
-// Mirror of markFailed but with the TB-130 interrupted status — the
-// user can then click Resume to continue the captured session. The
+// The user can then click Resume to continue the captured session. The
 // validator (cli/task.go validAgentStatuses) was widened in TB-131
 // to accept "interrupted" via the same `tb edit --agent-status` path
 // every other status goes through. sessionID is included in the Wails
@@ -305,9 +306,35 @@ func (r *RecoveryService) markInterrupted(ctx context.Context, c *cli.Client, bo
 	return nil
 }
 
+// markLost appends synthetic finished{lost} JSONL for recovery cases where
+// the daemon lost the run result before it could write a terminal event. This
+// deliberately does not use failed: failed is reserved for a real
+// finished{failed} event reported by the agent runner.
+func (r *RecoveryService) markLost(ctx context.Context, c *cli.Client, boardDir string, t Task, runID, reason string) error {
+	if runID == "" {
+		runID = agent.GenerateRunID()
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := agent.AppendEvent(boardDir, t.ID, agent.Event{
+		TS:       now,
+		RunID:    runID,
+		TaskID:   t.ID,
+		Event:    agent.EvFinished,
+		Status:   agent.StatusLost,
+		ExitCode: -1,
+		Reason:   reason,
+	}); err != nil {
+		return fmt.Errorf("append finished: %w", err)
+	}
+	if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: "lost"}); err != nil {
+		return fmt.Errorf("edit lost: %w", err)
+	}
+	r.emitFinished(runID, t.ID, string(agent.StatusLost), -1, reason)
+	return nil
+}
+
 // emitFinishedWithSession mirrors emitFinished but adds a session_id
-// to the Wails payload (TB-130). Kept as a separate helper so the
-// existing markFailed call sites stay unchanged.
+// to the Wails payload (TB-130).
 func (r *RecoveryService) emitFinishedWithSession(runID, taskID, status string, exitCode int, reason, sessionID string) {
 	if r.agent == nil {
 		return
@@ -323,35 +350,6 @@ func (r *RecoveryService) emitFinishedWithSession(runID, taskID, status string, 
 		payload["session_id"] = sessionID
 	}
 	r.agent.emit("agent:run-finished", payload)
-}
-
-// markFailed appends synthetic finished{failed} JSONL for the given
-// run_id and sets AgentStatus=failed via tb edit. Emits the same
-// Wails event the normal post-run handler would so any open drawer
-// updates without a manual refresh.
-func (r *RecoveryService) markFailed(ctx context.Context, c *cli.Client, boardDir string, t Task, runID, reason string) error {
-	// If runID is empty (no JSONL at all) we synthesise a fresh one so
-	// the finished record has a stable key for the GUI.
-	if runID == "" {
-		runID = agent.GenerateRunID()
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err := agent.AppendEvent(boardDir, t.ID, agent.Event{
-		TS:       now,
-		RunID:    runID,
-		TaskID:   t.ID,
-		Event:    agent.EvFinished,
-		Status:   agent.StatusFailed,
-		ExitCode: -1,
-		Reason:   reason,
-	}); err != nil {
-		return fmt.Errorf("append finished: %w", err)
-	}
-	if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: "failed"}); err != nil {
-		return fmt.Errorf("edit failed: %w", err)
-	}
-	r.emitFinished(runID, t.ID, string(agent.StatusFailed), -1, reason)
-	return nil
 }
 
 func (r *RecoveryService) emitFinished(runID, taskID, status string, exitCode int, reason string) {
@@ -490,7 +488,7 @@ func (r *RecoveryService) pollRecoveredRunMonitor(ctx context.Context, c *cli.Cl
 		return false, fmt.Errorf("read JSONL: %w", err)
 	}
 	if !ok {
-		return true, r.markFailed(ctx, c, boardDir, t, runID, orphanedProcessExitedReason)
+		return true, r.markLost(ctx, c, boardDir, t, runID, orphanedProcessExitedReason)
 	}
 	if latest.RunID != runID {
 		// A different run has surfaced for this task while a stub was
@@ -525,17 +523,17 @@ func (r *RecoveryService) pollRecoveredRunMonitor(ctx context.Context, c *cli.Cl
 // has just been observed dead. Routing through ar.finishOnce when a
 // stub exists keeps the cancel/exit race honest: whichever path
 // arrives first owns the terminal line, and the other observes a
-// no-op. With no stub (legacy path / adopt-failed) we still call
-// markFailed so behaviour matches the pre-TB-176 contract.
+// no-op. With no stub (legacy path / adopt-failed) we still call markLost
+// because recovery cannot prove the agent itself failed.
 func (r *RecoveryService) reconcileOrphanExit(ctx context.Context, c *cli.Client, boardDir string, t Task, runID string) error {
 	var ar *activeRun
 	if r.agent != nil {
 		ar = r.agent.getActiveRun(t.ID)
 	}
 	if ar == nil || ar.RunID != runID {
-		// No stub (or it belongs to a newer run). Preserve the legacy
-		// markFailed path that pre-TB-176 callers relied on.
-		return r.markFailed(ctx, c, boardDir, t, runID, orphanedProcessExitedReason)
+		// No stub (or it belongs to a newer run). We only know the daemon
+		// lost the result after restart; classify that as lost, not failed.
+		return r.markLost(ctx, c, boardDir, t, runID, orphanedProcessExitedReason)
 	}
 
 	// Unblock any CancelRun waiter on Done first. If CancelRun owns the
@@ -558,7 +556,7 @@ func (r *RecoveryService) reconcileOrphanExit(ctx context.Context, c *cli.Client
 		// up removeActiveRun is a defensive no-op for the case where a
 		// future divergence between recordTerminal and this branch
 		// stops deleting; today both call sites agree.
-		r.agent.recordTerminal(c, ar, boardDir, agent.StatusFailed, orphanedProcessExitedReason, -1)
+		r.agent.recordTerminal(c, ar, boardDir, agent.StatusLost, orphanedProcessExitedReason, -1)
 		r.agent.removeActiveRun(t.ID, ar)
 	}
 	return nil

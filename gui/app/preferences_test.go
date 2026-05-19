@@ -38,6 +38,12 @@ func TestPreferences_MissingFileReturnsDefaults(t *testing.T) {
 	if got := s.GetPeriodicRecoveryEnabled(); !got {
 		t.Errorf("periodic_recovery_enabled: got false, want true")
 	}
+	if got := s.GetAutoGroomEnabled(); got != AutoGroomEnabledDefault {
+		t.Errorf("auto_groom_enabled: got %v, want %v", got, AutoGroomEnabledDefault)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != AutoGroomSettleMinutesDefault {
+		t.Errorf("auto_groom_settle_minutes: got %d, want %d", got, AutoGroomSettleMinutesDefault)
+	}
 }
 
 func TestSetMaxWorkers_RoundTrip(t *testing.T) {
@@ -107,6 +113,79 @@ func TestSetCLIPath_RoundTrip(t *testing.T) {
 	})
 	if got := s2.GetCLIPath(); got != want {
 		t.Errorf("fresh read: got %q, want %q", got, want)
+	}
+}
+
+func TestSetAutoGroomEnabled_RoundTrip(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := s.SetAutoGroomEnabled(true); err != nil {
+		t.Fatalf("SetAutoGroomEnabled: %v", err)
+	}
+	if got := s.GetAutoGroomEnabled(); !got {
+		t.Errorf("after set: got false, want true")
+	}
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetAutoGroomEnabled(); !got {
+		t.Errorf("fresh read: got false, want true")
+	}
+}
+
+func TestSetAutoGroomSettleMinutes_RoundTrip(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	// 0 is a legitimate opt-out value and must survive the round trip,
+	// distinct from the missing-key default of AutoGroomSettleMinutesDefault.
+	if err := s.SetAutoGroomSettleMinutes(0); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes(0): %v", err)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != 0 {
+		t.Errorf("after set 0: got %d, want 0", got)
+	}
+	if err := s.SetAutoGroomSettleMinutes(30); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes(30): %v", err)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != 30 {
+		t.Errorf("after set 30: got %d, want 30", got)
+	}
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetAutoGroomSettleMinutes(); got != 30 {
+		t.Errorf("fresh read: got %d, want 30", got)
+	}
+}
+
+func TestSetAutoGroomSettleMinutes_ClampsAbove(t *testing.T) {
+	s, _ := newSettingsForPrefs(t)
+	if err := s.SetAutoGroomSettleMinutes(999); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes(999): %v", err)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != AutoGroomSettleMinutesMax {
+		t.Errorf("999 → got %d, want %d", got, AutoGroomSettleMinutesMax)
+	}
+}
+
+func TestSetAutoGroomSettleMinutes_ClampsBelow(t *testing.T) {
+	s, _ := newSettingsForPrefs(t)
+	if err := s.SetAutoGroomSettleMinutes(-5); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes(-5): %v", err)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != AutoGroomSettleMinutesMin {
+		t.Errorf("-5 → got %d, want %d", got, AutoGroomSettleMinutesMin)
+	}
+}
+
+func TestGetAutoGroomSettleMinutes_ReadTimeClampsOutOfRangeFile(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	b, _ := json.Marshal(Preferences{AutoGroomSettleMinutes: 9999})
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != AutoGroomSettleMinutesMax {
+		t.Errorf("clamp on read: got %d, want %d", got, AutoGroomSettleMinutesMax)
 	}
 }
 

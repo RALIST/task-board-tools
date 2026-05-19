@@ -31,7 +31,7 @@ Single-package (`main`) Go CLI. All source files are in the root directory — n
 **File responsibilities:**
 - `create.go` — task creation, parent/epic linking, subtask section management
 - `move.go` — mv/start/done commands, `normalizeTaskID()` (accepts bare numbers or prefixed IDs), `appendLogEntry()`. `start` warns when in-progress count ≥ `cfg.WipLimit`. `close` delegates to `archiveTask()` in `board.go`.
-- `edit.go` — edits metadata fields (priority, type, size, module, tags, agent, agent-status) in place, appends a log entry, regenerates BOARD.md. `--agent-status` validates against the enum (`queued|running|success|failed|cancelled|interrupted`). `cancelled` and `interrupted` are both convention-only invariants: the validator accepts them so the daemon's `tb edit --agent-status ...` writes still work, but humans shouldn't set them manually (see TB-130 docs).
+- `edit.go` — edits metadata fields (priority, type, size, module, tags, agent, agent-status) in place, appends a log entry, regenerates BOARD.md. `--agent-status` validates against the enum (`queued|running|success|failed|cancelled|interrupted|lost|needs-user`). `cancelled` is user-initiated; `interrupted` and `lost` are recovery-initiated. The validator accepts those values so the daemon's `tb edit --agent-status ...` writes still work, but humans shouldn't set recovery statuses manually (see TB-130/TB-251 docs).
 - `list.go` — filtering/sorting (priority rank then numeric ID), tabwriter output
 - `grep.go` — regex search across task file contents, normalizes BRE `\|` to ERE `|`
 - `scan.go` — walks source tree for untagged TODO/FIXME/HACK/WORKAROUND, creates tasks, patches source with `PREFIX-NNN` references. File extensions come from `cfg.ScanExtensions` (configured via `.tb.yaml`).

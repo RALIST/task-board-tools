@@ -30,11 +30,11 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | tooling |
 
-## In Progress (0/2)
+## In Progress (1/2)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-173 | GUI: persist auto-groom setting and toggle | P1 | gui | — |
 
 ## Code Review
 
@@ -49,7 +49,6 @@
 | TB-247 | Triage TB-205 knip first-pass findings | tech-debt | P2 | S | gui-frontend |
 | TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
 | TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
-| TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | P1 | M | gui |
 | TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
 | TB-261 | Safely clean up orphaned agent processes | improvement | P2 | M | gui |
 
@@ -72,7 +71,6 @@
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-172 | Auto-groom | feature | P1 | L | gui |
-| TB-173 | GUI: persist auto-groom setting and toggle | feature | P1 | M | gui |
 | TB-174 | GUI: auto-groom triage tasks via groom-mode daemon runs | feature | P1 | M | gui |
 | TB-175 | GUI: surface auto-groom feedback and manual fallback | feature | P1 | S | gui |
 | TB-177 | Auto task implementation | feature | P0 | L | gui |
@@ -107,6 +105,7 @@
 | TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
 | TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
 | TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
+| TB-286 | Nice UI errors | improvement | P2 | M |  |
 
 ## Recently Done
 
@@ -114,6 +113,7 @@
 |----|-------|------|--------|
 | TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
 | TB-253 | GUI Run History shows multiple concurrent RUNNING rows for one task | bug | gui |
+| TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | gui |
 | TB-244 | Periodic re-recovery for stale agent runs | improvement | gui |
 | TB-242 | Agent runner blocks on stdout EOF when child processes inherit pipes | bug | gui |
 | TB-241 | GUI: Resume button enabled for interrupted tasks with no captured session | bug | gui |
@@ -161,4 +161,3 @@
 | TB-194 | Code-review column | feature | workflow |
 | TB-190 | Implement autosave instead of save with buttons | improvement | gui |
 | TB-185 | GUI: surface user-attention state and automation guard | feature | gui |
-| TB-184 | Docs: define user-attention handoff protocol | improvement | docs |

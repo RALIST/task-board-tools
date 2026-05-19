@@ -1,11 +1,15 @@
 import { derived, get, writable } from 'svelte/store';
 import {
   getAgentTimeoutMinutes,
+  getAutoGroomEnabled,
+  getAutoGroomSettleMinutes,
   getCLIPath,
   getDefaultAgent,
   getMaxWorkers,
   getPeriodicRecoveryEnabled,
   setAgentTimeoutMinutes as apiSetAgentTimeoutMinutes,
+  setAutoGroomEnabled as apiSetAutoGroomEnabled,
+  setAutoGroomSettleMinutes as apiSetAutoGroomSettleMinutes,
   setCLIPath as apiSetCLIPath,
   setDefaultAgent as apiSetDefaultAgent,
   setMaxWorkers as apiSetMaxWorkers,
