@@ -444,6 +444,119 @@ func TestRecoverStale_OldStartedSchema_FallsBackToQueuedAgent(t *testing.T) {
 	}
 }
 
+// --- TB-137: interrupted-vs-failed branching tests ---
+
+// TestRecoverStale_DeadPIDWithSessionID_MarksInterrupted is the
+// positive case for TB-130: when the latest run captured a SessionID
+// before the daemon crashed and the PID is now dead, recovery writes
+// `interrupted` (not `failed`) so the user can choose to Resume the
+// captured agent session.
+func TestRecoverStale_DeadPIDWithSessionID_MarksInterrupted(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: "r_int", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T10:00:01Z", RunID: "r_int", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 4242},
+		{TS: "2026-05-14T10:00:02Z", RunID: "r_int", TaskID: "TB-1", Event: agent.EvSession,
+			SessionID: "11111111-2222-4333-8444-555555555555",
+			PID:       4242,
+			Cwd:       "/tmp/board",
+			RunEnv:    map[string]string{"TB_BOARD_PATH": "/tmp/board"},
+		},
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "claude", events)
+	rec.liveFn = func(int, string) bool { return false }
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+
+	final := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	last := final[len(final)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusInterrupted {
+		t.Errorf("last event: %+v, want finished{interrupted}", last)
+	}
+	if last.Reason != "interrupted by daemon restart" {
+		t.Errorf("reason: %q, want %q", last.Reason, "interrupted by daemon restart")
+	}
+	if last.ExitCode != -1 {
+		t.Errorf("exit_code: %d, want -1", last.ExitCode)
+	}
+
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** interrupted") {
+		t.Fatalf("AgentStatus not interrupted (validator may be rejecting it):\n%s", out)
+	}
+}
+
+// TestRecoverStale_DeadPIDNoSessionID_MarksFailedUnchanged confirms
+// the dead-PID branch still resolves to `failed` (with the original
+// "stale after restart" reason) when no SessionID was captured. Resume
+// isn't possible without one, so widening to `interrupted` would just
+// hide the dead end from the user.
+func TestRecoverStale_DeadPIDNoSessionID_MarksFailedUnchanged(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: "r_nofs", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T10:00:01Z", RunID: "r_nofs", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 9999},
+		// No EvSession line — the run died before session capture.
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "claude", events)
+	rec.liveFn = func(int, string) bool { return false }
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	final := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	last := final[len(final)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
+		t.Errorf("last event: %+v, want finished{failed}", last)
+	}
+	if last.Reason != "stale after restart" {
+		t.Errorf("reason: %q, want %q", last.Reason, "stale after restart")
+	}
+	out, _ := c.Run(context.Background(), "show", "TB-1")
+	if !strings.Contains(string(out), "**AgentStatus:** failed") {
+		t.Fatalf("AgentStatus not failed:\n%s", out)
+	}
+}
+
+// TestRecoverStale_CancelledCarveOutBeatsInterrupted is the ordering
+// invariant from spec § 7: a user-cancelled task with a captured
+// SessionID still becomes `cancelled` on recovery, never `interrupted`.
+// The carve-out short-circuits the dead-PID/SessionID branch above.
+func TestRecoverStale_CancelledCarveOutBeatsInterrupted(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: "r_cint", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T10:00:01Z", RunID: "r_cint", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 4242},
+		{TS: "2026-05-14T10:00:02Z", RunID: "r_cint", TaskID: "TB-1", Event: agent.EvSession,
+			SessionID: "11111111-2222-4333-8444-555555555555",
+			PID:       4242,
+		},
+		{TS: "2026-05-14T10:00:03Z", RunID: "r_cint", TaskID: "TB-1", Event: agent.EvFinished,
+			Status: agent.StatusCancelled, ExitCode: -1, Reason: "user cancelled"},
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "claude", events)
+	rec.liveFn = func(int, string) bool { return false }
+
+	before := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	after := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if len(after) != len(before) {
+		t.Fatalf("cancelled carve-out should not append; before=%d after=%d", len(before), len(after))
+	}
+	last := after[len(after)-1]
+	if last.Status != agent.StatusCancelled {
+		t.Errorf("last status: %s, want cancelled (carve-out must win over interrupted)", last.Status)
+	}
+	out, _ := c.Run(context.Background(), "show", "TB-1")
+	if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
+		t.Fatalf("AgentStatus not cancelled:\n%s", out)
+	}
+}
+
 func readJSONL(t *testing.T, path string) []agent.Event {
 	t.Helper()
 	f, err := os.Open(path)

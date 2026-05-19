@@ -151,9 +151,53 @@ func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDi
 		return nil
 	}
 
+	// TB-137: dead PID + captured SessionID → `interrupted`, not
+	// `failed`. The user can choose to Resume from the agent CLI's own
+	// session log; falling through to `failed` would discard that
+	// option. Without a SessionID resume isn't possible so the existing
+	// `failed` branch (and reason) stays unchanged. The cancelled
+	// carve-out above already short-circuits before we reach this
+	// branch — a user-cancelled run with a SessionID stays `cancelled`.
+	if latest.SessionID != "" {
+		r.logger.Info("recovery: stale running with session; marking interrupted",
+			"task", t.ID, "run", latest.RunID, "pid", latest.PID,
+			"agent", expectedAgent, "session", latest.SessionID)
+		return r.markInterrupted(ctx, c, boardDir, t, latest.RunID, "interrupted by daemon restart")
+	}
+
 	r.logger.Info("recovery: stale running; marking failed",
 		"task", t.ID, "run", latest.RunID, "pid", latest.PID, "agent", expectedAgent)
 	return r.markFailed(ctx, c, boardDir, t, latest.RunID, "stale after restart")
+}
+
+// markInterrupted appends synthetic finished{interrupted} JSONL for
+// the given run_id and sets AgentStatus=interrupted via tb edit.
+// Mirror of markFailed but with the TB-130 interrupted status — the
+// user can then click Resume to continue the captured session. The
+// validator (cli/task.go validAgentStatuses) was widened in TB-131
+// to accept "interrupted" via the same `tb edit --agent-status` path
+// every other status goes through.
+func (r *RecoveryService) markInterrupted(ctx context.Context, c *cli.Client, boardDir string, t Task, runID, reason string) error {
+	if runID == "" {
+		runID = agent.GenerateRunID()
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := agent.AppendEvent(boardDir, t.ID, agent.Event{
+		TS:       now,
+		RunID:    runID,
+		TaskID:   t.ID,
+		Event:    agent.EvFinished,
+		Status:   agent.StatusInterrupted,
+		ExitCode: -1,
+		Reason:   reason,
+	}); err != nil {
+		return fmt.Errorf("append finished: %w", err)
+	}
+	if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: "interrupted"}); err != nil {
+		return fmt.Errorf("edit interrupted: %w", err)
+	}
+	r.emitFinished(runID, t.ID, string(agent.StatusInterrupted), -1, reason)
+	return nil
 }
 
 // markFailed appends synthetic finished{failed} JSONL for the given
