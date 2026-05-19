@@ -66,4 +66,5 @@ Add an auto-groom coordinator that queues groom-mode agent runs for backlog task
 - 2026-05-20: Pulled into in-progress
 - 2026-05-20: Edited reviewref=f262ec8
 - 2026-05-20: Submitted to code-review
+- 2026-05-20: Done
 

@@ -7,6 +7,7 @@
 **AgentStatus:** success
 **Tags:** auto-groom,groom,triage,settings,daemon,epic
 **Module:** gui
+**ReviewRef:** f262ec8 + 1335504
 **Branch:** —
 
 ## Goal
@@ -83,4 +84,6 @@ Ship an opt-in auto-groom feature for the GUI: when enabled, the GUI automatical
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited agentstatus=success
 - 2026-05-20: Edited acceptance
+- 2026-05-20: Moved to done
+- 2026-05-20: Edited agentstatus=success, reviewref=f262ec8 + 1335504
 

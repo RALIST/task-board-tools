@@ -5,6 +5,7 @@
 **Size:** S
 **Module:** gui
 **Tags:** auto-groom,frontend,ux,groom
+**ReviewRef:** 1335504
 **Branch:** —
 **Parent:** TB-172
 
@@ -55,4 +56,7 @@ Make auto-groom visible and understandable in the GUI while preserving the exist
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited reviewref=1335504
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Done
 

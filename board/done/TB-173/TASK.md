@@ -55,4 +55,5 @@ Add a persisted `auto_groom_enabled` preference and Settings panel toggle that c
 - 2026-05-20: Pulled into in-progress
 - 2026-05-20: Edited reviewref=f262ec8
 - 2026-05-20: Submitted to code-review
+- 2026-05-20: Done
 

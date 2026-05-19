@@ -6,7 +6,6 @@
 |----|-------|----------|--------|--------|
 | TB-177 | Auto task implementation | 0/6 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
-| TB-172 | Auto-groom | 0/3 | backlog | gui |
 | TB-262 | Auto-review | 0/4 | backlog | gui |
 | TB-267 | Auto-implement: respect epic child order | 0/0 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
@@ -22,6 +21,7 @@
 | TB-4 | M4: Agent assignment and manual runs from GUI | 10/10 | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
 | TB-130 | Agent session resume + interrupted-run recovery | 12/12 | gui |
+| TB-172 | Auto-groom | 3/3 | gui |
 | TB-182 | Add special labes\tags\status for user attention | 3/3 | agent |
 | TB-194 | Code-review column | 6/6 | workflow |
 | TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | 0/0 | core |
@@ -30,18 +30,17 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | tooling |
 
-## In Progress (1/2)
+## In Progress (0/2)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-175 | GUI: surface auto-groom feedback and manual fallback | P1 | gui | — |
+| — | — | — | — | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-173 | GUI: persist auto-groom setting and toggle | P1 | gui | — |
-| TB-174 | GUI: auto-groom triage tasks via groom-mode daemon runs | P1 | gui | — |
+| — | — | — | — | — |
 
 ## Ready
 
@@ -71,7 +70,6 @@
 | TB-121 | tb doctor: surface unresolvable worktree state | feature | P1 | S | cli |
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
-| TB-172 | Auto-groom | feature | P1 | L | gui |
 | TB-177 | Auto task implementation | feature | P0 | L | gui |
 | TB-178 | GUI: persist auto-implement settings and query | feature | P0 | M | gui |
 | TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |
