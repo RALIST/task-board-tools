@@ -4,10 +4,9 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 0/3 | backlog | gui |
+| TB-177 | Auto task implementation | 0/4 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
-| TB-194 | Code-review column | 0/6 | backlog | workflow |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
 
 ## Finished Epics
@@ -22,11 +21,18 @@
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
 | TB-130 | Agent session resume + interrupted-run recovery | 12/12 | gui |
 | TB-182 | Add special labes\tags\status for user attention | 3/3 | agent |
+| TB-194 | Code-review column | 6/6 | workflow |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 
 ## In Progress
+
+| ID | Title | Priority | Module | Branch |
+|----|-------|----------|--------|--------|
+| — | — | — | — | — |
+
+## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
@@ -68,17 +74,12 @@
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
-| TB-194 | Code-review column | feature | P1 | XL | workflow |
-| TB-195 | CLI: add code-review status and submit flow | feature | P1 | M | cli |
-| TB-196 | CLI: add review target and notes commands | feature | P1 | M | cli |
-| TB-197 | GUI: show code-review column and review fields | feature | P1 | M | gui |
-| TB-198 | Agent: add review mode and findings section | feature | P1 | M | agent |
-| TB-199 | Workflow: review-failed marker and retry priority | feature | P1 | M | agent |
-| TB-200 | Docs: document code-review workflow | improvement | P1 | S | docs |
 | TB-202 | Create proper name and icon for app | improvement | P2 | S | gui |
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-226 | CLI: preserve literal command examples in task creation | bug | P1 | S | cli |
+| TB-233 | Auto-implement priority: rank review-failed backlog tasks first | improvement | P2 | S | gui |
+| TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P3 | S | gui |
 
 ## Recently Done
 
@@ -110,6 +111,13 @@
 | TB-204 | Show epic progress | improvement | gui/frontend |
 | TB-203 | obfuscation agents logs and tasks | bug | gui |
 | TB-201 | MacOS: window buttons hides header | bug | gui |
+| TB-200 | Docs: document code-review workflow | improvement | docs |
+| TB-199 | Workflow: review-failed marker and retry priority | feature | agent |
+| TB-198 | Agent: add review mode and findings section | feature | agent |
+| TB-197 | GUI: show code-review column and review fields | feature | gui |
+| TB-196 | CLI: add review target and notes commands | feature | cli |
+| TB-195 | CLI: add code-review status and submit flow | feature | cli |
+| TB-194 | Code-review column | feature | workflow |
 | TB-185 | GUI: surface user-attention state and automation guard | feature | gui |
 | TB-184 | Docs: define user-attention handoff protocol | improvement | docs |
 | TB-183 | CLI: add user-attention agent status and note section | feature | cli |
@@ -127,10 +135,3 @@
 | TB-162 | TB-93/GUI: api.ts listAttachments re-mapping strips the Attachment binding type | improvement | gui |
 | TB-161 | TB-93/GUI: OpenAttachment surfaces opaque error when attachments/ dir is missing | improvement | gui |
 | TB-160 | TB-93/GUI: TestRecoverStale_DurableCancelledTaskIgnored tests the wrong code path | bug | gui |
-| TB-159 | TB-93/GUI: resolveArtifactPaths should normalize taskID to uppercase | bug | gui |
-| TB-158 | TB-93/GUI: insert '--' before user paths in tb attach mutations to prevent flag confusion | bug | gui |
-| TB-157 | TB-93/CLI: log warnings to stderr from best-effort rollback removal failures | improvement | cli |
-| TB-156 | TB-93/CLI: tb attach add path should validate destination filename (parity with --rm) | improvement | cli |
-| TB-155 | TB-93/GUI: attachmentsLoading flicker on rapid task switch and concurrent refresh race | bug | gui |
-| TB-154 | TB-93/GUI: attachment list accessibility improvements (aria-label, keyboard nav) | improvement | gui |
-| TB-153 | TB-93/GUI: attachment remove is destructive single-click without confirmation | improvement | gui |

@@ -57,4 +57,7 @@ Implement the failed-review handoff: reviewers can send a Code Review task back 
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-19: Done
+- 2026-05-19: Moved to backlog
+- 2026-05-19: Done
 

@@ -53,4 +53,6 @@ Add `code-review` as a first-class active board status and provide a submit shor
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Done
 

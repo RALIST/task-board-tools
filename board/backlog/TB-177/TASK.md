@@ -36,6 +36,7 @@ Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects groo
 - **TB-178** (M) — GUI: persist auto-implement settings and query
 - **TB-179** (M) — GUI: enqueue auto-implement candidates from daemon
 - **TB-180** (S) — GUI: show auto-implement controls and feedback
+- **TB-233** (S) — Auto-implement priority: rank review-failed backlog tasks first
 ## Acceptance Criteria
 
 - [ ] **TB-178** is done: auto-implement enabled/query preferences are persisted, exposed through SettingsService/Wails/preferencesStore, validated, and covered by backend/frontend tests.

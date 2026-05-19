@@ -53,4 +53,5 @@ Add managed CLI support for review metadata sections so implementers and reviewe
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-19: Done
 
