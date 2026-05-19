@@ -5,8 +5,8 @@
 **Size:** S
 **Module:** workflow
 **Tags:** agents,workflow,docs,review-failed
-**Agent:** codex
-**AgentStatus:** success
+**Agent:** claude
+**AgentStatus:** running
 **ReviewRef:** main
 **Branch:** —
 
@@ -29,15 +29,23 @@ branch: main
 ReviewRef metadata: main
 
 Surface area to verify:
-- gui/internal/agent/prompts/implement.md (lines 24-31): prompt includes `tb edit {{TASK_ID}} --review-ref <branch|PR|commit>` before `tb review --submit {{TASK_ID}}` and distinguishes `## Review Target` prose from `**ReviewRef:**` metadata.
-- board/BOARD.md: regenerated/staged from the committed task directories so it no longer lists task IDs in columns without matching committed task files.
-- No behavioral code changes.
+- gui/internal/agent/prompts/implement.md (lines 24-31): prompt requires both `tb review --target` (prose) and `tb edit --review-ref <branch|PR|commit>` (gating metadata) before `tb review --submit`, and explicitly distinguishes the two so agents do not drop the prose section.
+- The `## Defenition of Done` block continues to mention `tb review --submit` with `## Review Target` set, consistent with the new submit-block wording.
+- No behavioral code changes — prompt-only edit.
 
 Mirror check: `grep -n "review --submit\|ReviewRef\|review --target" gui/internal/agent/prompts/*.md` still confirms only `implement.md` carries the submit flow.
 
+Board hygiene (addresses prior review blockers):
+- `board/in-progress/TB-237/TASK.md` removed from the committed tree to restore the single-directory invariant (TB-237 remains in `board/code-review/`).
+- `board/BOARD.md` regenerated and the In Progress section trimmed to match the committed directory state (untracked TB-176/TB-206 in-progress dirs deliberately omitted; they will be folded in when their own tasks resubmit).
+- `board/.next-id` advanced past the committed TB-248 (now 253) so future allocations skip the gap without iterating.
+
 ## Review Findings
 
-- `board/BOARD.md` in the submitted commits is not regenerated from the committed task directories: it lists TB-239 as an in-progress epic and lists TB-202/TB-237/TB-239 under `## In Progress`, but the commit tree for the reviewed state contains no `board/in-progress/TB-202`, `board/in-progress/TB-237`, or `board/in-progress/TB-239` task files (only `board/backlog/TB-202/TASK.md` and `board/code-review/TB-238/TASK.md` for those IDs via `git ls-tree -r HEAD board`). Regenerate/stage `BOARD.md` and `.next-id` from the actual committed board source of truth, or remove the unrelated generated board churn before resubmitting TB-238.
+- Blocker — BOARD.md still drifts from committed directory truth (same class of issue prior review failed for). `board/BOARD.md` at HEAD lists `## In Progress (2/2 ⚠) = TB-176, TB-206`, but `git ls-tree -r HEAD board/in-progress/` contains only `TB-237/TASK.md`. There are no committed `board/in-progress/TB-176/` or `board/in-progress/TB-206/` task files — those are untracked working-tree directories. Commit `9627894` ("regenerate board after review resubmission") only removed the stale TB-202 row; it did not reconcile In Progress to the committed tree. Either regenerate BOARD.md against the committed source of truth (with the untracked TB-176/TB-206 dirs staged or removed first), or strip the unrelated In Progress churn from the resubmission before resending TB-238.
+- Blocker — single-directory invariant violated for TB-237. `git ls-tree -r HEAD board/` shows both `board/in-progress/TB-237/TASK.md` (blob bb43aae) and `board/code-review/TB-237/TASK.md` (blob 9255e9e) in the committed tree; the two files differ only by the trailing "Submitted to code-review" log line. The submit commit (`815d686`) created the code-review copy but did not delete the in-progress copy, so the committed state violates the CLAUDE.md / board/CONVENTIONS.md rule "A task file must exist in exactly ONE directory." This bookkeeping bug was not caught by the TB-238 resubmission regenerate. Delete `board/in-progress/TB-237/TASK.md` from the committed tree and regenerate BOARD.md so In Progress matches reality before resubmitting.
+- (nit) `board/.next-id` at HEAD is `241` but committed task IDs reach TB-248 (TB-246/TB-247/TB-248 exist with a gap at TB-241..TB-245). Collision detection in the `.next-id` allocator self-heals, so this is non-blocking, but the next allocations will iterate through 241..245 before hitting TB-246. Bumping `.next-id` to ≥249 while fixing the above would tidy this up.
+- (nit, non-blocking) The actual prompt change in `gui/internal/agent/prompts/implement.md` (lines 24–31) meets every TB-238 acceptance criterion: both `tb review --target` and `tb edit --review-ref <branch|PR|commit>` are present before `tb review --submit`, the prose-vs-metadata distinction is explicit, the `## Defenition of Done` block is consistent, and `grep -n "review --submit|ReviewRef|review --target" gui/internal/agent/prompts/*.md` confirms only `implement.md` carries the submit flow. Once the BOARD.md hygiene is reconciled, the prompt change itself can land unchanged.
 
 ## Related Tasks
 
@@ -75,4 +83,15 @@ Mirror check: `grep -n "review --submit\|ReviewRef\|review --target" gui/interna
 - 2026-05-19: Edited reviewref=main
 - 2026-05-19: Submitted to code-review
 - 2026-05-19: Edited agentstatus=success
+- 2026-05-19: Edited agent=claude
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Failed code review — moved to ready with review-failed marker
+- 2026-05-19: Edited agentstatus=interrupted
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Edited review-target
+- 2026-05-19: Edited reviewref=main
+- 2026-05-19: Submitted to code-review
 

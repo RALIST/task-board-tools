@@ -28,12 +28,11 @@
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 
-## In Progress (2/2 ⚠)
+## In Progress (0/2)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-176 | Track PID of launched agents | P2 | gui | — |
-| TB-206 | Setup golangci-lint for project and initial run it | P2 | tooling | — |
+| — | — | — | — | — |
 
 ## Code Review
 
