@@ -168,6 +168,77 @@ func TestEdit_TitleAloneCountsAsChange(t *testing.T) {
 	}
 }
 
+// TestEdit_ReviewRefForwarded verifies the `--review-ref <value>` flag is
+// passed verbatim to the CLI and that ReviewRef alone counts as a change
+// (HasChanges must observe it, otherwise the CLI rejects the call as
+// "no changes specified"). Mirrors TestEdit_TitleForwarded.
+func TestEdit_ReviewRefForwarded(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "args.log")
+	stub := writeStub(t, dir, "tb",
+		`printf "%s\n" "$@" > `+logPath+`; echo "Updated TB-1: reviewref=feat/x"`)
+	c, _ := NewClient(Options{BinaryPath: stub})
+
+	if err := c.Edit(context.Background(), "TB-1", EditInput{ReviewRef: "feat/x"}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(got)), "\n")
+	if len(lines) < 4 || lines[0] != "edit" || lines[1] != "TB-1" {
+		t.Fatalf("unexpected args:\n%s", string(got))
+	}
+	if lines[len(lines)-2] != "--review-ref" || lines[len(lines)-1] != "feat/x" {
+		t.Fatalf("expected trailing --review-ref feat/x, got:\n%s", string(got))
+	}
+}
+
+// TestEdit_ReviewRefNoneClears passes the "none" sentinel through to the
+// CLI which interprets it as "clear the ReviewRef field".
+func TestEdit_ReviewRefNoneClears(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "args.log")
+	stub := writeStub(t, dir, "tb",
+		`printf "%s\n" "$@" > `+logPath+`; echo "Updated TB-1: reviewref=none"`)
+	c, _ := NewClient(Options{BinaryPath: stub})
+
+	if err := c.Edit(context.Background(), "TB-1", EditInput{ReviewRef: "none"}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	if !strings.Contains(string(got), "--review-ref\nnone") {
+		t.Fatalf("expected --review-ref\\nnone in args:\n%s", string(got))
+	}
+}
+
+// TestMove_MissingReviewRefSurfacesValidation maps the CLI's
+// "no ReviewRef metadata" error to ErrKindValidation so the GUI can toast
+// it without parsing stderr ad-hoc.
+func TestMove_MissingReviewRefSurfacesValidation(t *testing.T) {
+	// The CLI error text contains a backtick (around the suggested command);
+	// emit it from the stub via printf so the Go raw-string boundary stays
+	// clean. `\140` is the octal escape for backtick.
+	script := "printf 'error: TB-1 has no ReviewRef metadata \\342\\200\\224 set one with \\140tb edit TB-1 --review-ref <branch|PR URL|commit|worktree>\\140 before moving to code-review\\n' 1>&2; exit 1"
+	stub := writeStub(t, t.TempDir(), "tb", script)
+	c, _ := NewClient(Options{BinaryPath: stub})
+	err := c.Move(context.Background(), "TB-1", "code-review")
+	var me *MutationError
+	if !errors.As(err, &me) {
+		t.Fatalf("want MutationError, got %v", err)
+	}
+	if me.Kind != ErrKindValidation {
+		t.Fatalf("want validation kind, got %v (%q)", me.Kind, me.Stderr)
+	}
+	if !strings.Contains(me.Error(), "tb edit TB-1 --review-ref") {
+		t.Fatalf("error should preserve the actionable hint: %v", me.Error())
+	}
+}
+
 func TestEdit_TaskNotFound(t *testing.T) {
 	stub := writeStub(t, t.TempDir(), "tb", `echo "error: task TB-9 not found in any directory (backlog, in-progress, done, archive)" 1>&2; exit 1`)
 	c, _ := NewClient(Options{BinaryPath: stub})

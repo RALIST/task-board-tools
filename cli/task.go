@@ -19,6 +19,7 @@ type Task struct {
 	Module      string `json:"module"`
 	Tags        string `json:"tags"` // comma-separated; emitted as []string in JSON
 	Branch      string `json:"branch"`
+	ReviewRef   string `json:"reviewRef"`   // required when entering code-review (TB-235): branch, PR URL, commit, worktree, or short ref
 	Parent      string `json:"parent"`      // parent epic task ID (e.g., "WS-32")
 	Status      string `json:"status"`      // directory name: backlog, in-progress, code-review, done, archive
 	FilePath    string `json:"filePath"`    // relative path from project root
@@ -104,6 +105,8 @@ func parseTaskFile(path string) (Task, error) {
 			t.Tags = val
 		} else if val, ok := extractFieldAny(trimmed, "Branch"); ok {
 			t.Branch = val
+		} else if val, ok := extractFieldAny(trimmed, "ReviewRef"); ok {
+			t.ReviewRef = val
 		} else if val, ok := extractFieldAny(trimmed, "Parent"); ok {
 			t.Parent = val
 		} else if val, ok := extractFieldAny(trimmed, "Agent"); ok {

@@ -63,6 +63,10 @@
   let formSize = $state('');
   let formModule = $state('');
   let formTags = $state('');
+  // TB-235: ReviewRef is the branch/PR/commit/worktree reviewers inspect.
+  // Required to enter code-review; surfaced as an editable input next to
+  // Module/Tags so the autosave path persists it identically.
+  let formReviewRef = $state('');
 
   // Autosave state machine for metadata.
   //
@@ -227,6 +231,7 @@
             formSize = d.metadata.size ?? '';
             formModule = d.metadata.module ?? '';
             formTags = (d.metadata.tags ?? []).join(', ');
+            formReviewRef = d.metadata.reviewRef ?? '';
           }
           // Don't replace bodyDraft while the editor is open — preserve the
           // user's in-progress buffer. If they Discard, we'll snap it back
@@ -633,7 +638,8 @@
       (formType || '') !== (detail.metadata.type ?? '') ||
       (formSize || '') !== (detail.metadata.size ?? '') ||
       (formModule || '') !== (detail.metadata.module ?? '') ||
-      normalizeTags(formTags) !== normalizeTags((detail.metadata.tags ?? []).join(', '))
+      normalizeTags(formTags) !== normalizeTags((detail.metadata.tags ?? []).join(', ')) ||
+      (formReviewRef || '').trim() !== (detail.metadata.reviewRef ?? '').trim()
     ),
   );
 
@@ -673,6 +679,16 @@
         payload.tags = formTags.split(',').map((t) => t.trim()).filter(Boolean).join(',');
       }
     }
+
+    // ReviewRef CAN be cleared from the GUI — the CLI accepts the literal
+    // `none` sentinel for `--review-ref` and translates it into a metadata
+    // line removal. So a blank → set transition forwards `none`, and a
+    // non-empty diff forwards the trimmed value.
+    const nextRef = (formReviewRef || '').trim();
+    const prevRef = (m.reviewRef ?? '').trim();
+    if (nextRef !== prevRef) {
+      payload.reviewRef = nextRef === '' ? 'none' : nextRef;
+    }
     return { payload, droppedClears };
   }
 
@@ -685,7 +701,7 @@
     // Track every form field as a reactive dep — this is the trigger we
     // want; everything else (timer assignment, indicator reset, helper
     // dispatch) runs through `untrack` so it doesn't widen the dep set.
-    void formPriority; void formType; void formSize; void formModule; void formTags;
+    void formPriority; void formType; void formSize; void formModule; void formTags; void formReviewRef;
     if (!detail) return;
     if (!metadataDirty) return;
     untrack(() => {
@@ -846,6 +862,7 @@
     formSize = detail.metadata.size ?? '';
     formModule = detail.metadata.module ?? '';
     formTags = (detail.metadata.tags ?? []).join(', ');
+    formReviewRef = detail.metadata.reviewRef ?? '';
   }
 
   function onRetryMetadataSave() {
@@ -1515,6 +1532,15 @@
                 <span class="field-label">Tags</span>
                 <input bind:value={formTags} placeholder="comma,separated" />
               </div>
+              <div class="field">
+                <span class="field-label">ReviewRef</span>
+                <input
+                  bind:value={formReviewRef}
+                  placeholder="branch / PR URL / commit / worktree"
+                  aria-describedby="reviewref-help"
+                  spellcheck="false" />
+                <span id="reviewref-help" class="field-help">Required to enter code-review.</span>
+              </div>
             </section>
 
             <section class="rail-section agent-section">
@@ -1910,6 +1936,12 @@
     letter-spacing: 0.06em;
     color: var(--fg-dim);
     font-weight: 600;
+  }
+  .field-help {
+    font-size: 10px;
+    color: var(--fg-dim);
+    font-style: italic;
+    margin-top: 2px;
   }
   .rail input,
   .rail select {

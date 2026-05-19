@@ -385,6 +385,70 @@ func TestEditTask_HappyPath(t *testing.T) {
 	}
 }
 
+// TestEditTask_ReviewRefForwarded confirms BoardService.EditTask threads the
+// ReviewRef field through cli.EditInput and on to `tb edit --review-ref` so
+// the GUI's TaskDrawer autosave path can persist the new field (TB-235).
+func TestEditTask_ReviewRefForwarded(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "args.log")
+	stubPath := filepath.Join(dir, "tb")
+	body := `printf "%s\n" "$@" > ` + logPath + `; echo "Updated TB-1: reviewref=feat/x"`
+	if err := os.WriteFile(stubPath, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stubPath))
+	if err := svc.EditTask(context.Background(), "TB-1", EditTaskInput{ReviewRef: "feat/x"}); err != nil {
+		t.Fatalf("EditTask: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 4 || lines[0] != "edit" || lines[1] != "TB-1" {
+		t.Fatalf("unexpected args:\n%s", string(data))
+	}
+	if lines[len(lines)-2] != "--review-ref" || lines[len(lines)-1] != "feat/x" {
+		t.Fatalf("expected trailing --review-ref feat/x, got:\n%s", string(data))
+	}
+}
+
+// TestLoadBoard_PropagatesReviewRef confirms the BoardSnapshot Task struct
+// exposes reviewRef so the frontend can display and gate UI on it.
+func TestLoadBoard_PropagatesReviewRef(t *testing.T) {
+	stub := makeStub(t, `cat <<'JSON'
+[
+  {
+    "id": "TB-7",
+    "title": "Has ReviewRef",
+    "status": "code-review",
+    "reviewRef": "feat/x"
+  },
+  {
+    "id": "TB-8",
+    "title": "No ReviewRef",
+    "status": "backlog"
+  }
+]
+JSON`)
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	snap, err := svc.LoadBoard(context.Background())
+	if err != nil {
+		t.Fatalf("LoadBoard: %v", err)
+	}
+	if len(snap.CodeReview) != 1 || snap.CodeReview[0].ReviewRef != "feat/x" {
+		t.Fatalf("code-review reviewRef = %+v", snap.CodeReview)
+	}
+	if len(snap.Backlog) != 1 || snap.Backlog[0].ReviewRef != "" {
+		t.Fatalf("backlog reviewRef expected empty, got %+v", snap.Backlog)
+	}
+}
+
 func TestMoveTask_HappyPath(t *testing.T) {
 	stub := makeStub(t, `echo "Moved TB-1"`)
 	svc := NewBoardService()

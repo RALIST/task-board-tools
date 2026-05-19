@@ -142,6 +142,18 @@ func reviewSubmit(taskID string) (string, error) {
 		return "", fmt.Errorf("tb review --submit only accepts in-progress (or backlog with review-failed); %s is in %s", taskID, ref.Status)
 	}
 
+	// TB-235: pre-flight ReviewRef check so a missing-ref submit leaves
+	// the review-failed tag, log entries, and tags untouched on the source
+	// task. This is NOT the authoritative gate — moveTaskOnBoardWithLog
+	// re-validates inside the board lock so a TOCTOU edit between this
+	// check and the move still rejects safely. The pre-flight is purely
+	// for tag preservation: without it, reviewClearFailedMarker would run
+	// before the move's gate fires and the rejection would still consume
+	// the review-failed marker.
+	if err := ensureReviewRefForCodeReview(ref.Path, taskID); err != nil {
+		return "", err
+	}
+
 	data, err := os.ReadFile(ref.Path)
 	if err != nil {
 		return "", fmt.Errorf("cannot read %s: %w", ref.Path, err)
@@ -377,6 +389,27 @@ func stripLeadingReviewHeading(body, label string) string {
 		return body
 	}
 	return trimBlankLines(strings.Join(lines[1:], "\n"))
+}
+
+// ensureReviewRefForCodeReview parses the task at taskPath and rejects the
+// caller when the **ReviewRef:** metadata line is missing, blank, or a
+// placeholder (`—` / `-`). Shared by `tb mv <ID> code-review` and
+// `tb review --submit <ID>` so both code-review entry paths enforce the
+// TB-235 gate identically. The error names the precise CLI command needed
+// to fix it so toasts and stderr messages can route the user there
+// directly.
+func ensureReviewRefForCodeReview(taskPath, taskID string) error {
+	t, err := parseTaskFile(taskPath)
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", taskPath, err)
+	}
+	if normalizeReviewRef(t.ReviewRef) == "" {
+		return fmt.Errorf(
+			"%s has no ReviewRef metadata — set one with `tb edit %s --review-ref <branch|PR URL|commit|worktree>` before moving to code-review",
+			taskID, taskID,
+		)
+	}
+	return nil
 }
 
 // removeTag drops tag from a comma-separated tags string (case-insensitive),

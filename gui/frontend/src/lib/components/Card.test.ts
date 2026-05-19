@@ -80,6 +80,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     module: 'gui',
     tags: ['epic-tb93', 'gui', 'dnd', 'attachments', 'follow-up'],
     branch: '',
+    reviewRef: '',
     parent: 'TB-93',
     status: 'backlog',
     filePath: 'board/backlog/TB-126/TASK.md',

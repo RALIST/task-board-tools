@@ -7,12 +7,17 @@ import (
 	"testing"
 )
 
+// reviewBaseTask is the seed task body used across review tests. It carries
+// a ReviewRef so reviewSubmit's TB-235 gate is satisfied; tests that
+// specifically exercise the missing-ref rejection live in
+// review_ref_test.go and seed their own bodies without it.
 const reviewBaseTask = `# TB-1: Sample Task
 
 **Type:** feature
 **Priority:** P1
 **Size:** M
 **Module:** cli
+**ReviewRef:** feat/x
 **Branch:** feat/x
 
 ## Goal

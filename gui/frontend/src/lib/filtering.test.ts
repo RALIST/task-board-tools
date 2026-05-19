@@ -24,6 +24,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     module: 'core',
     tags: [],
     branch: '',
+    reviewRef: '',
     parent: '',
     status: 'backlog',
     filePath: '',

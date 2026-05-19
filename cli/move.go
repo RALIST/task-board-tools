@@ -142,6 +142,18 @@ func moveTaskOnBoardWithLog(boardDir, taskID, targetStatus string, logMessage fu
 		return result, nil
 	}
 
+	// TB-235: every entry into code-review must carry a non-placeholder
+	// ReviewRef so reviewers know which branch/PR/commit/worktree to
+	// inspect. Validation runs after the lock + source resolution and
+	// before any filesystem mutation, so a rejection leaves the source
+	// status, log history, tags, and review sections untouched. The
+	// noop-already-in-code-review branch above skips this gate.
+	if targetStatus == "code-review" {
+		if err := ensureReviewRefForCodeReview(srcRef.Path, taskID); err != nil {
+			return result, err
+		}
+	}
+
 	destDir := filepath.Join(boardDir, targetStatus)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return result, fmt.Errorf("cannot create directory %s: %w", destDir, err)

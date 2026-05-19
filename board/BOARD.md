@@ -30,7 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-235 | Require ReviewRef metadata before code-review moves | P1 | workflow | — |
 
 ## Code Review
 
@@ -74,9 +74,10 @@
 | TB-202 | Create proper name and icon for app | improvement | P2 | S | gui |
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
-| TB-226 | CLI: preserve literal command examples in task creation | bug | P1 | S | cli |
 | TB-233 | Auto-implement priority: rank review-failed backlog tasks first | improvement | P2 | S | gui |
 | TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P3 | S | gui |
+| TB-236 | macOS titlebar double-click should zoom/restore window | bug | P2 | M | gui |
+| TB-237 | Save diffrent agent actions in diffrent fields | improvement | P2 | L | cli |
 
 ## Recently Done
 
@@ -88,6 +89,7 @@
 | TB-229 | CLI: reconcile .tb.yaml with annotated config template | improvement | cli |
 | TB-228 | CLI: make init refresh existing boards by default | improvement | cli |
 | TB-227 | CLI: refresh generated board docs for existing boards | improvement | cli |
+| TB-226 | CLI: preserve literal command examples in task creation | bug | cli |
 | TB-225 | Ask user to init board from GUI when he tries to open folder without initialized tb status | feature | gui |
 | TB-224 | Support task-root attachments | improvement | cli/gui |
 | TB-223 | Audit secondary docs for stale layout/status | improvement | docs |
@@ -131,4 +133,3 @@
 | TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | gui |
 | TB-165 | TB-93/GUI: empty-state hint should say 'drag onto this drawer' not 'onto the task' | improvement | gui |
 | TB-164 | TB-93/GUI: surface drag-and-drop in-flight state via attach:dropping/attach:dropped events | improvement | gui |
-| TB-163 | TB-93/GUI: add error-path tests for removeAttachments and openAttachment in api.test.ts | tech-debt | gui |

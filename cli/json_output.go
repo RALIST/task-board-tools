@@ -28,6 +28,7 @@ type taskJSON struct {
 	Module      string   `json:"module"`
 	Tags        []string `json:"tags"`
 	Branch      string   `json:"branch"`
+	ReviewRef   string   `json:"reviewRef"`
 	Parent      string   `json:"parent"`
 	Status      string   `json:"status"`
 	FilePath    string   `json:"filePath"`
@@ -47,11 +48,14 @@ func marshalTask(t Task) taskJSON {
 	}
 	// "—" is the placeholder sentinel the CLI writes for the Branch line in
 	// fresh task files (see buildTaskContent). Treat it as empty in the JSON
-	// wire shape; preserve any other literal Branch value verbatim.
+	// wire shape; preserve any other literal Branch value verbatim. ReviewRef
+	// follows the same convention: TB-235 treats `—` and whitespace-only as
+	// missing so the validator and the GUI agree on a single sentinel.
 	branch := t.Branch
 	if strings.TrimSpace(branch) == "—" {
 		branch = ""
 	}
+	reviewRef := normalizeReviewRef(t.ReviewRef)
 	return taskJSON{
 		ID:          t.ID,
 		Title:       t.Title,
@@ -61,12 +65,24 @@ func marshalTask(t Task) taskJSON {
 		Module:      t.Module,
 		Tags:        tags,
 		Branch:      branch,
+		ReviewRef:   reviewRef,
 		Parent:      t.Parent,
 		Status:      t.Status,
 		FilePath:    t.FilePath,
 		Agent:       t.Agent,
 		AgentStatus: t.AgentStatus,
 	}
+}
+
+// normalizeReviewRef collapses placeholder values to "". Used by both the
+// JSON wire shape and the code-review move gate so consumers can branch on
+// a single missing sentinel.
+func normalizeReviewRef(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "—" || trimmed == "-" {
+		return ""
+	}
+	return trimmed
 }
 
 func marshalTasks(tasks []Task) []taskJSON {

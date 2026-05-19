@@ -119,6 +119,7 @@ function task(id: string, title: string, status: Task['status']): Task {
     module: '',
     tags: [],
     branch: '',
+    reviewRef: '',
     parent: '',
     status,
     filePath: `board/backlog/${id}.md`,

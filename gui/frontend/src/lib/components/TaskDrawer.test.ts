@@ -37,6 +37,9 @@ const apiMocks = vi.hoisted(() => ({
   groomTask: vi.fn(),
   closeTask: vi.fn(),
   renameTask: vi.fn(),
+  // TB-235: Submit-for-review failures (e.g. missing ReviewRef) surface
+  // through the existing toast pipeline; the spy lets us pin the routing.
+  submitReview: vi.fn(),
   errorString: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
@@ -111,6 +114,7 @@ function makeTaskFixture(overrides: Record<string, unknown> = {}) {
     module: 'core',
     tags: [],
     branch: '',
+    reviewRef: '',
     parent: '',
     status: 'backlog',
     filePath: '',
@@ -131,6 +135,7 @@ function makeDetail(overrides: Partial<TaskDetail['metadata']> = {}): TaskDetail
       module: 'gui',
       tags: [],
       branch: '',
+      reviewRef: '',
       parent: '',
       status: 'backlog',
       filePath: 'board/backlog/TB-99/TASK.md',
@@ -1220,6 +1225,96 @@ describe('TaskDrawer metadata autosave (TB-190)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // TB-235: ReviewRef is a first-class metadata field. Set, clear, and the
+  // initial display all flow through the same autosave path as other
+  // metadata fields. The placeholder copy in the input tells reviewers it
+  // is required to move into code-review.
+  it('renders the ReviewRef field bound to detail.metadata.reviewRef', async () => {
+    await openDrawer(makeDetail({ id: 'TB-77', reviewRef: 'feat/branch' }));
+    const refInput = Array.from(document.querySelectorAll<HTMLElement>('.rail .field'))
+      .find((el) => el.querySelector('.field-label')?.textContent?.trim() === 'ReviewRef')
+      ?.querySelector<HTMLInputElement>('input');
+    expect(refInput).toBeDefined();
+    expect(refInput!.value).toBe('feat/branch');
+  });
+
+  it('autosaves ReviewRef edits with the trimmed value', async () => {
+    apiMocks.editTask.mockResolvedValue(undefined);
+    await openDrawer(makeDetail({ id: 'TB-77', reviewRef: '' }));
+
+    vi.useFakeTimers();
+    try {
+      changeFormInput('ReviewRef', '  feat/branch  ');
+      await tick();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 5);
+      await drainMicrotasks();
+
+      expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+      expect(apiMocks.editTask).toHaveBeenCalledWith('TB-77', { reviewRef: 'feat/branch' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('forwards reviewRef="none" when the user clears the field (CLI clear sentinel)', async () => {
+    apiMocks.editTask.mockResolvedValue(undefined);
+    await openDrawer(makeDetail({ id: 'TB-77', reviewRef: 'feat/branch' }));
+
+    vi.useFakeTimers();
+    try {
+      changeFormInput('ReviewRef', '');
+      await tick();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 5);
+      await drainMicrotasks();
+
+      expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+      expect(apiMocks.editTask).toHaveBeenCalledWith('TB-77', { reviewRef: 'none' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// TB-235: Submit for review surfaces the CLI's missing-ReviewRef validation
+// error through the toast pipeline. The drawer itself does not pre-check
+// ReviewRef — the CLI is the source of truth.
+describe('TaskDrawer submit-for-review error surfacing (TB-235)', () => {
+  beforeEach(() => {
+    apiMocks.listAttachments.mockResolvedValue([]);
+  });
+
+  it('shows the CLI validation error via toast when submitReview rejects', async () => {
+    const toastMod = await import('$lib/stores/toast');
+    const pushToast = vi.mocked(toastMod.pushToast);
+    pushToast.mockClear();
+
+    apiMocks.getTask.mockResolvedValue(makeDetail({ id: 'TB-77', status: 'in-progress' }));
+    apiMocks.submitReview.mockRejectedValueOnce(
+      new Error('tb review: validation: TB-77 has no ReviewRef metadata — set one with `tb edit TB-77 --review-ref <branch|PR URL|commit|worktree>` before moving to code-review'),
+    );
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-77' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const submitBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find((b) => b.textContent?.trim().startsWith('Submit for review'));
+    expect(submitBtn).toBeDefined();
+    submitBtn!.click();
+    await tick();
+    await flushMicrotasks();
+
+    expect(apiMocks.submitReview).toHaveBeenCalledWith('TB-77');
+    // The toast text contains the actionable CLI hint verbatim — the
+    // user can paste it into their terminal without rewording.
+    const calls = pushToast.mock.calls.map(([msg]) => String(msg));
+    expect(calls.some((m) => m.includes('--review-ref'))).toBe(true);
   });
 });
 

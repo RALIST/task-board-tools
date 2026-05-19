@@ -30,13 +30,14 @@ func cmdEdit(args []string) {
 	tags := fs.String("t", "", "tags (comma-separated, replaces existing)")
 	agent := fs.String("a", "", "agent (claude, codex)")
 	agentStatus := fs.String("agent-status", "", "agent status (queued, running, success, failed, cancelled, interrupted, needs-user, none)")
+	reviewRef := fs.String("review-ref", "", "review reference (branch, PR URL, commit, worktree, or short ref); pass `none` to clear (TB-235)")
 	title := fs.String("title", "", "task title (replaces the H1 header)")
 	goalPath := fs.String("goal", "", "replace/insert ## Goal from file path or - for stdin")
 	acceptancePath := fs.String("acceptance", "", "replace/insert ## Acceptance Criteria from file path or - for stdin")
 	userAttentionPath := fs.String("user-attention", "", "replace/insert ## User Attention from file path or - for stdin")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--title \"New title\"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none] [--title \"New title\"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -90,6 +91,27 @@ func cmdEdit(args []string) {
 			os.Exit(1)
 		}
 	}
+	// --review-ref takes a free-form value (branch, PR URL, commit, worktree
+	// path…) or the literal `none` sentinel that clears the field. Reject
+	// whitespace-only values for the same reason --title does: forcing
+	// callers to either supply a real ref or omit the flag avoids writing a
+	// blank metadata line that fails the move-to-code-review gate anyway.
+	reviewRefProvided := false
+	newReviewRef := ""
+	clearReviewRef := false
+	if *reviewRef != "" {
+		trimmed := strings.TrimSpace(*reviewRef)
+		if trimmed == "" {
+			fmt.Fprintln(os.Stderr, "error: --review-ref must not be empty or whitespace (pass `none` to clear)")
+			os.Exit(1)
+		}
+		if strings.EqualFold(trimmed, "none") {
+			clearReviewRef = true
+		} else {
+			newReviewRef = redactLine(trimmed)
+		}
+		reviewRefProvided = true
+	}
 	// Whitespace-only --title is ambiguous; rejecting it forces callers
 	// to either supply a real title or omit the flag.
 	titleProvided := false
@@ -140,6 +162,13 @@ func cmdEdit(args []string) {
 	if *agentStatus != "" {
 		changes = append(changes, editChange{field: "AgentStatus", value: *agentStatus, label: "agentstatus=" + *agentStatus})
 	}
+	if reviewRefProvided {
+		if clearReviewRef {
+			changes = append(changes, editChange{field: "ReviewRef", value: "none", label: "reviewref=none"})
+		} else {
+			changes = append(changes, editChange{field: "ReviewRef", value: newReviewRef, label: "reviewref=" + newReviewRef})
+		}
+	}
 
 	stdinSources := 0
 	if *goalPath == "-" {
@@ -185,7 +214,7 @@ func cmdEdit(args []string) {
 		bodyEdits = append(bodyEdits, bodyEdit{heading: "## User Attention", body: body, label: "user-attention"})
 	}
 
-	if len(changes) == 0 && len(bodyEdits) == 0 && !titleProvided {
+	if len(changes) == 0 && len(bodyEdits) == 0 && !titleProvided && !reviewRefProvided {
 		fmt.Fprintln(os.Stderr, "error: no changes specified")
 		fs.Usage()
 		os.Exit(1)
@@ -228,12 +257,12 @@ func cmdEdit(args []string) {
 	}
 
 	// Apply each metadata change.
-	// `Agent` and `AgentStatus` accept the sentinel "none" to mean "clear
-	// the field"; for those a value of "none" deletes the metadata line
-	// instead of writing it. Every other field is set verbatim.
+	// `Agent`, `AgentStatus`, and `ReviewRef` accept the sentinel "none" to
+	// mean "clear the field"; for those a value of "none" deletes the
+	// metadata line instead of writing it. Every other field is set verbatim.
 	var applied []string
 	for _, change := range changes {
-		if change.value == "none" && (change.field == "Agent" || change.field == "AgentStatus") {
+		if change.value == "none" && (change.field == "Agent" || change.field == "AgentStatus" || change.field == "ReviewRef") {
 			lines = clearField(lines, change.field)
 		} else {
 			lines = setField(lines, change.field, change.value)

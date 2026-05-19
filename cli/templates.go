@@ -47,6 +47,7 @@ Folder-form tasks store new attachments directly under `+"`<status>/%[1]s-NNN/`"
 **Module:** module-name (optional)
 **Tags:** comma-separated tags (optional)
 **Branch:** feat/branch-name (set when work starts)
+**ReviewRef:** branch/PR/commit/worktree (required to move into code-review)
 **Parent:** %[1]s-NNN (optional — links to parent epic)
 
 ## Goal
@@ -196,7 +197,7 @@ tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent I
 tb mv <%[1]s-NNN> <status>                                                    — Move task between statuses
 tb start <%[1]s-NNN>                                                          — Move to in-progress
 tb done <%[1]s-NNN>                                                           — Move to done
-tb edit <%[1]s-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
+tb edit <%[1]s-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
 tb attach <%[1]s-NNN> <path>...                                               — Copy files into task attachments
 tb attach --rm <%[1]s-NNN> <attachment-name>...                               — Remove task attachments
 tb assign <%[1]s-NNN> <claude|codex>                                          — Assign a runnable agent and queue pickup
@@ -397,7 +398,7 @@ tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent I
 tb mv <%[1]s-NNN> <status>                                               Move task
 tb start <%[1]s-NNN>                                                     Start working
 tb done <%[1]s-NNN>                                                      Mark done
-tb edit <%[1]s-NNN> [--goal file|-] [--acceptance file|-] [--user-attention file|-] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none]   Edit metadata/body sections
+tb edit <%[1]s-NNN> [--goal file|-] [--acceptance file|-] [--user-attention file|-] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none]   Edit metadata/body sections
 tb attach <%[1]s-NNN> <path>...                                          Copy files into task attachments
 tb attach --rm <%[1]s-NNN> <attachment-name>...                          Remove task attachments
 tb assign <%[1]s-NNN> <claude|codex>                                     Assign a runnable agent and queue pickup

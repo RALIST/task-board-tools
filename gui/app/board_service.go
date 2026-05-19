@@ -27,6 +27,9 @@ type Task struct {
 	Module      string   `json:"module"`
 	Tags        []string `json:"tags"`
 	Branch      string   `json:"branch"`
+	// ReviewRef is the branch/PR/commit/worktree reviewers should inspect.
+	// Required (non-placeholder) when the task enters code-review (TB-235).
+	ReviewRef   string   `json:"reviewRef"`
 	Parent      string   `json:"parent"`
 	Status      string   `json:"status"`
 	FilePath    string   `json:"filePath"`
@@ -274,6 +277,10 @@ type EditTaskInput struct {
 	// unchanged". The CLI rejects whitespace-only values and treats a
 	// no-op rename (new == current) as a silent success.
 	Title string `json:"title"`
+	// ReviewRef sets/clears the **ReviewRef:** metadata line. Empty means
+	// "leave unchanged"; "none" (case-insensitive) clears the field. Required
+	// for moves into code-review (TB-235).
+	ReviewRef string `json:"reviewRef"`
 }
 
 // EditTask runs `tb edit <id> [flags…]`. Returns nil on success.
@@ -291,6 +298,7 @@ func (b *BoardService) EditTask(ctx context.Context, id string, in EditTaskInput
 		Agent:       in.Agent,
 		AgentStatus: in.AgentStatus,
 		Title:       in.Title,
+		ReviewRef:   in.ReviewRef,
 	})
 }
 

@@ -94,7 +94,13 @@ func classify(stderr string) MutationErrKind {
 		strings.Contains(s, "title is required"),
 		strings.Contains(s, "task id is required"),
 		strings.Contains(s, "no changes specified"),
-		strings.Contains(s, "unknown status"):
+		strings.Contains(s, "unknown status"),
+		// TB-235: missing/placeholder ReviewRef when entering code-review.
+		// Match on the actionable flag name rather than the prose around it
+		// — the wording could be reworded without losing the flag hint, and
+		// the GUI's only signal for routing to a validation toast is the
+		// flag itself.
+		strings.Contains(s, "--review-ref"):
 		return ErrKindValidation
 	default:
 		return ErrKindUnknown
@@ -253,13 +259,18 @@ type EditInput struct {
 	Agent       string
 	AgentStatus string
 	Title       string // rewrites the H1 header; empty means "leave unchanged"
+	// ReviewRef is the branch/PR/commit/worktree pointer reviewers inspect.
+	// Empty means "leave unchanged"; "none" (case-insensitive) is the clear
+	// sentinel the CLI translates into removing the **ReviewRef:** line.
+	// Required (non-placeholder) when moving the task into code-review.
+	ReviewRef string
 }
 
 // HasChanges reports whether any field is set.
 func (in EditInput) HasChanges() bool {
 	return in.Priority != "" || in.Type != "" || in.Size != "" ||
 		in.Module != "" || in.Tags != "" || in.Agent != "" || in.AgentStatus != "" ||
-		strings.TrimSpace(in.Title) != ""
+		strings.TrimSpace(in.Title) != "" || strings.TrimSpace(in.ReviewRef) != ""
 }
 
 // Edit runs `tb edit <id> [flags]`. Returns a MutationError on any failure.
@@ -299,6 +310,15 @@ func (c *Client) Edit(ctx context.Context, id string, in EditInput) error {
 		args = append(args, "--title", trimmed)
 	} else if in.Title != "" {
 		return &MutationError{Kind: ErrKindValidation, Op: "edit", Stderr: "title must not be empty or whitespace"}
+	}
+	// ReviewRef takes a free-form value or the literal "none" sentinel
+	// (case-insensitive on the CLI side; we forward verbatim). Whitespace-
+	// only is rejected up-front like Title, since the CLI would reject it
+	// anyway.
+	if trimmed := strings.TrimSpace(in.ReviewRef); trimmed != "" {
+		args = append(args, "--review-ref", trimmed)
+	} else if in.ReviewRef != "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "edit", Stderr: "review-ref must not be empty or whitespace (use \"none\" to clear)"}
 	}
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("edit", args, err)
