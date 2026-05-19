@@ -372,7 +372,10 @@ echo ok
 		t.Fatalf("argv file: %v", err)
 	}
 	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	if len(args) != 2 || args[0] != "exec" || args[1] != "do the thing" {
+	// TB-130: codex exec switched to --json so we can parse session_id
+	// from the structured stream (codex doesn't accept a pre-allocated
+	// session id like Claude does).
+	if len(args) != 3 || args[0] != "exec" || args[1] != "--json" || args[2] != "do the thing" {
 		t.Fatalf("argv: %#v", args)
 	}
 }

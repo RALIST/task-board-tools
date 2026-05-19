@@ -108,6 +108,19 @@ type RunInput struct {
 	// On POSIX, pgid equals pid because the Runner sets Setpgid=true; the
 	// callback receives both so the caller doesn't have to know that.
 	OnStarted func(pid, pgid int)
+
+	// OnSessionID fires the first time the agent CLI reports a session id
+	// (TB-130). For Codex this comes from parsing `codex exec --json`
+	// stdout; for Claude the caller pre-allocates via SessionID and the
+	// callback path is unused. Wired by TB-136 in runGoroutine; left nil
+	// here means "don't notify". Called at most once per run.
+	OnSessionID func(sessionID string)
+
+	// SessionID is a caller-supplied agent-side conversation id. Claude
+	// accepts `--session-id <uuid>` so the daemon can pre-allocate
+	// (TB-130). Empty means "let the agent CLI pick / emit it" (Codex
+	// always works this way; Claude only when pre-alloc is disabled).
+	SessionID string
 }
 
 // RunResult is the terminal record a Runner returns. ExitCode is set even on
