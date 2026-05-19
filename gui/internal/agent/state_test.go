@@ -222,6 +222,28 @@ func TestResolveArtifactPaths_FileAndFolderForms(t *testing.T) {
 	}
 }
 
+func TestResolveArtifactPaths_FolderFormInCodeReview(t *testing.T) {
+	// Regression: tasks living in code-review/ used to fall through the
+	// status-dir loop and resolve to legacy board-root paths, surfacing as
+	// "run log not found" in the GUI run drawer.
+	dir := newBoardDir(t)
+	writeFolderFormTask(t, dir, "code-review", "TB-7")
+
+	paths, err := ResolveArtifactPaths(dir, "TB-7")
+	if err != nil {
+		t.Fatalf("ResolveArtifactPaths: %v", err)
+	}
+	if paths.Layout != ArtifactLayoutFolder {
+		t.Fatalf("layout: got %s, want %s", paths.Layout, ArtifactLayoutFolder)
+	}
+	if want := filepath.Join(dir, "code-review", "TB-7", ".agent-state.jsonl"); paths.StatePath != want {
+		t.Fatalf("state path: got %s, want %s", paths.StatePath, want)
+	}
+	if want := filepath.Join(dir, "code-review", "TB-7", ".agent-logs", "r_x.log"); paths.LogPath("r_x") != want {
+		t.Fatalf("log path: got %s, want %s", paths.LogPath("r_x"), want)
+	}
+}
+
 func TestResolveArtifactPaths_DualFormPrefersFolderLayout(t *testing.T) {
 	dir := newBoardDir(t)
 	writeFileFormTask(t, dir, "backlog", "TB-1")

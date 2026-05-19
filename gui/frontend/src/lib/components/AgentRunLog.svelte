@@ -184,6 +184,8 @@
    * emit coloured output and we don't want control codes in the DOM. */
   function stripAnsi(s: string): string {
     // ESC [ ... letter — common SGR sequences. Also handle OSC (\x1b ]...).
+    // Matching control bytes is the whole point of this helper.
+    // eslint-disable-next-line no-control-regex
     return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
   }
 

@@ -230,6 +230,22 @@ type activeRun struct {
 	// line twice. The first caller wins; the second is a no-op.
 	finishOnce sync.Once
 
+	// doneOnce ensures Done is closed exactly once across the multiple
+	// goroutines that may reach the close point. For runs the
+	// AgentService itself spawns, runGoroutine's defer closes Done. For
+	// runs adopted by recovery (TB-176), the monitor goroutine closes
+	// Done when it observes the orphaned PID exit. Both paths route
+	// through closeDone so a defensive double-call is safe.
+	doneOnce sync.Once
+
+	// Recovered marks a stub activeRun installed by RecoveryService for
+	// an orphaned PID that survived a GUI/daemon restart. The runner
+	// goroutine never owns this run — only CancelRun (signal the PID)
+	// and the recovered-run monitor (observe natural exit) interact
+	// with it. The flag exists so callers can distinguish a stub from
+	// a freshly spawned run without inspecting other fields.
+	Recovered bool
+
 	mu sync.Mutex
 }
 
@@ -245,4 +261,56 @@ func (r *activeRun) wasCancelled() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.Cancelled
+}
+
+// closeDone closes Done at most once, regardless of how many goroutines
+// race here. Used by runGoroutine (deferred) and by the recovered-run
+// monitor (TB-176) so a stub activeRun adopted at recovery time can
+// unblock killActiveRun's wait when the orphaned PID exits.
+func (r *activeRun) closeDone() {
+	r.doneOnce.Do(func() { close(r.Done) })
+}
+
+// adoptRecoveredRun installs a stub activeRun for an orphaned PID that
+// survived a GUI/daemon restart (TB-176). The stub carries enough
+// context for `CancelRun` to signal the orphaned process group and for
+// `recordTerminal` to write a per-mode-correct finished line — but no
+// runner goroutine is attached, so the recovered-run monitor is the
+// only producer of ar.Done close events.
+//
+// Idempotent: if `s.active[taskID]` already holds an entry (a previous
+// adopt-or-spawn already ran), the existing entry is returned and the
+// stub is dropped. The caller compares the returned pointer to the
+// input to decide whether to keep its own references valid.
+func (s *AgentService) adoptRecoveredRun(taskID string, stub *activeRun) *activeRun {
+	if stub == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.active[taskID]; ok {
+		return existing
+	}
+	s.active[taskID] = stub
+	return stub
+}
+
+// getActiveRun returns the currently registered activeRun for taskID,
+// or nil. The recovered-run monitor uses it to coordinate Done closure
+// with CancelRun without re-deriving the stub.
+func (s *AgentService) getActiveRun(taskID string) *activeRun {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active[taskID]
+}
+
+// removeActiveRun deletes the active entry for taskID only when the
+// stored pointer matches ar — so a stale monitor that fires after a
+// fresh RunAgent re-uses the same task does not evict the new run.
+func (s *AgentService) removeActiveRun(taskID string, ar *activeRun) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.active[taskID]; ok && cur == ar {
+		delete(s.active, taskID)
+	}
 }

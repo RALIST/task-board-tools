@@ -233,6 +233,50 @@ export function _resetRunsStoreForTesting(): void {
   selectedRunID.set(null);
 }
 
+/** Task-level AgentStatus values that mean the task is no longer
+ * running an active agent. Includes `needs-user` because the agent
+ * stopped intentionally and is awaiting user input — no live process
+ * is running, so a still-`running` JSONL run is orphaned by definition. */
+const TERMINAL_AGENT_STATUSES = new Set([
+  'success', 'failed', 'cancelled', 'interrupted', 'needs-user',
+]);
+
+/** Returns the run status to show in the GUI given the run's JSONL-derived
+ * status and the task-level AgentStatus.
+ *
+ * The runs store is populated from JSONL (via `ListRuns`) and patched by
+ * Wails `agent:run-*` events. If a run's last JSONL event is `started`
+ * with no `finished`, the rolled-up status is `running`. Normally that
+ * settles to a terminal status when the daemon writes the `finished`
+ * record. But the JSONL can drift from the task's AgentStatus when:
+ *
+ *   - `recordTerminal`'s `agent.AppendEvent` failed silently and the
+ *     daemon still wrote the terminal AgentStatus,
+ *   - the agent self-edited AgentStatus via `tb edit --agent-status …`
+ *     and the daemon was killed before the run-end record was written,
+ *   - a stray manual `tb edit` set AgentStatus while a stale run lingered.
+ *
+ * In those cases the drawer's status pill would show RUNNING forever
+ * while the kanban card correctly displays the terminal AgentStatus.
+ * This helper resolves the divergence at the display layer: a running/
+ * queued run is downgraded to `interrupted` when the task's AgentStatus
+ * is terminal. `interrupted` is the safest synthetic value — it conveys
+ * "outcome unknown" without claiming success that wasn't observed, and
+ * matches the semantics of orphaned runs elsewhere in the codebase
+ * (TB-130 daemon-restart recovery).
+ *
+ * The JSONL on disk is NOT mutated by this function — it's a pure UI
+ * derivation. Run-history rendering, the agent-section pill, and the
+ * `taskHasActiveRun` busy-gate all use the derived value so the drawer
+ * presents a coherent state.
+ */
+export function deriveEffectiveRunStatus(runStatus: Run['status'], taskAgentStatus: string): Run['status'] {
+  if ((runStatus === 'running' || runStatus === 'queued') && TERMINAL_AGENT_STATUSES.has(taskAgentStatus)) {
+    return 'interrupted';
+  }
+  return runStatus;
+}
+
 // --- internals ---
 
 function emptyRun(runId: string): Run {

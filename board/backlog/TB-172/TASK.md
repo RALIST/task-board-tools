@@ -3,16 +3,15 @@
 **Type:** feature
 **Priority:** P1
 **Size:** L
-**Agent:** codex
-**AgentStatus:** failed
+**Agent:** claude
+**AgentStatus:** success
 **Tags:** auto-groom,groom,triage,settings,daemon,epic
 **Module:** gui
 **Branch:** —
 
 ## Goal
 
-Ship an opt-in auto-groom feature: when enabled, the GUI automatically starts groom-mode agent runs for backlog tasks returned by `tb triage`; when disabled or unavailable, users can still groom tasks manually from the drawer. 
-UI: header should have toggle - enable\disable autogroom right from the board
+Ship an opt-in auto-groom feature for the GUI: when enabled, the GUI automatically starts groom-mode agent runs for backlog tasks returned by `tb triage`; when disabled, missing a default agent, or skipped by a dedupe guard, users can still groom tasks manually from the drawer. Expose the on/off control in two places that share the same `auto_groom_enabled` preference: the Settings panel (full preferences surface) and a quick toggle in the board view header for one-click enable/disable without opening Settings.
 
 ## Context
 
@@ -36,14 +35,15 @@ UI: header should have toggle - enable\disable autogroom right from the board
 - **TB-175** (S) — GUI: surface auto-groom feedback and manual fallback
 ## Acceptance Criteria
 
-- [ ] **TB-173** is done: `auto_groom_enabled` is persisted, exposed through SettingsService/Wails/preferencesStore, rendered in Settings, defaulted off, and covered by backend/frontend tests.
+- [ ] **TB-173** is done: `auto_groom_enabled` is persisted, exposed through SettingsService/Wails/preferencesStore, rendered in the Settings panel, defaulted off, and covered by backend/frontend tests.
 - [ ] **TB-174** is done: when auto-groom is enabled and `default_agent` is set, triage-reported backlog tasks are queued as `mode=groom` runs through the existing daemon/AgentService lifecycle with durable dedupe and no implement-mode fallback.
 - [ ] **TB-175** is done: users can see auto-groom state, get an actionable no-default-agent message, and still use the manual Groom button when automation is disabled, skipped, or manually retried.
+- [ ] Board view header exposes a quick Enable/Disable auto-groom toggle wired to the same `auto_groom_enabled` preference as the Settings panel; flipping either surface updates the other without restart and reflects the no-default-agent guidance from TB-175.
 - [ ] Disabled path: with `auto_groom_enabled=false`, creating or editing a triage-worthy backlog task never enqueues a run automatically; the Card indicator and TaskDrawer Groom button remain available.
 - [ ] Enabled path: with `auto_groom_enabled=true` and `default_agent=codex` or `claude`, creating or editing a triage-worthy backlog task starts exactly one visible groom-mode run, writes normal JSONL/log artifacts, and clears or records a guarded skip without duplicate reruns.
 - [ ] No-default path: with `auto_groom_enabled=true` and `default_agent=none`, no task metadata/JSONL is mutated and the GUI tells the user to set a default agent in Settings.
 - [ ] Verification for the epic includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
-- [ ] Manual test note: exercise Settings toggle on/off, default-agent missing/configured, auto queue from a placeholder backlog card, manual Groom fallback, Cancel during an auto-groom run, and app restart while a groom run is queued/running.
+- [ ] Manual test note: exercise Settings toggle on/off, board-header toggle on/off (and confirm both surfaces stay in sync), default-agent missing/configured, auto queue from a placeholder backlog card, manual Groom fallback, Cancel during an auto-groom run, and app restart while a groom run is queued/running.
 
 ## Related Tasks
 
@@ -72,3 +72,10 @@ UI: header should have toggle - enable\disable autogroom right from the board
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=failed
 - 2026-05-15: Edited body via GUI
+- 2026-05-19: Edited agent=claude
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited goal
+- 2026-05-19: Edited acceptance
+- 2026-05-19: Edited agentstatus=success
+

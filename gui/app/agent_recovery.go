@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
+	"syscall"
 	"time"
 
 	"tools/tb-gui/internal/agent"
@@ -42,7 +44,14 @@ type RecoveryService struct {
 	agent  *AgentService
 	logger *slog.Logger
 	liveFn pidLivenessFunc
+
+	monitorMu           sync.Mutex
+	monitors            map[recoveredRunKey]recoveredRunMonitor
+	monitorPollInterval time.Duration
 }
+
+const recoveredRunMonitorPollIntervalDefault = time.Second
+const orphanedProcessExitedReason = "orphaned process exited after restart"
 
 // NewRecoveryService returns a Recovery wrapper.
 func NewRecoveryService(board *BoardService, agentSvc *AgentService, liveFn pidLivenessFunc, logger *slog.Logger) *RecoveryService {
@@ -56,10 +65,12 @@ func NewRecoveryService(board *BoardService, agentSvc *AgentService, liveFn pidL
 		liveFn = func(int, string) bool { return true }
 	}
 	return &RecoveryService{
-		board:  board,
-		agent:  agentSvc,
-		logger: logger.With("component", "recovery"),
-		liveFn: liveFn,
+		board:               board,
+		agent:               agentSvc,
+		logger:              logger.With("component", "recovery"),
+		liveFn:              liveFn,
+		monitors:            make(map[recoveredRunKey]recoveredRunMonitor),
+		monitorPollInterval: recoveredRunMonitorPollIntervalDefault,
 	}
 }
 
@@ -158,6 +169,15 @@ func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDi
 	if latest.PID > 0 && r.liveFn(latest.PID, expectedAgent) {
 		r.logger.Info("recovery: live PID detected; skipping",
 			"task", t.ID, "run", latest.RunID, "pid", latest.PID, "agent", expectedAgent)
+		// TB-176: install a stub activeRun so the GUI's Cancel button can
+		// signal the orphaned process group. The monitor below will close
+		// the stub's Done channel when the PID exits, so killActiveRun's
+		// wait unblocks regardless of whether cancel or natural exit wins.
+		stub := newRecoveredStubRun(latest.RunID, t.ID, expectedAgent, latest.Mode, latest.PID)
+		if r.agent != nil {
+			r.agent.adoptRecoveredRun(t.ID, stub)
+		}
+		r.registerRecoveredRunMonitor(c, boardDir, t, latest.RunID, latest.PID, expectedAgent)
 		return nil
 	}
 
@@ -272,6 +292,204 @@ func (r *RecoveryService) emitFinished(runID, taskID, status string, exitCode in
 		"exit_code": exitCode,
 		"reason":    reason,
 	})
+}
+
+// newRecoveredStubRun builds an activeRun for an orphaned PID that
+// recovery decided to leave alone (TB-176). Pgid is derived from the
+// PID via syscall.Getpgid so killActiveRun's SIGKILL on the negative
+// pgid still cascades to grandchildren; if the lookup fails the stub
+// keeps Pgid=0 and the kill path falls back to signalling the leader
+// directly.
+//
+// The stub carries enough Agent/Mode context for recordTerminal to
+// write a per-mode-correct finished line when CancelRun (or the
+// monitor on natural exit) reaches that branch.
+func newRecoveredStubRun(runID, taskID, agentName string, mode agent.Mode, pid int) *activeRun {
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		pgid = 0
+	}
+	modeStr := mode.String()
+	if modeStr == "" {
+		modeStr = agent.ModeImplement.String()
+	}
+	return &activeRun{
+		RunID:     runID,
+		TaskID:    taskID,
+		Agent:     agentName,
+		Mode:      modeStr,
+		Pid:       pid,
+		Pgid:      pgid,
+		Done:      make(chan struct{}),
+		Recovered: true,
+	}
+}
+
+type recoveredRunKey struct {
+	boardDir string
+	taskID   string
+	runID    string
+}
+
+type recoveredRunMonitor struct {
+	cancel context.CancelFunc
+	done   <-chan struct{}
+}
+
+func (r *RecoveryService) registerRecoveredRunMonitor(c *cli.Client, boardDir string, t Task, runID string, pid int, expectedAgent string) {
+	if c == nil || boardDir == "" || t.ID == "" || runID == "" || pid <= 0 {
+		return
+	}
+	key := recoveredRunKey{boardDir: boardDir, taskID: t.ID, runID: runID}
+
+	r.monitorMu.Lock()
+	if r.monitors == nil {
+		r.monitors = make(map[recoveredRunKey]recoveredRunMonitor)
+	}
+	if _, exists := r.monitors[key]; exists {
+		r.monitorMu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	r.monitors[key] = recoveredRunMonitor{cancel: cancel, done: done}
+	interval := r.monitorPollInterval
+	if interval <= 0 {
+		interval = recoveredRunMonitorPollIntervalDefault
+	}
+	r.monitorMu.Unlock()
+
+	go func() {
+		defer close(done)
+		r.monitorRecoveredRun(ctx, key, c, t, pid, expectedAgent, interval)
+	}()
+}
+
+func (r *RecoveryService) monitorRecoveredRun(ctx context.Context, key recoveredRunKey, c *cli.Client, t Task, pid int, expectedAgent string, interval time.Duration) {
+	defer r.unregisterRecoveredRunMonitor(key)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			done, err := r.pollRecoveredRunMonitor(ctx, c, key.boardDir, t, key.runID, pid, expectedAgent)
+			if err != nil {
+				r.logger.Warn("recovery: recovered-run monitor poll failed; retrying",
+					"task", key.taskID, "run", key.runID, "err", err)
+				continue
+			}
+			if done {
+				return
+			}
+		}
+	}
+}
+
+func (r *RecoveryService) unregisterRecoveredRunMonitor(key recoveredRunKey) {
+	r.monitorMu.Lock()
+	delete(r.monitors, key)
+	r.monitorMu.Unlock()
+}
+
+func (r *RecoveryService) stopRecoveredRunMonitors() {
+	r.monitorMu.Lock()
+	monitors := make([]recoveredRunMonitor, 0, len(r.monitors))
+	for _, monitor := range r.monitors {
+		monitors = append(monitors, monitor)
+		monitor.cancel()
+	}
+	r.monitorMu.Unlock()
+
+	for _, monitor := range monitors {
+		<-monitor.done
+	}
+}
+
+func (r *RecoveryService) pollRecoveredRunMonitor(ctx context.Context, c *cli.Client, boardDir string, t Task, runID string, pid int, expectedAgent string) (bool, error) {
+	latest, ok, err := readLatestRun(boardDir, t.ID)
+	if err != nil {
+		return false, fmt.Errorf("read JSONL: %w", err)
+	}
+	if !ok {
+		return true, r.markFailed(ctx, c, boardDir, t, runID, orphanedProcessExitedReason)
+	}
+	if latest.RunID != runID {
+		return true, nil
+	}
+	if latest.LastFinished != nil {
+		return true, r.syncFinishedStatus(ctx, c, t, latest)
+	}
+
+	probePID := latest.PID
+	if probePID <= 0 {
+		probePID = pid
+	}
+	probeAgent := latest.AgentName
+	if probeAgent == "" {
+		probeAgent = expectedAgent
+	}
+	if probePID > 0 && r.liveFn(probePID, probeAgent) {
+		return false, nil
+	}
+	return true, r.reconcileOrphanExit(ctx, c, boardDir, t, runID)
+}
+
+// reconcileOrphanExit closes out the stub activeRun (if one is
+// registered) and writes the terminal record for an orphaned PID that
+// has just been observed dead. Routing through ar.finishOnce when a
+// stub exists keeps the cancel/exit race honest: whichever path
+// arrives first owns the terminal line, and the other observes a
+// no-op. With no stub (legacy path / adopt-failed) we still call
+// markFailed so behaviour matches the pre-TB-176 contract.
+func (r *RecoveryService) reconcileOrphanExit(ctx context.Context, c *cli.Client, boardDir string, t Task, runID string) error {
+	var ar *activeRun
+	if r.agent != nil {
+		ar = r.agent.getActiveRun(t.ID)
+	}
+	if ar == nil || ar.RunID != runID {
+		// No stub (or it belongs to a newer run). Preserve the legacy
+		// markFailed path that pre-TB-176 callers relied on.
+		return r.markFailed(ctx, c, boardDir, t, runID, orphanedProcessExitedReason)
+	}
+
+	// Unblock any CancelRun waiter on Done first. If CancelRun owns the
+	// terminal record we then short-circuit — recordTerminal's finishOnce
+	// gate would no-op anyway, but skipping the call avoids a stray
+	// Wails emit when the cancel path's own finishCancelled is about to
+	// fire one with the correct status. removeActiveRun drops the entry
+	// only when it still matches our stub.
+	ar.closeDone()
+	if ar.wasCancelled() {
+		// CancelRun goroutine is in flight and will call finishCancelled;
+		// nothing left for the monitor to write here.
+		r.logger.Info("recovery: monitor observed cancelled orphan; deferring terminal to CancelRun",
+			"task", t.ID, "run", runID, "pid", ar.Pid)
+		return nil
+	}
+	if r.agent != nil {
+		r.agent.recordTerminal(c, ar, boardDir, agent.StatusFailed, orphanedProcessExitedReason, -1)
+		// recordTerminal calls delete itself when its finishOnce body
+		// runs, but a second finishOnce caller (e.g. a previously aborted
+		// CancelRun) would otherwise leave the entry behind. Belt-and-
+		// braces: ensure removal here when the stub is still ours.
+		r.agent.removeActiveRun(t.ID, ar)
+	}
+	return nil
+}
+
+func (r *RecoveryService) syncFinishedStatus(ctx context.Context, c *cli.Client, t Task, latest runRecoveryView) error {
+	if latest.LastFinished == nil {
+		return nil
+	}
+	status := string(latest.LastFinished.Status)
+	if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: status}); err != nil {
+		return fmt.Errorf("edit %s: %w", status, err)
+	}
+	r.emitFinished(latest.RunID, t.ID, status, latest.LastFinished.ExitCode, latest.LastFinished.Reason)
+	return nil
 }
 
 // runRecoveryView is the slice of run state recovery cares about. The

@@ -128,7 +128,7 @@ const (
 	folderTaskStateFile = ".agent-state.jsonl"
 )
 
-var taskStatusDirs = []string{"backlog", "in-progress", "done", "archive"}
+var taskStatusDirs = []string{"backlog", "in-progress", "code-review", "done", "archive"}
 
 // ArtifactLayout names the on-disk storage form that owns a task's agent
 // artifacts.

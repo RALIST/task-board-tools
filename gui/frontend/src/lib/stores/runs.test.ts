@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
+  deriveEffectiveRunStatus,
   runsByTask,
   runsForTask,
   selectedRunID,
@@ -171,5 +172,41 @@ describe('runsStore', () => {
     expect(get(r)).toHaveLength(1);
     upsertRun({ runId: 'r_b', taskId: 'TB-1', status: 'queued', queuedAt: '2026-05-13T11:00:00Z' });
     expect(get(r).map((x) => x.runId)).toEqual(['r_b', 'r_a']);
+  });
+});
+
+describe('deriveEffectiveRunStatus', () => {
+  it('downgrades running to interrupted when AgentStatus is terminal', () => {
+    for (const term of ['success', 'failed', 'cancelled', 'interrupted', 'needs-user']) {
+      expect(deriveEffectiveRunStatus('running', term)).toBe('interrupted');
+    }
+  });
+
+  it('downgrades queued to interrupted when AgentStatus is terminal', () => {
+    expect(deriveEffectiveRunStatus('queued', 'success')).toBe('interrupted');
+    expect(deriveEffectiveRunStatus('queued', 'failed')).toBe('interrupted');
+  });
+
+  it('preserves running when AgentStatus is also running (live run)', () => {
+    expect(deriveEffectiveRunStatus('running', 'running')).toBe('running');
+    expect(deriveEffectiveRunStatus('queued', 'queued')).toBe('queued');
+    expect(deriveEffectiveRunStatus('queued', 'running')).toBe('queued');
+  });
+
+  it('preserves running when AgentStatus is empty (no metadata yet)', () => {
+    expect(deriveEffectiveRunStatus('running', '')).toBe('running');
+  });
+
+  it('does not touch terminal run statuses', () => {
+    for (const term of ['success', 'failed', 'cancelled', 'interrupted'] as const) {
+      // Even if AgentStatus is terminal, a terminal run keeps its own status.
+      expect(deriveEffectiveRunStatus(term, 'success')).toBe(term);
+      expect(deriveEffectiveRunStatus(term, 'running')).toBe(term);
+    }
+  });
+
+  it('preserves the empty run status', () => {
+    expect(deriveEffectiveRunStatus('', 'success')).toBe('');
+    expect(deriveEffectiveRunStatus('', '')).toBe('');
   });
 });

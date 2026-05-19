@@ -3,13 +3,15 @@
 **Type:** tech-debt
 **Priority:** P2
 **Size:** M
-**Agent:** codex
+**Agent:** claude
 **AgentStatus:** success
 **Module:** tooling
 **Tags:** lint,go,quality
 **ImplementedBy:** codex
 **ImplementStatus:** success
 **ReviewRef:** main
+**ReviewedBy:** claude
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -82,6 +84,24 @@ baseline follow-ups:
   - TB-249 tracks CLI errcheck/nilerr/unused findings in cli/board.go, cli/scan.go, and cli/ready.go.
   - TB-250 tracks GUI errcheck/errorlint/nilerr/unused findings in gui/app/agent_run.go, gui/app/settings_service_test.go, gui/app/attachments.go, gui/internal/agent/groom_test.go, gui/internal/agent/usage_codex.go, and gui/app/agent_service_test.go.
 
+## Review Findings
+
+No blocking findings. Implementation matches the Review Target scope and meets all acceptance criteria.
+
+Verified during this review:
+- `.golangci.yml`, `scripts/lint-go.sh`, and `Makefile` provide a root wrapper that enters `cli/` and `gui/` explicitly without treating the repo root as a Go module. v2 config schema is valid against golangci-lint v2.11.3.
+- Enabled linters (errcheck, govet, ineffassign, staticcheck SA*, unused, bodyclose, errorlint, nilerr, nilnesserr, makezero, wastedassign, unconvert) match the "high-signal" goal; the deferred families (revive, wsl_v5, cyclop, funlen, gocognit, misspell, varnamelen, staticcheck ST/QF/S) are documented in config comments at .golangci.yml:13-16.
+- AGENTS.md, CLAUDE.md, and README.md each gained a `make lint-go` line under the verification block.
+- `GOLANGCI_LINT=/Users/ralist/go/bin/golangci-lint make lint-go` → cli: 0 issues, gui: 0 issues (re-run during this review).
+- `cd cli && go test ./...` → ok tools/tb (cached).
+- TB-249 and TB-250 exist on disk under board/backlog/ and their acceptance criteria match every baseline suppression in `.golangci.yml` 1:1 (CLI: errcheck cli/board.go syscall.Flock, errcheck cli/scan.go filepath.Walk, nilerr in cli/board.go|ready.go|scan.go, unused writeSimpleYAML/statusFromTaskPath; GUI: errcheck gui/app/agent_run.go and settings_service_test.go, errorlint gui/app/attachments.go and groom_test.go, nilerr usage_codex.go, unused hasActiveRunID/recordingEmitter.names).
+
+Non-blocking observations:
+- (nit) README.md:94 hardcodes `GOLANGCI_LINT=/Users/ralist/go/bin/golangci-lint make lint-go`, embedding the author's home path in the public README. AGENTS.md correctly uses `/path/to/golangci-lint`. Replace the README example with the same placeholder for parity.
+- (nit) Commit subject is "tooling: TB-206 add Go lint workflow" but no `.github/workflows/*.yml` was added — "workflow" here means the developer workflow, not CI. Acceptance criteria don't require CI gating, so this is fine; if CI enforcement is desired, capture it as a follow-up so the wording isn't misleading.
+- (nit) The baseline suppressions in `.golangci.yml` use file-path + message-text patterns, so genuinely new findings matching the same message in the same file would be silently masked while TB-249/TB-250 are open. Worth a sanity-check when those follow-ups remove the rules — golangci-lint's default `unused-rules` warning would also catch stale rules and could be enabled to surface that.
+- (nit) `scripts/lint-go.sh` is sound (per-module loop, status accumulation, `command -v` for both absolute paths and PATH names). One small ergonomic gap: `set -e` plus `|| status=$?` correctly continues across modules, but if golangci-lint emits a configuration error (exit ≥ 2 with no findings), the script still proceeds to the next module. Acceptable for a baseline gate; consider an early-exit on non-finding errors only if this becomes confusing in practice.
+
 ## Related Tasks
 
 - **TB-205** — Setup eslint and deadcode check for frontend (sibling: frontend-only lint/dead-code setup)
@@ -133,3 +153,10 @@ baseline follow-ups:
 - 2026-05-19: Submitted to code-review
 - 2026-05-19: Edited agent=claude
 - 2026-05-19: Edited agent=codex
+- 2026-05-19: Edited agent=claude
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited review-findings
+- 2026-05-19: Edited agentstatus=success, reviewed-by=claude, review-status=success
+- 2026-05-19: Moved to done
+

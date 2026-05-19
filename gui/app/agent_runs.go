@@ -40,6 +40,7 @@ type Run struct {
 	Status         string `json:"status"`
 	ExitCode       int    `json:"exitCode"`
 	LogPath        string `json:"logPath"`
+	Detached       bool   `json:"detached,omitempty"`
 	SessionID      string `json:"sessionId,omitempty"`
 	ResumedFrom    string `json:"resumedFrom,omitempty"`
 	ResumedFromRun string `json:"resumedFromRun,omitempty"`
@@ -150,6 +151,9 @@ func (s *AgentService) ListRuns(ctx context.Context, id string) ([]Run, error) {
 
 	out := make([]Run, 0, len(grouped))
 	for _, r := range grouped {
+		if (r.Status == "queued" || r.Status == "running") && !s.hasActiveRunID(id, r.RunID) {
+			r.Detached = true
+		}
 		out = append(out, *r)
 	}
 	sort.SliceStable(out, func(i, j int) bool {

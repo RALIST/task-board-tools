@@ -8,7 +8,6 @@
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
-| TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | ready | tooling |
 
 ## Finished Epics
 
@@ -27,6 +26,7 @@
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
+| TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | tooling |
 
 ## In Progress (1/2)
 
@@ -38,14 +38,13 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-206 | Setup golangci-lint for project and initial run it | P2 | tooling | — |
-| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | P2 | workflow | — |
+| — | — | — | — | — |
 
 ## Ready
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-205 | Setup ESLint and dead-code check for frontend | tech-debt | P2 | M | tooling |
+| — | — | — | — | — | — |
 
 ## Backlog
 
@@ -97,12 +96,14 @@
 | TB-254 | Stale recovery should write per-mode pair when marking interrupted | tech-debt | P2 | S | gui |
 | TB-255 | TaskDrawer per-mode chip stale while same-mode run in flight | improvement | P2 | S | gui |
 | TB-256 | Test TestRunQueuedAgentSync_ResumeRehydratesParentContext should assert per-mode write on daemon replay | tech-debt | P2 | S | gui |
+| TB-259 | Per-task chat panel via claude/codex CLIs | feature | P1 | L | gui |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
 | TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | feature | core |
+| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | improvement | workflow |
 | TB-237 | Save diffrent agent actions in diffrent fields | improvement | cli |
 | TB-236 | macOS titlebar double-click should zoom/restore window | bug | gui |
 | TB-235 | Require ReviewRef metadata before code-review moves | improvement | workflow |
@@ -130,6 +131,8 @@
 | TB-210 | Manual QA: MVP live-board pass | spike | gui |
 | TB-208 | Switch projects bug | bug | gui |
 | TB-207 | Allow tasl title edit from GUI | improvement | gui |
+| TB-206 | Setup golangci-lint for project and initial run it | tech-debt | tooling |
+| TB-205 | Setup ESLint and dead-code check for frontend | tech-debt | tooling |
 | TB-204 | Show epic progress | improvement | gui/frontend |
 | TB-203 | obfuscation agents logs and tasks | bug | gui |
 | TB-202 | Create proper name and icon for app | improvement | gui |
@@ -149,6 +152,3 @@
 | TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |
-| TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
-| TB-168 | TB-93/GUI: test infra cleanup - hardcoded sleeps, /tmp/tb fallback, idDirRe negative case | tech-debt | gui |
-| TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |

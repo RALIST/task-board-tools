@@ -58,4 +58,5 @@ Teach the GUI daemon to enqueue safe implementation-mode runs for groomed backlo
 - 2026-05-19: Moved to backlog
 - 2026-05-19: Moved to code-review
 - 2026-05-19: Moved to done
+- 2026-05-19: Moved to backlog
 

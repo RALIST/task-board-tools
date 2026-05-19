@@ -42,7 +42,7 @@ func (r *ClaudeRunner) Run(ctx context.Context, in RunInput) (RunResult, error) 
 	if in.Stdout != nil {
 		in.Stdout = newClaudeTranslator(in.Stdout)
 	}
-	args := []string{"-p", in.Prompt, "--output-format", "stream-json", "--verbose"}
+	args := []string{"-p", in.Prompt, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"}
 	if in.SessionID != "" {
 		if in.Mode == ModeResume {
 			args = append(args, "-r", in.SessionID)

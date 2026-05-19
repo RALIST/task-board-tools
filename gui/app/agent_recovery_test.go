@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"tools/tb-gui/internal/agent"
 	"tools/tb-gui/internal/cli"
@@ -35,7 +39,11 @@ type recoveryTaskFixture struct {
 	agentField  string
 	agentStatus string
 	form        string
-	events      []agent.Event
+	// statusDir is the on-disk bucket the task lives in. Empty defaults
+	// to "backlog" — the prior fixture behavior. Set to "code-review",
+	// "in-progress", "done", or "archive" to exercise other buckets.
+	statusDir string
+	events    []agent.Event
 }
 
 func recoveryFixtureWithTasks(t *testing.T, tasks []recoveryTaskFixture) (*RecoveryService, *BoardService, string, *cli.Client) {
@@ -47,7 +55,7 @@ func recoveryFixtureWithTasks(t *testing.T, tasks []recoveryTaskFixture) (*Recov
 
 	root := t.TempDir()
 	boardDir := filepath.Join(root, "board")
-	for _, d := range []string{"backlog", "in-progress", "done", "archive"} {
+	for _, d := range []string{"backlog", "in-progress", "code-review", "done", "archive"} {
 		if err := os.MkdirAll(filepath.Join(boardDir, d), 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -69,10 +77,14 @@ func recoveryFixtureWithTasks(t *testing.T, tasks []recoveryTaskFixture) (*Recov
 		if form == "" {
 			form = "file"
 		}
+		bucket := task.statusDir
+		if bucket == "" {
+			bucket = "backlog"
+		}
 		taskBody := recoveryTaskBody(task.id, task.agentField, status)
 		switch form {
 		case "folder":
-			taskDir := filepath.Join(boardDir, "backlog", task.id)
+			taskDir := filepath.Join(boardDir, bucket, task.id)
 			if err := os.MkdirAll(taskDir, 0o755); err != nil {
 				t.Fatalf("task dir %s: %v", task.id, err)
 			}
@@ -80,7 +92,7 @@ func recoveryFixtureWithTasks(t *testing.T, tasks []recoveryTaskFixture) (*Recov
 				t.Fatalf("folder task md %s: %v", task.id, err)
 			}
 		case "file":
-			if err := os.WriteFile(filepath.Join(boardDir, "backlog", task.id+".md"), []byte(taskBody), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(boardDir, bucket, task.id+".md"), []byte(taskBody), 0o644); err != nil {
 				t.Fatalf("file task md %s: %v", task.id, err)
 			}
 		default:
@@ -109,6 +121,7 @@ func recoveryFixtureWithTasks(t *testing.T, tasks []recoveryTaskFixture) (*Recov
 		func(pid int, expected string) bool { return false },
 		slog.Default(),
 	)
+	t.Cleanup(rec.stopRecoveredRunMonitors)
 	return rec, board, boardDir, c
 }
 
@@ -284,6 +297,190 @@ func TestRecoverStale_FolderLivePID_SkipsRecovery(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(boardDir, ".agent-state", "TB-2.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("folder live recovery should not touch board-root state, err=%v", err)
+	}
+}
+
+func TestRecoverStale_LivePIDMonitorMarksFileAndFolderRunsFailedWhenPIDExits(t *testing.T) {
+	rec, _, boardDir, c := recoveryFixtureWithTasks(t, []recoveryTaskFixture{
+		{
+			id:          "TB-1",
+			agentField:  "claude",
+			agentStatus: "running",
+			form:        "file",
+			events: []agent.Event{
+				{TS: "2026-05-19T10:00:00Z", RunID: "r_file_orphan", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+				{TS: "2026-05-19T10:00:01Z", RunID: "r_file_orphan", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 1111},
+			},
+		},
+		{
+			id:          "TB-2",
+			agentField:  "codex",
+			agentStatus: "running",
+			form:        "folder",
+			events: []agent.Event{
+				{TS: "2026-05-19T10:01:00Z", RunID: "r_folder_orphan", TaskID: "TB-2", Event: agent.EvQueued, Agent: "codex"},
+				{TS: "2026-05-19T10:01:01Z", RunID: "r_folder_orphan", TaskID: "TB-2", Event: agent.EvStarted, Agent: "codex", PID: 2222},
+			},
+		},
+	})
+	rec.monitorPollInterval = 5 * time.Millisecond
+	var alive atomic.Bool
+	alive.Store(true)
+	rec.liveFn = func(pid int, expected string) bool {
+		switch pid {
+		case 1111:
+			if expected != "claude" {
+				t.Errorf("pid 1111 expectedAgent=%q, want claude", expected)
+			}
+		case 2222:
+			if expected != "codex" {
+				t.Errorf("pid 2222 expectedAgent=%q, want codex", expected)
+			}
+		default:
+			t.Errorf("unexpected pid probe %d", pid)
+		}
+		return alive.Load()
+	}
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	for _, id := range []string{"TB-1", "TB-2"} {
+		for _, ev := range readJSONL(t, agent.StatePath(boardDir, id)) {
+			if ev.Event == agent.EvFinished {
+				t.Fatalf("%s live PID should not be reconciled immediately: %+v", id, ev)
+			}
+		}
+		out, _ := c.Run(context.Background(), "show", id)
+		if !strings.Contains(string(out), "**AgentStatus:** running") {
+			t.Fatalf("%s should remain running while pid is alive:\n%s", id, out)
+		}
+	}
+
+	alive.Store(false)
+	for _, id := range []string{"TB-1", "TB-2"} {
+		waitForCondition(t, time.Second, func() bool {
+			events := readJSONL(t, agent.StatePath(boardDir, id))
+			last := events[len(events)-1]
+			if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
+				return false
+			}
+			if last.Reason != "orphaned process exited after restart" {
+				t.Fatalf("%s reason = %q, want orphaned process exited after restart", id, last.Reason)
+			}
+			out, err := c.Run(context.Background(), "show", id)
+			return err == nil && strings.Contains(string(out), "**AgentStatus:** failed")
+		})
+	}
+}
+
+func TestRecoverStale_LivePIDMonitorIsIdempotentAcrossRepeatedRecovery(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_once", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_once", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 3333},
+	}
+	rec, _, boardDir, _ := recoveryFixture(t, "TB-1", "claude", events)
+	rec.monitorPollInterval = 5 * time.Millisecond
+	var alive atomic.Bool
+	alive.Store(true)
+	rec.liveFn = func(int, string) bool { return alive.Load() }
+
+	for i := 0; i < 3; i++ {
+		if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+			t.Fatalf("RecoverStale #%d: %v", i+1, err)
+		}
+	}
+	alive.Store(false)
+
+	waitForCondition(t, time.Second, func() bool {
+		return countFinished(readJSONL(t, agent.StatePath(boardDir, "TB-1"))) == 1
+	})
+	eventsAfter := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if got := countFinished(eventsAfter); got != 1 {
+		t.Fatalf("finished event count = %d, want exactly one; events=%+v", got, eventsAfter)
+	}
+}
+
+func TestRecoverStale_LivePIDMonitorSyncsExistingTerminalWithoutAppending(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_terminal", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_terminal", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 4444},
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "claude", events)
+	rec.monitorPollInterval = 5 * time.Millisecond
+	var alive atomic.Bool
+	alive.Store(true)
+	rec.liveFn = func(int, string) bool { return alive.Load() }
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:       "2026-05-19T10:00:02Z",
+		RunID:    "r_terminal",
+		TaskID:   "TB-1",
+		Event:    agent.EvFinished,
+		Status:   agent.StatusSuccess,
+		ExitCode: 0,
+	}); err != nil {
+		t.Fatalf("append terminal: %v", err)
+	}
+	alive.Store(false)
+
+	waitForCondition(t, time.Second, func() bool {
+		out, err := c.Run(context.Background(), "show", "TB-1")
+		return err == nil && strings.Contains(string(out), "**AgentStatus:** success")
+	})
+	eventsAfter := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if got := countFinished(eventsAfter); got != 1 {
+		t.Fatalf("finished event count = %d, want original terminal only; events=%+v", got, eventsAfter)
+	}
+}
+
+func TestRecoverStale_LivePIDMonitorPreservesExistingCancelledTerminal(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_monitor_cancel", TaskID: "TB-2", Event: agent.EvQueued, Agent: "codex"},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_monitor_cancel", TaskID: "TB-2", Event: agent.EvStarted, Agent: "codex", PID: 5555},
+	}
+	rec, _, boardDir, c := recoveryFixtureWithTasks(t, []recoveryTaskFixture{{
+		id:          "TB-2",
+		agentField:  "codex",
+		agentStatus: "running",
+		form:        "folder",
+		events:      events,
+	}})
+	rec.monitorPollInterval = 5 * time.Millisecond
+	var alive atomic.Bool
+	alive.Store(true)
+	rec.liveFn = func(int, string) bool { return alive.Load() }
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	if err := agent.AppendEvent(boardDir, "TB-2", agent.Event{
+		TS:       "2026-05-19T10:00:02Z",
+		RunID:    "r_monitor_cancel",
+		TaskID:   "TB-2",
+		Event:    agent.EvFinished,
+		Status:   agent.StatusCancelled,
+		ExitCode: -1,
+		Reason:   "user cancelled",
+	}); err != nil {
+		t.Fatalf("append cancelled: %v", err)
+	}
+	alive.Store(false)
+
+	waitForCondition(t, time.Second, func() bool {
+		out, err := c.Run(context.Background(), "show", "TB-2")
+		return err == nil && strings.Contains(string(out), "**AgentStatus:** cancelled")
+	})
+	eventsAfter := readJSONL(t, agent.StatePath(boardDir, "TB-2"))
+	if got := countFinished(eventsAfter); got != 1 {
+		t.Fatalf("finished event count = %d, want original cancelled only; events=%+v", got, eventsAfter)
+	}
+	last := eventsAfter[len(eventsAfter)-1]
+	if last.Status != agent.StatusCancelled || last.Reason != "user cancelled" {
+		t.Fatalf("last event = %+v, want original cancelled terminal", last)
 	}
 }
 
@@ -576,6 +773,31 @@ func readJSONL(t *testing.T, path string) []agent.Event {
 	return out
 }
 
+func countFinished(events []agent.Event) int {
+	n := 0
+	for _, ev := range events {
+		if ev.Event == agent.EvFinished {
+			n++
+		}
+	}
+	return n
+}
+
+func waitForCondition(t *testing.T, timeout time.Duration, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ok() {
+		return
+	}
+	t.Fatalf("condition not met within %s", timeout)
+}
+
 // --- TB-130: resumableSessionID tests ---
 //
 // These exercise the helper directly without a tb binary fixture — only
@@ -641,6 +863,310 @@ func TestResumableSessionID_LatestRunHasSession(t *testing.T) {
 	}
 	if got := cand.Env["TB_BOARD_PATH"]; got != "/tmp/board" {
 		t.Fatalf("Env TB_BOARD_PATH: got %q, want %q", got, "/tmp/board")
+	}
+}
+
+// A task that the agent moved to code-review while a daemon-tracked run
+// was still in flight is reconciled the same way as a backlog/in-progress/
+// done task. Prior to this fix RecoverStale's bucket walk skipped
+// CodeReview entirely, so such tasks stayed at AgentStatus=running across
+// a daemon restart and blocked the drawer's Run/Groom controls until
+// manually cleared.
+func TestRecoverStale_CodeReviewBucket_ReconcilesRunning(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T13:35:00Z", RunID: "r_cr", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-19T13:35:01Z", RunID: "r_cr", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 99999},
+	}
+	rec, _, boardDir, c := recoveryFixtureWithTasks(t, []recoveryTaskFixture{{
+		id:          "TB-1",
+		agentField:  "claude",
+		agentStatus: "running",
+		form:        "folder",
+		statusDir:   "code-review",
+		events:      events,
+	}})
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+
+	final := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if len(final) < 3 {
+		t.Fatalf("expected synthetic finished for code-review task; have %d events", len(final))
+	}
+	last := final[len(final)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
+		t.Errorf("last event: %+v; want finished{failed}", last)
+	}
+	out, _ := c.Run(context.Background(), "show", "TB-1")
+	if !strings.Contains(string(out), "**AgentStatus:** failed") {
+		t.Fatalf("AgentStatus not reconciled to failed:\n%s", out)
+	}
+}
+
+// Mirror of the above for the archive bucket — a closed task with a
+// dangling running run still needs reconciliation so the next daemon
+// session doesn't leak the stale state into resume probes.
+func TestRecoverStale_ArchiveBucket_ReconcilesRunning(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T13:35:00Z", RunID: "r_arc", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-19T13:35:01Z", RunID: "r_arc", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 99999},
+	}
+	rec, _, boardDir, c := recoveryFixtureWithTasks(t, []recoveryTaskFixture{{
+		id:          "TB-1",
+		agentField:  "claude",
+		agentStatus: "running",
+		form:        "file",
+		statusDir:   "archive",
+		events:      events,
+	}})
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+
+	final := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	last := final[len(final)-1]
+	if last.Event != agent.EvFinished || last.Status != agent.StatusFailed {
+		t.Errorf("last event: %+v; want finished{failed}", last)
+	}
+	out, _ := c.Run(context.Background(), "show", "TB-1")
+	if !strings.Contains(string(out), "**AgentStatus:** failed") {
+		t.Fatalf("AgentStatus not reconciled to failed:\n%s", out)
+	}
+}
+
+// TB-176: when recovery decides the orphaned PID is still alive, it
+// must adopt a stub activeRun in s.active so the drawer's Cancel
+// button reaches the kill cascade in CancelRun instead of returning
+// ErrNotRunning. Also confirms ListRuns reports Detached=false for
+// the adopted run — the frontend uses that to keep showing Cancel as
+// an enabled action.
+func TestRecoverStale_LivePIDAdoptsStubForCancel(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_adopt", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeImplement.String()},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_adopt", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", Mode: agent.ModeImplement.String(), PID: 7777},
+	}
+	rec, board, boardDir, _ := recoveryFixture(t, "TB-1", "claude", events)
+	rec.liveFn = func(int, string) bool { return true }
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+
+	ar := rec.agent.getActiveRun("TB-1")
+	if ar == nil {
+		t.Fatalf("expected stub activeRun adopted for live recovered PID; s.active was empty")
+	}
+	if !ar.Recovered {
+		t.Errorf("stub Recovered = false, want true")
+	}
+	if ar.Pid != 7777 {
+		t.Errorf("stub Pid = %d, want 7777", ar.Pid)
+	}
+	if ar.RunID != "r_adopt" {
+		t.Errorf("stub RunID = %q, want r_adopt", ar.RunID)
+	}
+	if ar.Agent != "claude" {
+		t.Errorf("stub Agent = %q, want claude", ar.Agent)
+	}
+	if ar.Mode != agent.ModeImplement.String() {
+		t.Errorf("stub Mode = %q, want %q", ar.Mode, agent.ModeImplement.String())
+	}
+
+	runs, err := rec.agent.ListRuns(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	var found bool
+	for _, r := range runs {
+		if r.RunID != "r_adopt" {
+			continue
+		}
+		found = true
+		if r.Detached {
+			t.Errorf("ListRuns Detached = true; adopt should keep the run attached so Cancel is enabled")
+		}
+		if r.Status != "running" {
+			t.Errorf("ListRuns Status = %q, want running", r.Status)
+		}
+	}
+	if !found {
+		t.Errorf("ListRuns did not include r_adopt; got %+v", runs)
+	}
+	_ = board
+}
+
+// TB-176: a CancelRun against a stub adopted for a live recovered PID
+// must signal the orphaned process group, wait for it to die, and
+// write the cancelled terminal record. End-to-end with a real /bin/sh
+// process so the SIGTERM path is exercised against the kernel.
+func TestCancelRun_RecoveredLivePID_KillsAndWritesCancelled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only signals")
+	}
+	// Spawn a real subprocess that exits on SIGTERM, in its own pgrp so
+	// the kill cascade works the same way as a real recovered orphan.
+	cmd := exec.Command("/bin/sh", "-c", "sleep 60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("spawn sleep: %v", err)
+	}
+	pid := cmd.Process.Pid
+	// Reap the process asynchronously so kill(pid, 0) flips to ESRCH
+	// the moment the kernel finishes tearing it down. Without this the
+	// kernel keeps the slot as a zombie, the monitor's liveFn keeps
+	// reporting "alive", and CancelRun's wait-on-Done never resolves.
+	reaped := make(chan struct{})
+	go func() {
+		defer close(reaped)
+		_ = cmd.Wait()
+	}()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		<-reaped
+	})
+
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_live", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeImplement.String()},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_live", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", Mode: agent.ModeImplement.String(), PID: pid},
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "claude", events)
+	rec.monitorPollInterval = 10 * time.Millisecond
+	rec.liveFn = func(probePid int, _ string) bool {
+		return syscall.Kill(probePid, 0) == nil
+	}
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	if rec.agent.getActiveRun("TB-1") == nil {
+		t.Fatalf("recovery did not adopt a stub for the live PID")
+	}
+
+	start := time.Now()
+	if err := rec.agent.CancelRun(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("CancelRun on recovered live PID: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 8*time.Second {
+		t.Errorf("CancelRun took too long: %v", elapsed)
+	}
+
+	// Kernel beat to reap, then verify the orphan is dead.
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Errorf("recovered pid %d still alive after CancelRun", pid)
+	}
+
+	events2 := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	finished := 0
+	for _, ev := range events2 {
+		if ev.RunID != "r_live" || ev.Event != agent.EvFinished {
+			continue
+		}
+		finished++
+		if ev.Status != agent.StatusCancelled {
+			t.Errorf("terminal status = %s, want cancelled", ev.Status)
+		}
+		if ev.Reason != "user cancelled" {
+			t.Errorf("terminal reason = %q, want user cancelled", ev.Reason)
+		}
+	}
+	if finished != 1 {
+		t.Errorf("got %d finished events for r_live, want exactly 1", finished)
+	}
+
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
+		t.Errorf("AgentStatus not cancelled:\n%s", out)
+	}
+
+	// s.active must be cleaned up: a follow-up cancel returns ErrNotRunning.
+	if err := rec.agent.CancelRun(context.Background(), "TB-1"); err == nil {
+		t.Errorf("second CancelRun expected error, got nil")
+	}
+}
+
+// TB-176: a CancelRun that races a natural orphan exit must still
+// produce exactly one terminal record, and the cancelled carve-out
+// must beat the monitor's "orphaned process exited" failure record
+// when the user marked the run cancelled first.
+func TestRecoverStale_LivePIDCancelBeatsMonitorOnRaceWithExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only signals")
+	}
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_race", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeImplement.String()},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_race", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", Mode: agent.ModeImplement.String(), PID: 12321},
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "claude", events)
+	rec.monitorPollInterval = 5 * time.Millisecond
+
+	var alive atomic.Bool
+	alive.Store(true)
+	rec.liveFn = func(int, string) bool { return alive.Load() }
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	ar := rec.agent.getActiveRun("TB-1")
+	if ar == nil {
+		t.Fatalf("recovery did not adopt a stub for the live PID")
+	}
+
+	// Simulate the user clicking Cancel: mark cancelled BEFORE the PID
+	// exits. This is the order CancelRun guarantees (markCancelled
+	// fires before killActiveRun). The monitor's next poll will see
+	// the PID gone but defer the terminal to the cancel path.
+	ar.markCancelled()
+	alive.Store(false)
+
+	// Wait for the monitor to observe the exit and unblock Done.
+	waitForCondition(t, time.Second, func() bool {
+		select {
+		case <-ar.Done:
+			return true
+		default:
+			return false
+		}
+	})
+
+	// CancelRun is what writes the terminal record. We can't run the
+	// real CancelRun here because the PID never existed (12321 is
+	// synthetic) — exercise finishCancelled directly, which is what
+	// CancelRun calls after killActiveRun returns.
+	if err := rec.agent.finishCancelled(rec.agent.board.snapshot(), ar, boardDir, "user cancelled"); err != nil {
+		t.Fatalf("finishCancelled: %v", err)
+	}
+
+	finished := 0
+	last := agent.Event{}
+	for _, ev := range readJSONL(t, agent.StatePath(boardDir, "TB-1")) {
+		if ev.RunID != "r_race" || ev.Event != agent.EvFinished {
+			continue
+		}
+		finished++
+		last = ev
+	}
+	if finished != 1 {
+		t.Errorf("got %d finished events, want exactly 1 (cancelled carve-out should beat monitor)", finished)
+	}
+	if last.Status != agent.StatusCancelled {
+		t.Errorf("terminal status = %s, want cancelled", last.Status)
+	}
+	if last.Reason != "user cancelled" {
+		t.Errorf("terminal reason = %q, want user cancelled", last.Reason)
+	}
+
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
+		t.Errorf("AgentStatus not cancelled:\n%s", out)
 	}
 }
 

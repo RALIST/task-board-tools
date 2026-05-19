@@ -4,7 +4,6 @@
 **Priority:** P2
 **Size:** M
 **Agent:** codex
-**AgentStatus:** success
 **Module:** gui
 **Tags:** agent,daemon,recovery,ui
 **Branch:** —
@@ -60,4 +59,19 @@ Start a long-running fake agent from the GUI, force-kill the GUI process so the 
 - 2026-05-15: Edited module=gui, tags=agent,daemon,recovery,ui, goal
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=success
+- 2026-05-19: Edited agent=claude
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited agentstatus=interrupted
+- 2026-05-19: Committed — moved to ready
+- 2026-05-19: Edited agent=codex
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Edited agentstatus=failed
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited agentstatus=failed
+- 2026-05-19: Edited agentstatus=cancelled
+- 2026-05-19: Edited agentstatus=none
 

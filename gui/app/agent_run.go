@@ -626,7 +626,7 @@ func (s *AgentService) hasActiveRunID(taskID, runID string) bool {
 // running write hits disk; OnStarted itself also short-circuits if
 // Cancelled is already set (cancel-before-start).
 func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c *cli.Client, ar *activeRun, boardDir string, detail TaskDetail) {
-	defer close(ar.Done)
+	defer ar.closeDone()
 
 	if ar.wasCancelled() {
 		// Cancel fired between RunAgent's return and now — don't even

@@ -136,6 +136,29 @@ func TestListRuns_MissingFileReturnsEmptySlice(t *testing.T) {
 	}
 }
 
+func TestListRuns_MarksOpenRunDetachedWhenNoActiveRunOwnsIt(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: "r_detached", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude", Mode: "implement"},
+		{TS: "2026-05-19T10:00:01Z", RunID: "r_detached", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", Mode: "implement", PID: 12345},
+	}
+	dir := writeJSONLFixture(t, "TB-1", events)
+	svc := newSvcForRuns(t, dir)
+
+	runs, err := svc.ListRuns(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("got %d runs, want 1", len(runs))
+	}
+	if runs[0].Status != "running" {
+		t.Fatalf("status = %q, want running", runs[0].Status)
+	}
+	if !runs[0].Detached {
+		t.Fatalf("running run with no activeRun should be marked detached: %+v", runs[0])
+	}
+}
+
 func TestListRunsAndGetRunLog_FolderTaskLocalArtifacts(t *testing.T) {
 	events := []agent.Event{
 		{TS: "2026-05-14T10:00:00Z", RunID: "r_folder01", TaskID: "TB-2", Event: agent.EvQueued, Agent: "claude", Mode: "implement"},

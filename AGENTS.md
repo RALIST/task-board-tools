@@ -6,10 +6,33 @@ This repo builds two tools over the same markdown board format. `cli/` contains 
 
 ## Workflow
 
-- Always read `board/CONVENTIONS.md` for the task board workflow. 
-In short: create tasks for work items and move them across columns as they progress. All WIP should be on the board; use `TB-` IDs in commit messages and PR descriptions to link work to tasks. Always move tasks in proper status, especially when working with epics, do not forget to keep board hygiene.  If you are working on task or it's part - it MUST be in progress column.
-- Use subganets when possible to speedup work and reduce context switching. For example, if you are working on a CLI bug that requires a GUI change, create a subganet for the GUI work and link it to the CLI task. This allows you to focus on one tool at a time while still making progress on the overall issue.
+- Always read `board/CONVENTIONS.md` and `board/SKILL.md` for the task board workflow. 
+- Use subganets when possible to speedup work and reduce context switching.
 - Create new tasks for any bug/follow-up work that you identify while working on an existing task. This helps keep track of all the work that needs to be done and ensures that nothing falls through the cracks.
+- Rebuild and relink cli binary after changes in /cli/; the `tb` binary is not tracked by git and must be built locally.
+- 
+## Architecture invariants (do not break)
+
+- **Markdown is the source of truth.** Task `.md` files in status directories are canonical. `BOARD.md` is generated; never edit it.
+- **Directory = status.** Moving a task = renaming the file between `backlog/`, `ready/`, `in-progress/`, `code-review/`, `done/`, `archive/`. The canonical kanban flow is `backlog → ready → in-progress → code-review → done → archive`.
+- **`.board.lock`** (POSIX `flock`) serializes every structured mutation. The CLI takes it; the GUI delegates to the CLI; the one exception (free-form body editing in `EditTaskBody`) takes the same lock with the rules listed in `docs/ARCHITECTURE.md` → "Locking and atomic writes".
+- **Atomic writes.** Every task-file mutation must use `writeFileAtomic` (temp + fsync + `os.Rename`). Direct `os.WriteFile(...".md")` is forbidden outside `cli/atomicfs.go`. This is what makes lock-free GUI reads safe.
+- **Status filter semantics** (`cli/board.go:resolveStatusFilter`):
+  - `backlog`, `ready`, `in-progress`, `code-review`, `done`, `archive` — concrete dirs (single)
+  - `active` = backlog + ready + in-progress + code-review + done
+  - `all` = active + archive
+  - aliases: `b`=backlog, `r`=ready, `ip`/`wip`=in-progress, `cr`/`review`=code-review, `d`=done
+- **Pull-based mechanics.** Tasks flow forward, never sideways:
+  - `tb ready <ID>` is the commitment point from backlog → ready; it runs the triage gate (priority + non-placeholder goal) and rejects un-groomed tasks.
+  - `tb pull` (no arg) pulls the highest-priority oldest ready task into in-progress. `tb pull <ID>` overrides selection.
+  - `tb start <ID>` still works push-style for compatibility but warns when the source is backlog (which skips the canonical commitment column).
+  - Failed code review returns the task to `ready` (not `backlog`) with the `review-failed` tag — already groomed, just needs rework.
+- **WIP limits.** `.tb.yaml` may declare `wip_limit_ready`, `wip_limit_in_progress`, `wip_limit_code_review` (the legacy scalar `wip_limit` seeds in-progress for backwards compatibility). `wip_enforcement: warn` (default) emits a stderr warning when a move would exceed the limit; `strict` blocks the move with a non-zero exit. Enforcement runs for `tb ready`, `tb pull`, `tb start`, and `tb mv` against the destination column.
+- **Agent state is hybrid**: `Agent` / `AgentStatus` fields in task `.md` (current state, visible to humans/CLI); file-form tasks use `board/.agent-state/<ID>.jsonl` and `board/.agent-logs/<ID>/<run_id>.log`; folder-form tasks use `<status>/<ID>/.agent-state.jsonl` and `<status>/<ID>/.agent-logs/<run_id>.log`.
+- **`AgentStatus` values**: `queued | running | success | failed | cancelled | interrupted | needs-user`. `cancelled` is user-initiated and `interrupted` is recovery-initiated (TB-130) — stale-recovery never overwrites `cancelled`, and convention reserves writes of `interrupted` to `RecoverStale` even though the validator accepts it from any path. `needs-user` is the agent-attention handoff (TB-182): an autonomous agent stopped because user input is required; clear with `tb edit <ID> --agent-status none`.
+- **Session resume**: each run captures the agent CLI's `session_id` as a `session` JSONL event written immediately AFTER `started` (PID is durable first). Recovery's dead-PID branch reads that id: `interrupted` if present (Resume button surfaces in the GUI), otherwise existing `failed`. Resume re-invokes the same agent CLI with its native flag (`claude -r <uuid>` / `codex exec --json resume <uuid> <prompt>`), in the parent run's persisted cwd, with the parent's `TB_`-prefixed env replayed. **Security**: only env keys prefixed `TB_` are persisted in JSONL `run_env`; credential vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) never reach disk.
+- **`.next-id` allocator** detects collisions on every allocation — don't bypass it.
+- **Folder-form tasks.** Tasks may be stored as `<status>/<ID>.md` (file form) or `<status>/<ID>/TASK.md` (folder form, with new attachments directly under `<status>/<ID>/`, legacy `attachments/` compatibility files, and task-local `.agent-state.jsonl` / `.agent-logs/`). The contract — resolution order, lock semantics, atomic-write rules for files inside a task folder, the file → folder promotion procedure, and which paths deliberately differ between forms — is specified in [`docs/ARCHITECTURE.md` → "Folder-form tasks"](docs/ARCHITECTURE.md#folder-form-tasks). Follow-up work touching storage forms must conform to that section.
 
 ## Build, Test, and Development Commands
 

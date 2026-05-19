@@ -4,7 +4,7 @@
 **Priority:** P1
 **Size:** M
 **Agent:** claude
-**AgentStatus:** running
+**AgentStatus:** success
 **Module:** workflow
 **Tags:** code-review,metadata,validation,ux
 **ReviewRef:** main@b3795ea
@@ -110,4 +110,5 @@ Manual smoke (in a scratch board): mv TST-1 to code-review without ReviewRef →
 - 2026-05-19: Edited agentstatus=queued
 - 2026-05-19: Edited agentstatus=running
 - 2026-05-19: Done
+- 2026-05-19: Edited agentstatus=success
 
