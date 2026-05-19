@@ -92,6 +92,8 @@ func parseRunMode(mode string) agent.Mode {
 	switch agent.Mode(mode) {
 	case agent.ModeGroom:
 		return agent.ModeGroom
+	case agent.ModeResume:
+		return agent.ModeResume
 	default:
 		return agent.ModeImplement
 	}

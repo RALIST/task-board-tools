@@ -453,6 +453,52 @@ func TestEditMetadataDoesNotScanBody(t *testing.T) {
 	assertContains(t, content, "Body examples must stay body examples:\n**Agent:** codex")
 }
 
+// TestEditAgentStatusInterrupted confirms the validator accepts the
+// `interrupted` value the recovery path needs to write. The "nothing
+// manual writes interrupted" rule is convention-based (same precedent
+// as `cancelled`), not enforced here.
+func TestEditAgentStatusInterrupted(t *testing.T) {
+	initial := strings.Join([]string{
+		"# TB-1: Existing Task",
+		"",
+		"**Type:** bug",
+		"**Priority:** P2",
+		"**Size:** M",
+		"**Module:** cli",
+		"**Agent:** claude",
+		"**AgentStatus:** running",
+		"**Branch:** -",
+		"",
+		"## Goal",
+		"",
+		"Cover the interrupted status round-trip.",
+		"",
+		"## Log",
+		"",
+		"- 2026-05-14: Created",
+		"",
+	}, "\n")
+
+	boardDir := newCommandTestBoard(t)
+	taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+	if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+		t.Fatalf("write task: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		cmdEdit([]string{"TB-1", "--agent-status", "interrupted"})
+	})
+	assertContains(t, out, "agentstatus=interrupted")
+
+	data, err := os.ReadFile(taskPath)
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	content := string(data)
+	assertContains(t, content, "**AgentStatus:** interrupted")
+	assertContains(t, content, ": Edited agentstatus=interrupted")
+}
+
 func metadataHeader(content string) string {
 	if idx := strings.Index(content, "\n## "); idx != -1 {
 		return content[:idx]

@@ -17,11 +17,11 @@ export interface Run {
   runId: string;
   taskId: string;
   agent: string;
-  mode: 'implement' | 'groom';
+  mode: 'implement' | 'groom' | 'resume';
   queuedAt: string;
   startedAt: string;
   finishedAt: string;
-  status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | '';
+  status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'interrupted' | '';
   exitCode: number;
   logPath: string;
 }
@@ -257,5 +257,6 @@ function nowISO(): string {
 
 function normalizeMode(mode: unknown): Run['mode'] {
   if (mode === 'groom') return 'groom';
+  if (mode === 'resume') return 'resume';
   return 'implement';
 }

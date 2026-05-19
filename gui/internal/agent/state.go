@@ -30,12 +30,19 @@ const (
 // Status is the terminal disposition of a run, written into the `finished`
 // event's `status` field and (in lockstep) into the task's `AgentStatus`
 // metadata.
+//
+// StatusInterrupted is the recovery-initiated terminal state: the daemon
+// crashed mid-run with a captured SessionID. The user can choose to
+// Resume the previous session. By convention nothing manual writes
+// `interrupted` — only `RecoverStale` does (mirror of how nothing manual
+// writes `cancelled` from outside the cancel path).
 type Status string
 
 const (
-	StatusSuccess   Status = "success"
-	StatusFailed    Status = "failed"
-	StatusCancelled Status = "cancelled"
+	StatusSuccess     Status = "success"
+	StatusFailed      Status = "failed"
+	StatusCancelled   Status = "cancelled"
+	StatusInterrupted Status = "interrupted"
 )
 
 // Event is the union-shape every JSONL line decodes into. Fields are

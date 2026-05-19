@@ -23,7 +23,7 @@ type Task struct {
 	Status      string `json:"status"`      // directory name: backlog, in-progress, done, archive
 	FilePath    string `json:"filePath"`    // relative path from project root
 	Agent       string `json:"agent"`       // claude | codex | "" (optional)
-	AgentStatus string `json:"agentStatus"` // queued | running | success | failed | cancelled | "" (optional)
+	AgentStatus string `json:"agentStatus"` // queued | running | success | failed | cancelled | interrupted | "" (optional)
 }
 
 // validAgents enumerates the agents `tb edit -a` accepts. Empty is also
@@ -31,13 +31,18 @@ type Task struct {
 var validAgents = map[string]bool{"claude": true, "codex": true}
 
 // validAgentStatuses enumerates the AgentStatus enum. `cancelled` is
-// user-initiated; M5 stale-recovery must never overwrite it.
+// user-initiated and `interrupted` is recovery-initiated; M5 stale-recovery
+// must never overwrite either. The validator allows both values so the same
+// `tb edit --agent-status` path used by recovery can write them; the
+// "nothing manual writes interrupted" rule lives in code+docs, not here
+// (matching the cancelled precedent).
 var validAgentStatuses = map[string]bool{
-	"queued":    true,
-	"running":   true,
-	"success":   true,
-	"failed":    true,
-	"cancelled": true,
+	"queued":      true,
+	"running":     true,
+	"success":     true,
+	"failed":      true,
+	"cancelled":   true,
+	"interrupted": true,
 }
 
 // maxMetadataLines limits how many lines we scan for metadata (performance).

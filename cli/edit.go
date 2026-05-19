@@ -29,13 +29,13 @@ func cmdEdit(args []string) {
 	module := fs.String("m", "", "module")
 	tags := fs.String("t", "", "tags (comma-separated, replaces existing)")
 	agent := fs.String("a", "", "agent (claude, codex)")
-	agentStatus := fs.String("agent-status", "", "agent status (queued, running, success, failed, cancelled)")
+	agentStatus := fs.String("agent-status", "", "agent status (queued, running, success, failed, cancelled, interrupted)")
 	title := fs.String("title", "", "task title (replaces the H1 header)")
 	goalPath := fs.String("goal", "", "replace/insert ## Goal from file path or - for stdin")
 	acceptancePath := fs.String("acceptance", "", "replace/insert ## Acceptance Criteria from file path or - for stdin")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued] [--title \"New title\"] [--goal file|-] [--acceptance file|-]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted] [--title \"New title\"] [--goal file|-] [--acceptance file|-]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -85,7 +85,7 @@ func cmdEdit(args []string) {
 	if *agentStatus != "" {
 		*agentStatus = strings.ToLower(*agentStatus)
 		if *agentStatus != "none" && !validAgentStatuses[*agentStatus] {
-			fmt.Fprintf(os.Stderr, "error: invalid agent-status %q — use: queued, running, success, failed, cancelled, none\n", *agentStatus)
+			fmt.Fprintf(os.Stderr, "error: invalid agent-status %q — use: queued, running, success, failed, cancelled, interrupted, none\n", *agentStatus)
 			os.Exit(1)
 		}
 	}

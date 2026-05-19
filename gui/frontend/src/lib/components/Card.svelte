@@ -440,6 +440,7 @@
   .agent-success { background: rgba(80, 200, 120, 0.18); color: #50c878; }
   .agent-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .agent-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
+  .agent-interrupted { background: rgba(245, 158, 11, 0.22); color: #f59e0b; }
   .agent-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
   .agent-glyph {
     display: inline-block;

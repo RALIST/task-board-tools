@@ -24,13 +24,15 @@ import (
 	"time"
 )
 
-// Mode tells a Runner what variant of prompt to use. Only ModeImplement is
-// wired in M4; ModeGroom lands in M6.
+// Mode tells a Runner what variant of prompt to use. ModeImplement landed
+// in M4, ModeGroom in M6, ModeResume in TB-130 (continues a prior agent
+// session via the agent CLI's native resume flag).
 type Mode string
 
 const (
 	ModeImplement Mode = "implement"
 	ModeGroom     Mode = "groom"
+	ModeResume    Mode = "resume"
 )
 
 // String makes Mode round-trip cleanly through JSON, logs, and prompt
