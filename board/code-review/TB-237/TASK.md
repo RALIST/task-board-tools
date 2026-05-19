@@ -4,10 +4,12 @@
 **Priority:** P2
 **Size:** L
 **Agent:** claude
-**AgentStatus:** running
+**AgentStatus:** success
 **Module:** cli
 **Tags:** agent,metadata,attribution,history
 **ReviewRef:** main
+**ImplementedBy:** claude
+**ImplementStatus:** success
 **Branch:** —
 
 ## Goal
@@ -82,4 +84,10 @@ scope: per-mode agent attribution (GroomedBy/GroomStatus, ImplementedBy/Implemen
 - 2026-05-19: Edited reviewref=main
 - 2026-05-19: Edited review-target
 - 2026-05-19: Submitted to code-review
+- 2026-05-19: Edited agentstatus=failed
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Edited agentstatus=success
+- 2026-05-19: Edited reviewref=main
+- 2026-05-19: Edited implemented-by=claude, implement-status=success
 
