@@ -5,6 +5,8 @@
   import { pushToast } from '$lib/stores/toast';
   import { upsertRun } from '$lib/stores/runs';
   import { registerTaskTriageEventHandler, triageForTask } from '$lib/stores/triage';
+  import { board } from '$lib/stores/board';
+  import { epicProgress } from '$lib/filtering';
 
   interface Props {
     task: Task;
@@ -34,6 +36,9 @@
   };
 
   let isEpic = $derived(task.tags?.includes('epic') ?? false);
+  // Epic progress is computed from the live board store rather than props so
+  // a child status change reflows here without a backend round-trip per card.
+  let progress = $derived(isEpic ? epicProgress($board, task.id) : null);
 
   let visibleTags = $derived(
     (task.tags ?? []).filter((t) => t !== 'epic').slice(0, MAX_VISIBLE_TAGS),
@@ -273,6 +278,24 @@
     {/if}
   </footer>
 
+  {#if isEpic && progress}
+    <div
+      class="epic-progress"
+      class:complete={progress.total > 0 && progress.done === progress.total}
+      class:empty={progress.total === 0}
+      title={progress.total === 0
+        ? 'No child tasks yet'
+        : `Epic progress: ${progress.done} of ${progress.total} done (${progress.percent}%)`}
+      aria-label={progress.total === 0
+        ? 'Epic progress: no child tasks yet'
+        : `Epic progress ${progress.done} of ${progress.total}`}>
+      <span class="epic-progress-label">{progress.done}/{progress.total}</span>
+      <span class="epic-progress-bar" aria-hidden="true">
+        <span class="epic-progress-fill" style={`width: ${progress.total === 0 ? 0 : progress.percent}%`}></span>
+      </span>
+    </div>
+  {/if}
+
   {#if visibleTags.length > 0 || hiddenTagCount > 0}
     <div class="tags">
       {#each visibleTags as tag}
@@ -511,6 +534,49 @@
     font-weight: 700;
     color: inherit;
   }
+
+  .epic-progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    /* Fixed-height row keeps epic cards visually consistent regardless of
+       done/total — avoids a layout shift between e.g. 0/0 and 3/4 epics. */
+    height: 14px;
+  }
+  .epic-progress-label {
+    font-size: 10px;
+    color: var(--fg-dim);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+    /* Reserve room for 4 digits ("99/99") so the bar's left edge doesn't
+       drift between e.g. 1/3 and 11/30. Tabular-nums alone only equalises
+       digit width; the digit *count* still varies without a min-width. */
+    min-width: 34px;
+    text-align: left;
+  }
+  .epic-progress-bar {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+  }
+  .epic-progress-fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 160ms ease;
+  }
+  .epic-progress.complete .epic-progress-fill { background: #50c878; }
+  /* 0/0 epics: muted label colour and an empty bar — avoids the misleading
+     "100% complete" look of a full bar when there are no children yet. */
+  .epic-progress.empty .epic-progress-label { color: var(--fg-dim); opacity: 0.7; }
+  .epic-progress.empty .epic-progress-fill { background: transparent; }
 
   .tags {
     display: flex;

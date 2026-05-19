@@ -37,8 +37,38 @@ vi.mock('$lib/api', () => apiMocks);
 const toastMock = vi.hoisted(() => ({ pushToast: vi.fn() }));
 vi.mock('$lib/stores/toast', () => toastMock);
 
+// Board store is consulted by Card to compute epic progress; tests that don't
+// care about progress just see an empty snapshot, which yields 0/0 for epic
+// cards (the helper is exercised directly elsewhere). A hand-rolled
+// subscribe/set object avoids the TDZ trap that vi.mock's hoisting imposes on
+// real store instances created at top level.
+const boardMocks = vi.hoisted(() => {
+  let current: any = { backlog: [], inProgress: [], done: [], archive: [] };
+  const subs = new Set<(v: any) => void>();
+  return {
+    boardStore: {
+      subscribe(cb: (v: any) => void) {
+        cb(current);
+        subs.add(cb);
+        return () => subs.delete(cb);
+      },
+      set(next: any) {
+        current = next;
+        for (const cb of subs) cb(current);
+      },
+      reset() {
+        current = { backlog: [], inProgress: [], done: [], archive: [] };
+        for (const cb of subs) cb(current);
+      },
+    },
+  };
+});
+vi.mock('$lib/stores/board', () => ({ board: boardMocks.boardStore }));
+
 import Card from './Card.svelte';
-import type { Task } from '$lib/api';
+import type { BoardSnapshot, Task } from '$lib/api';
+
+const boardStore = boardMocks.boardStore as { set: (s: BoardSnapshot) => void; reset: () => void };
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -65,6 +95,7 @@ beforeEach(() => {
   document.body.innerHTML = '';
   apiMocks.renameTask.mockReset();
   toastMock.pushToast.mockReset();
+  boardStore.reset();
 });
 
 afterEach(async () => {
@@ -306,5 +337,89 @@ describe('Card.svelte inline title rename (TB-207)', () => {
     expect(toastMock.pushToast).toHaveBeenCalledWith(
       expect.stringContaining('Rename failed'),
     );
+  });
+});
+
+describe('Card.svelte epic progress (TB-204)', () => {
+  function epicTask(overrides: Partial<Task> = {}): Task {
+    return makeTask({ id: 'TB-1', tags: ['epic'], parent: '', ...overrides });
+  }
+
+  it('shows a done/total progress label on epic cards', async () => {
+    boardStore.set({
+      backlog: [epicTask(), makeTask({ id: 'TB-2', parent: 'TB-1', status: 'backlog' })],
+      inProgress: [makeTask({ id: 'TB-3', parent: 'TB-1', status: 'in-progress' })],
+      done: [makeTask({ id: 'TB-4', parent: 'TB-1', status: 'done' })],
+      archive: [],
+    });
+    component = mount(Card, {
+      target: document.body,
+      props: { task: epicTask() },
+    });
+    await tick();
+
+    const label = document.querySelector('.card .epic-progress .epic-progress-label');
+    expect(label?.textContent?.trim()).toBe('1/3');
+    expect(document.querySelector('.card .epic-progress')?.classList.contains('complete')).toBe(false);
+    expect(document.querySelector('.card .epic-progress')?.classList.contains('empty')).toBe(false);
+  });
+
+  it('renders cleanly for a 0/0 epic without misleading completion styling', async () => {
+    boardStore.set({ backlog: [epicTask()], inProgress: [], done: [], archive: [] });
+    component = mount(Card, {
+      target: document.body,
+      props: { task: epicTask() },
+    });
+    await tick();
+
+    const wrap = document.querySelector<HTMLElement>('.card .epic-progress');
+    expect(wrap).not.toBeNull();
+    expect(wrap!.classList.contains('empty')).toBe(true);
+    expect(wrap!.classList.contains('complete')).toBe(false);
+    expect(wrap!.querySelector('.epic-progress-label')?.textContent?.trim()).toBe('0/0');
+    // 0/0 must not paint the bar — checking inline width avoids relying on
+    // computed styles that jsdom doesn't fully resolve.
+    const fill = wrap!.querySelector<HTMLElement>('.epic-progress-fill')!;
+    expect(fill.style.width).toBe('0%');
+  });
+
+  it('marks the progress complete when every child is done', async () => {
+    boardStore.set({
+      backlog: [epicTask()],
+      inProgress: [],
+      done: [
+        makeTask({ id: 'TB-2', parent: 'TB-1', status: 'done' }),
+        makeTask({ id: 'TB-3', parent: 'TB-1', status: 'done' }),
+      ],
+      archive: [],
+    });
+    component = mount(Card, {
+      target: document.body,
+      props: { task: epicTask() },
+    });
+    await tick();
+
+    const wrap = document.querySelector<HTMLElement>('.card .epic-progress');
+    expect(wrap?.classList.contains('complete')).toBe(true);
+    expect(wrap?.querySelector('.epic-progress-label')?.textContent?.trim()).toBe('2/2');
+  });
+
+  it('does not render a progress indicator for non-epic cards', async () => {
+    boardStore.set({
+      backlog: [
+        makeTask({ id: 'TB-2', parent: 'TB-1', status: 'backlog' }),
+        makeTask({ id: 'TB-5', parent: '', tags: [] }),
+      ],
+      inProgress: [],
+      done: [],
+      archive: [],
+    });
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-5', tags: [], parent: '' }) },
+    });
+    await tick();
+
+    expect(document.querySelector('.card .epic-progress')).toBeNull();
   });
 });

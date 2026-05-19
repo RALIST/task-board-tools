@@ -36,6 +36,8 @@
   import { consumeGroomSuggestion, groomSuggestedFor } from '$lib/stores/groomSuggestion';
   import { defaultAgent as defaultAgentPreference } from '$lib/stores/preferences';
   import { triageForTask } from '$lib/stores/triage';
+  import { board } from '$lib/stores/board';
+  import { epicProgress } from '$lib/filtering';
   import BodyEditor from './BodyEditor.svelte';
   import AgentRunLog from './AgentRunLog.svelte';
 
@@ -258,6 +260,14 @@
   let runBusy = $derived(taskHasActiveRun || runStarting || groomStarting || resumeStarting);
   let canResume = $derived(taskAgentStatus === 'interrupted' && !runBusy);
   let groomEmphasized = $derived(groomReasons.length > 0 || groomHighlight);
+  // Epic progress derived from the live board store (mirrors Card.svelte).
+  // Drives the "Progress" row in the Details rail; gated on the `epic` tag
+  // so non-epic tasks never see it.
+  let drawerIsEpic = $derived((detail?.metadata.tags ?? []).includes('epic'));
+  let drawerProgress = $derived(
+    drawerIsEpic && detail ? epicProgress($board, detail.metadata.id) : null,
+  );
+
   let persistedAgent = $derived((detail?.metadata.agent ?? '') as AgentName);
   // The dropdown falls back to the configured default agent only when the
   // task has no agent set AND the user hasn't explicitly cleared the agent
@@ -1004,6 +1014,28 @@
               <dl class="readonly-meta">
                 <dt>Status</dt>
                 <dd>{detail.metadata.status || '—'}</dd>
+                {#if drawerIsEpic && drawerProgress}
+                  <dt>Progress</dt>
+                  <dd class="epic-progress-cell">
+                    <span class="epic-progress-label">
+                      {drawerProgress.done}/{drawerProgress.total}
+                      {#if drawerProgress.total > 0}
+                        <span class="epic-progress-percent">({drawerProgress.percent}%)</span>
+                      {:else}
+                        <span class="epic-progress-empty">no children yet</span>
+                      {/if}
+                    </span>
+                    <span
+                      class="epic-progress-bar"
+                      class:complete={drawerProgress.total > 0 && drawerProgress.done === drawerProgress.total}
+                      class:empty={drawerProgress.total === 0}
+                      aria-hidden="true">
+                      <span
+                        class="epic-progress-fill"
+                        style={`width: ${drawerProgress.total === 0 ? 0 : drawerProgress.percent}%`}></span>
+                    </span>
+                  </dd>
+                {/if}
                 {#if detail.metadata.parent}
                   <dt>Parent</dt>
                   <dd>{detail.metadata.parent}</dd>
@@ -1394,6 +1426,49 @@
   }
   .readonly-meta dd { margin: 0; word-break: break-word; }
   .readonly-meta dd.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+
+  .epic-progress-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .epic-progress-cell .epic-progress-label {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--fg);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .epic-progress-cell .epic-progress-percent { color: var(--fg-dim); font-size: 11px; }
+  .epic-progress-cell .epic-progress-empty {
+    color: var(--fg-dim);
+    font-size: 11px;
+    font-style: italic;
+  }
+  .epic-progress-cell .epic-progress-bar {
+    display: block;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .epic-progress-cell .epic-progress-fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 160ms ease;
+  }
+  .epic-progress-cell .epic-progress-bar.complete .epic-progress-fill {
+    background: #50c878;
+  }
+  .epic-progress-cell .epic-progress-bar.empty .epic-progress-fill {
+    background: transparent;
+  }
 
   .primary {
     background: var(--accent);

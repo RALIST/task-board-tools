@@ -60,3 +60,25 @@ export function observedTags(snap: BoardSnapshot): string[] {
 export function observedEpics(snap: BoardSnapshot): Task[] {
   return allTasks(snap).filter((t) => (t.tags ?? []).includes('epic')).sort((a, b) => a.id.localeCompare(b.id));
 }
+
+export interface EpicProgress {
+  done: number;
+  total: number;
+  percent: number;
+}
+
+// epicProgress mirrors `tb epic` semantics: count children by
+// `task.parent === epic.id` and treat only `status === "done"` as complete.
+// Returns `{ done: 0, total: 0, percent: 0 }` for epics with no children so
+// callers can branch on `total === 0` to suppress completion-style cues.
+export function epicProgress(snap: BoardSnapshot, epicId: string): EpicProgress {
+  let done = 0;
+  let total = 0;
+  for (const t of allTasks(snap)) {
+    if (t.parent !== epicId) continue;
+    total++;
+    if (t.status === 'done') done++;
+  }
+  if (total === 0) return { done: 0, total: 0, percent: 0 };
+  return { done, total, percent: Math.round((done / total) * 100) };
+}

@@ -3,8 +3,8 @@
 **Type:** improvement
 **Priority:** P2
 **Size:** M
-**Agent:** codex
-**AgentStatus:** success
+**Agent:** claude
+**AgentStatus:** running
 **Module:** gui/frontend
 **Tags:** ux,epic,frontend
 **Branch:** —
@@ -31,12 +31,12 @@ Constraints / non-goals:
 
 ## Acceptance Criteria
 
-- [ ] A pure frontend helper computes epic progress from a `BoardSnapshot` as `{ done, total, percent }`, using child tasks whose `parent` matches the epic ID and treating only `done` children as complete.
-- [ ] `Card.svelte` shows epic progress on epic kanban cards as a compact `done/total` label with a stable visual progress indicator; `0/0` epics render cleanly without divide-by-zero, layout shift, or misleading completion styling.
-- [ ] `TaskDrawer.svelte` shows the same progress in the Details rail when the open task is tagged `epic`, and hides the progress row for non-epic tasks.
-- [ ] Progress updates from the same board data used by the visible board, including after `board:reloaded` or task status changes, without adding a new backend call per card.
-- [ ] Frontend coverage exercises partial progress, all-done progress, no-child epics, and non-epic tasks at the nearest practical level, such as the progress helper plus Card/TaskDrawer component tests.
-- [ ] Manual test: run the GUI on a board with one epic and children in backlog, in-progress, and done; confirm the epic card and drawer show the same `done/total`, move a child to Done, and confirm both surfaces update after refresh.
+- [x] A pure frontend helper computes epic progress from a `BoardSnapshot` as `{ done, total, percent }`, using child tasks whose `parent` matches the epic ID and treating only `done` children as complete.
+- [x] `Card.svelte` shows epic progress on epic kanban cards as a compact `done/total` label with a stable visual progress indicator; `0/0` epics render cleanly without divide-by-zero, layout shift, or misleading completion styling.
+- [x] `TaskDrawer.svelte` shows the same progress in the Details rail when the open task is tagged `epic`, and hides the progress row for non-epic tasks.
+- [x] Progress updates from the same board data used by the visible board, including after `board:reloaded` or task status changes, without adding a new backend call per card.
+- [x] Frontend coverage exercises partial progress, all-done progress, no-child epics, and non-epic tasks at the nearest practical level, such as the progress helper plus Card/TaskDrawer component tests.
+- [ ] Manual test: run the GUI on a board with one epic and children in backlog, in-progress, and done; confirm the epic card and drawer show the same `done/total`, move a child to Done, and confirm both surfaces update after refresh. *(deferred — agent cannot run the desktop GUI; the user should verify in a `task dev` session.)*
 
 ## Related Tasks
 
@@ -55,4 +55,9 @@ Constraints / non-goals:
 - 2026-05-15: Edited type=improvement, size=M, module=gui/frontend, tags=ux,epic,frontend, goal
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=success
+- 2026-05-19: Edited agent=claude
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Implemented epicProgress helper in filtering.ts, wired it into Card.svelte (compact `done/total` label + fixed-height progress bar, gated on `epic` tag) and TaskDrawer.svelte (Progress row in the Details rail). Both surfaces subscribe to the live `board` store so child status changes reflow without new backend calls. Added 5 helper unit tests + 4 Card component tests + 3 TaskDrawer component tests; full frontend suite (161 tests) + `npm run check` clean; CLI and GUI Go tests pass. Manual GUI test deferred — needs `task dev`.
 

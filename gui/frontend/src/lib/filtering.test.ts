@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardSnapshot, Task } from './api';
-import { applyFilter, observedTags } from './filtering';
+import { applyFilter, epicProgress, observedTags } from './filtering';
 import type { BoardFilter } from './stores/filter';
 
 const baseFilter: BoardFilter = {
@@ -82,6 +82,62 @@ describe('applyFilter', () => {
     });
 
     expect(ids(filtered)).toEqual(['TB-2']);
+  });
+});
+
+describe('epicProgress', () => {
+  it('reports zero counts for an epic with no children', () => {
+    const snap = snapshot({
+      backlog: [task('TB-1', { tags: ['epic'] })],
+    });
+    expect(epicProgress(snap, 'TB-1')).toEqual({ done: 0, total: 0, percent: 0 });
+  });
+
+  it('returns partial progress for a mix of done and not-done children', () => {
+    const snap = snapshot({
+      backlog: [
+        task('TB-1', { tags: ['epic'] }),
+        task('TB-2', { parent: 'TB-1', status: 'backlog' }),
+      ],
+      inProgress: [
+        task('TB-3', { parent: 'TB-1', status: 'in-progress' }),
+      ],
+      done: [
+        task('TB-4', { parent: 'TB-1', status: 'done' }),
+      ],
+    });
+    expect(epicProgress(snap, 'TB-1')).toEqual({ done: 1, total: 3, percent: 33 });
+  });
+
+  it('reports 100% when every child is done', () => {
+    const snap = snapshot({
+      backlog: [task('TB-1', { tags: ['epic'] })],
+      done: [
+        task('TB-2', { parent: 'TB-1', status: 'done' }),
+        task('TB-3', { parent: 'TB-1', status: 'done' }),
+      ],
+    });
+    expect(epicProgress(snap, 'TB-1')).toEqual({ done: 2, total: 2, percent: 100 });
+  });
+
+  it('ignores tasks whose parent points elsewhere', () => {
+    const snap = snapshot({
+      backlog: [
+        task('TB-1', { tags: ['epic'] }),
+        task('TB-9', { tags: ['epic'] }),
+        task('TB-2', { parent: 'TB-9', status: 'done' }),
+      ],
+    });
+    expect(epicProgress(snap, 'TB-1')).toEqual({ done: 0, total: 0, percent: 0 });
+  });
+
+  it('includes archive children when the snapshot already loaded them', () => {
+    const snap = snapshot({
+      backlog: [task('TB-1', { tags: ['epic'] })],
+      done: [task('TB-2', { parent: 'TB-1', status: 'done' })],
+      archive: [task('TB-3', { parent: 'TB-1', status: 'archive' })],
+    });
+    expect(epicProgress(snap, 'TB-1')).toEqual({ done: 1, total: 2, percent: 50 });
   });
 });
 

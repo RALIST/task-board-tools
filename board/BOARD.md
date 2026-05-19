@@ -10,7 +10,7 @@
 | TB-182 | Add special labes\tags\status for user attention | 0/3 | backlog | agent |
 | TB-194 | Code-review column | 0/6 | backlog | workflow |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
-| TB-204 | Show epic progress | 0/0 | backlog | gui/frontend |
+| TB-204 | Show epic progress | 0/0 | in-progress | gui/frontend |
 
 ## Finished Epics
 
@@ -30,7 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-204 | Show epic progress | P2 | gui/frontend | — |
 
 ## Backlog
 
@@ -80,7 +80,6 @@
 | TB-199 | Workflow: review-failed marker and retry priority | feature | P1 | M | agent |
 | TB-200 | Docs: document code-review workflow | improvement | P1 | S | docs |
 | TB-202 | Create proper name and icon for app | improvement | P2 | S | gui |
-| TB-204 | Show epic progress | improvement | P2 | M | gui/frontend |
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-226 | CLI: preserve literal command examples in task creation | bug | P1 | S | cli |

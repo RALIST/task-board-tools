@@ -66,12 +66,59 @@ vi.mock('$lib/stores/triage', () => ({
   triageForTask: () => ({ subscribe: (cb: (v: string[]) => void) => { cb([]); return () => {}; } }),
 }));
 
+// Board store powers the Details rail's epic progress row; mocked here so
+// tests can inject child task fixtures without touching the real loader.
+const boardMocks = vi.hoisted(() => {
+  let current: any = { backlog: [], inProgress: [], done: [], archive: [] };
+  const subs = new Set<(v: any) => void>();
+  return {
+    boardStore: {
+      subscribe(cb: (v: any) => void) {
+        cb(current);
+        subs.add(cb);
+        return () => subs.delete(cb);
+      },
+      set(next: any) {
+        current = next;
+        for (const cb of subs) cb(current);
+      },
+      reset() {
+        current = { backlog: [], inProgress: [], done: [], archive: [] };
+        for (const cb of subs) cb(current);
+      },
+    },
+  };
+});
+vi.mock('$lib/stores/board', () => ({ board: boardMocks.boardStore }));
+
 // Heavy child components are not exercised here; stubbing keeps the test focused on
 // drawer-level attachment behavior.
 vi.mock('./BodyEditor.svelte', () => ({ default: () => ({}) }));
 vi.mock('./AgentRunLog.svelte', () => ({ default: () => ({}) }));
 
 import TaskDrawer from './TaskDrawer.svelte';
+import type { BoardSnapshot } from '$lib/api';
+
+const boardStore = boardMocks.boardStore as { set: (s: BoardSnapshot) => void; reset: () => void };
+
+function makeTaskFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'TB-X',
+    title: 'X',
+    type: 'task',
+    priority: 'P2',
+    size: 'M',
+    module: 'core',
+    tags: [],
+    branch: '',
+    parent: '',
+    status: 'backlog',
+    filePath: '',
+    agent: '',
+    agentStatus: '',
+    ...overrides,
+  };
+}
 
 function makeDetail(overrides: Partial<TaskDetail['metadata']> = {}): TaskDetail {
   return {
@@ -120,6 +167,7 @@ beforeEach(() => {
 
   apiMocks.getTask.mockResolvedValue(makeDetail());
   apiMocks.listRuns.mockResolvedValue([]);
+  boardStore.reset();
 });
 
 afterEach(async () => {
@@ -639,5 +687,75 @@ describe('TaskDrawer inline title rename (TB-207)', () => {
     const still = document.querySelector<HTMLInputElement>('.title-input');
     expect(still).not.toBeNull();
     expect(still!.value).toBe('Attempt');
+  });
+});
+
+describe('TaskDrawer epic progress (TB-204)', () => {
+  it('shows a Progress row for epic tasks with done/total derived from the board', async () => {
+    apiMocks.getTask.mockResolvedValue(
+      makeDetail({ id: 'TB-1', tags: ['epic'] }),
+    );
+    apiMocks.listAttachments.mockResolvedValue([]);
+    boardStore.set({
+      backlog: [makeTaskFixture({ id: 'TB-2', parent: 'TB-1', status: 'backlog' })],
+      inProgress: [makeTaskFixture({ id: 'TB-3', parent: 'TB-1', status: 'in-progress' })],
+      done: [makeTaskFixture({ id: 'TB-4', parent: 'TB-1', status: 'done' })],
+      archive: [],
+    } as BoardSnapshot);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-1' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const labels = Array.from(document.querySelectorAll('.readonly-meta dt')).map((el) => el.textContent?.trim());
+    expect(labels).toContain('Progress');
+
+    const cell = document.querySelector('.epic-progress-cell .epic-progress-label');
+    expect(cell?.textContent?.replace(/\s+/g, ' ').trim()).toBe('1/3 (33%)');
+  });
+
+  it('renders an empty-state Progress row for an epic with no children', async () => {
+    apiMocks.getTask.mockResolvedValue(
+      makeDetail({ id: 'TB-1', tags: ['epic'] }),
+    );
+    apiMocks.listAttachments.mockResolvedValue([]);
+    boardStore.set({
+      backlog: [], inProgress: [], done: [], archive: [],
+    } as BoardSnapshot);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-1' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const cell = document.querySelector<HTMLElement>('.epic-progress-cell');
+    expect(cell).not.toBeNull();
+    const label = cell!.querySelector('.epic-progress-label');
+    expect(label?.textContent?.replace(/\s+/g, ' ').trim()).toBe('0/0 no children yet');
+    expect(cell!.querySelector('.epic-progress-bar')?.classList.contains('empty')).toBe(true);
+  });
+
+  it('omits the Progress row for non-epic tasks', async () => {
+    apiMocks.getTask.mockResolvedValue(makeDetail({ id: 'TB-99', tags: ['feature'] }));
+    apiMocks.listAttachments.mockResolvedValue([]);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const labels = Array.from(document.querySelectorAll('.readonly-meta dt')).map((el) => el.textContent?.trim());
+    expect(labels).not.toContain('Progress');
+    expect(document.querySelector('.epic-progress-cell')).toBeNull();
   });
 });
