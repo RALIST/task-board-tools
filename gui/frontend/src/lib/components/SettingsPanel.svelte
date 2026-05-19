@@ -47,6 +47,8 @@
     periodicRecoveryEnabled: true,
     autoGroomEnabled: false,
     autoGroomSettleMinutes: 5,
+    autoImplementEnabled: false,
+    autoImplementQuery: '',
   });
 
   let nextMaxWorkers = $derived(clampNumber(maxWorkersInput, 1, 4, baseline.maxWorkers));
@@ -231,6 +233,8 @@
       periodicRecoveryEnabled: prefs.periodicRecoveryEnabled,
       autoGroomEnabled: prefs.autoGroomEnabled,
       autoGroomSettleMinutes: prefs.autoGroomSettleMinutes,
+      autoImplementEnabled: prefs.autoImplementEnabled,
+      autoImplementQuery: prefs.autoImplementQuery,
     };
   }
 

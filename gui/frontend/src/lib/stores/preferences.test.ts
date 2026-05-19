@@ -15,6 +15,11 @@ const getAutoGroomEnabled = vi.fn<() => Promise<boolean>>();
 const setAutoGroomEnabled = vi.fn<(enabled: boolean) => Promise<void>>();
 const getAutoGroomSettleMinutes = vi.fn<() => Promise<number>>();
 const setAutoGroomSettleMinutes = vi.fn<(n: number) => Promise<void>>();
+const getAutoImplementEnabled = vi.fn<() => Promise<boolean>>();
+const setAutoImplementEnabled = vi.fn<(enabled: boolean) => Promise<void>>();
+const getAutoImplementQuery = vi.fn<() => Promise<string>>();
+const setAutoImplementQuery = vi.fn<(expr: string) => Promise<void>>();
+const validateAutoImplementQuery = vi.fn<(expr: string) => Promise<void>>();
 const pushToast = vi.fn();
 
 vi.mock('$lib/api', () => ({
@@ -32,6 +37,11 @@ vi.mock('$lib/api', () => ({
   setAutoGroomEnabled: (enabled: boolean) => setAutoGroomEnabled(enabled),
   getAutoGroomSettleMinutes: () => getAutoGroomSettleMinutes(),
   setAutoGroomSettleMinutes: (n: number) => setAutoGroomSettleMinutes(n),
+  getAutoImplementEnabled: () => getAutoImplementEnabled(),
+  setAutoImplementEnabled: (enabled: boolean) => setAutoImplementEnabled(enabled),
+  getAutoImplementQuery: () => getAutoImplementQuery(),
+  setAutoImplementQuery: (expr: string) => setAutoImplementQuery(expr),
+  validateAutoImplementQuery: (expr: string) => validateAutoImplementQuery(expr),
 }));
 
 vi.mock('./toast', () => ({
@@ -45,10 +55,13 @@ const {
   setAgentTimeoutMinutes: storeSetAgentTimeoutMinutes,
   setAutoGroomEnabled: storeSetAutoGroomEnabled,
   setAutoGroomSettleMinutes: storeSetAutoGroomSettleMinutes,
+  setAutoImplementEnabled: storeSetAutoImplementEnabled,
+  setAutoImplementQuery: storeSetAutoImplementQuery,
   setCLIPath: storeSetCLIPath,
   setDefaultAgent: storeSetDefaultAgent,
   setMaxWorkers: storeSetMaxWorkers,
   setPeriodicRecoveryEnabled: storeSetPeriodicRecoveryEnabled,
+  validateAutoImplementQuery: storeValidateAutoImplementQuery,
 } = await import('./preferences');
 
 describe('preferencesStore', () => {
@@ -62,6 +75,8 @@ describe('preferencesStore', () => {
     getPeriodicRecoveryEnabled.mockResolvedValue(true);
     getAutoGroomEnabled.mockResolvedValue(false);
     getAutoGroomSettleMinutes.mockResolvedValue(5);
+    getAutoImplementEnabled.mockResolvedValue(false);
+    getAutoImplementQuery.mockResolvedValue('');
     setMaxWorkers.mockResolvedValue();
     setAgentTimeoutMinutes.mockResolvedValue();
     setDefaultAgent.mockResolvedValue();
@@ -69,6 +84,9 @@ describe('preferencesStore', () => {
     setPeriodicRecoveryEnabled.mockResolvedValue();
     setAutoGroomEnabled.mockResolvedValue();
     setAutoGroomSettleMinutes.mockResolvedValue();
+    setAutoImplementEnabled.mockResolvedValue();
+    setAutoImplementQuery.mockResolvedValue();
+    validateAutoImplementQuery.mockResolvedValue();
   });
 
   it('hydrates preferences and marks the store loaded', async () => {
@@ -79,6 +97,8 @@ describe('preferencesStore', () => {
     getPeriodicRecoveryEnabled.mockResolvedValue(false);
     getAutoGroomEnabled.mockResolvedValue(true);
     getAutoGroomSettleMinutes.mockResolvedValue(10);
+    getAutoImplementEnabled.mockResolvedValue(true);
+    getAutoImplementQuery.mockResolvedValue('bug, S size, gui');
 
     await loadPreferences();
 
@@ -90,6 +110,8 @@ describe('preferencesStore', () => {
       periodicRecoveryEnabled: false,
       autoGroomEnabled: true,
       autoGroomSettleMinutes: 10,
+      autoImplementEnabled: true,
+      autoImplementQuery: 'bug, S size, gui',
       loaded: true,
     });
   });
@@ -105,6 +127,8 @@ describe('preferencesStore', () => {
     expect(getPeriodicRecoveryEnabled).toHaveBeenCalledTimes(1);
     expect(getAutoGroomEnabled).toHaveBeenCalledTimes(1);
     expect(getAutoGroomSettleMinutes).toHaveBeenCalledTimes(1);
+    expect(getAutoImplementEnabled).toHaveBeenCalledTimes(1);
+    expect(getAutoImplementQuery).toHaveBeenCalledTimes(1);
   });
 
   it('round-trips all set methods through the api', async () => {
@@ -167,6 +191,52 @@ describe('preferencesStore', () => {
       'Could not save auto-groom: disk full',
       undefined,
     );
+  });
+
+  it('round-trips auto-implement settings through the api', async () => {
+    await loadPreferences();
+
+    await storeSetAutoImplementQuery('bug, S size, gui');
+    await storeSetAutoImplementEnabled(true);
+
+    expect(setAutoImplementQuery).toHaveBeenCalledWith('bug, S size, gui');
+    expect(setAutoImplementEnabled).toHaveBeenCalledWith(true);
+    expect(get(preferencesStore)).toMatchObject({
+      autoImplementEnabled: true,
+      autoImplementQuery: 'bug, S size, gui',
+    });
+  });
+
+  it('trims whitespace before persisting the auto-implement query', async () => {
+    await loadPreferences();
+
+    await storeSetAutoImplementQuery('   bug   ');
+
+    expect(setAutoImplementQuery).toHaveBeenCalledWith('bug');
+    expect(get(preferencesStore)).toMatchObject({ autoImplementQuery: 'bug' });
+  });
+
+  it('rolls back an auto-implement enable when the backend rejects', async () => {
+    await loadPreferences();
+    setAutoImplementEnabled.mockRejectedValueOnce(new Error('default-agent required'));
+
+    await expect(storeSetAutoImplementEnabled(true)).rejects.toThrow('default-agent required');
+
+    expect(get(preferencesStore)).toMatchObject({ autoImplementEnabled: false });
+    expect(pushToast).toHaveBeenCalledWith(
+      'Could not save auto-implement: default-agent required',
+      undefined,
+    );
+  });
+
+  it('validateAutoImplementQuery proxies the api and surfaces error strings', async () => {
+    validateAutoImplementQuery.mockRejectedValueOnce(new Error('invalid size'));
+    const errMsg = await storeValidateAutoImplementQuery('size:huge');
+    expect(errMsg).toBe('invalid size');
+
+    validateAutoImplementQuery.mockResolvedValueOnce(undefined);
+    const ok = await storeValidateAutoImplementQuery('bug');
+    expect(ok).toBeNull();
   });
 
   it('rolls back optimistic writes on rejected promises', async () => {

@@ -3,10 +3,13 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"tools/tb-gui/internal/automation/query"
 )
 
 // preferencesFile is the filename SettingsService persists tuning knobs
@@ -58,6 +61,27 @@ const (
 	AutoGroomSettleMinutesMax = 60
 )
 
+// AutoImplementEnabledDefault is the default for the auto-implement feature.
+// Off so existing users opt in deliberately.
+const AutoImplementEnabledDefault = false
+
+// AutoImplementSupportedAgents enumerates the agents allowed as the
+// default_agent when auto-implement is enabled. "none" is rejected; the
+// CLI runners we ship today are claude and codex.
+var AutoImplementSupportedAgents = []string{"claude", "codex"}
+
+// ErrAutoImplementDefaultAgentRequired is returned when the user tries to
+// enable auto-implement without picking a supported default_agent. The UI
+// surfaces this as an actionable inline message; the SettingsService
+// rejects the enable without writing.
+var ErrAutoImplementDefaultAgentRequired = errors.New(
+	"auto-implement requires Default Agent set to claude or codex")
+
+// ErrAutoImplementQueryRequired is returned when the user tries to enable
+// auto-implement without a non-empty, valid query.
+var ErrAutoImplementQueryRequired = errors.New(
+	"auto-implement requires a non-empty filter query")
+
 // Preferences is the persisted tuning knob set. Fields are JSON-tagged
 // in snake_case so a future settings UI (M7) can serialise the same
 // shape directly from a hand-edited form.
@@ -69,6 +93,8 @@ type Preferences struct {
 	DisablePeriodicRecovery bool   `json:"disable_periodic_recovery"`
 	AutoGroomEnabled        bool   `json:"auto_groom_enabled"`
 	AutoGroomSettleMinutes  int    `json:"auto_groom_settle_minutes"`
+	AutoImplementEnabled    bool   `json:"auto_implement_enabled"`
+	AutoImplementQuery      string `json:"auto_implement_query"`
 }
 
 // preferencesPath returns the absolute path the preferences file lives
@@ -153,6 +179,9 @@ func (s *SettingsService) SetDefaultAgent(agent string) error {
 	if controller, ok := s.activator.(AutoGroomController); ok {
 		controller.NotifyDefaultAgentChanged()
 	}
+	if controller, ok := s.activator.(AutoImplementController); ok {
+		controller.NotifyDefaultAgentChanged()
+	}
 	return nil
 }
 
@@ -219,6 +248,122 @@ func (s *SettingsService) SetAutoGroomEnabled(enabled bool) error {
 		controller.NotifyAutoGroomEnabled()
 	}
 	return nil
+}
+
+// GetAutoImplementEnabled reports whether the auto-implement coordinator
+// is allowed to enqueue implementation-mode runs for matching ready tasks.
+// Off by default; missing or corrupt preferences fall back to the default.
+func (s *SettingsService) GetAutoImplementEnabled() bool {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return AutoImplementEnabledDefault
+	}
+	return prefs.AutoImplementEnabled
+}
+
+// SetAutoImplementEnabled persists the auto-implement toggle. Enabling is
+// gated on two prerequisites: (1) a supported DefaultAgent (claude or
+// codex) and (2) a non-empty, valid AutoImplementQuery. Either failure
+// returns an actionable error and leaves preferences untouched (no
+// partial writes).
+//
+// The auto-implement coordinator is notified (when wired) so a freshly
+// flipped preference triggers an immediate scan instead of waiting for
+// the next watcher event.
+func (s *SettingsService) SetAutoImplementEnabled(enabled bool) error {
+	// Single read-validate-write transaction so a default_agent flip
+	// between separate reads cannot persist an inconsistent
+	// (enabled=true, default_agent=none) state.
+	if err := s.updatePreferencesWithValidator(func(prefs *Preferences) error {
+		if enabled {
+			if prefs.DefaultAgent != "claude" && prefs.DefaultAgent != "codex" {
+				return ErrAutoImplementDefaultAgentRequired
+			}
+			if _, parseErr := query.Parse(prefs.AutoImplementQuery); parseErr != nil {
+				return fmt.Errorf("%w: %w", ErrAutoImplementQueryRequired, parseErr)
+			}
+		}
+		prefs.AutoImplementEnabled = enabled
+		return nil
+	}); err != nil {
+		return err
+	}
+	if controller, ok := s.activator.(AutoImplementController); ok {
+		controller.NotifyAutoImplementEnabled()
+	}
+	return nil
+}
+
+// GetAutoImplementQuery returns the persisted filter expression used by
+// auto-implement candidate selection. Missing preferences yield an empty
+// query (which the SettingsService rejects on enable).
+func (s *SettingsService) GetAutoImplementQuery() string {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return ""
+	}
+	return prefs.AutoImplementQuery
+}
+
+// SetAutoImplementQuery persists the filter expression after trimming
+// surrounding whitespace. If auto-implement is currently enabled, the
+// new value must parse successfully — an invalid query while enabled is
+// rejected to avoid silently disabling the daemon. Saving a blank query
+// while auto-implement is currently enabled also fails for the same
+// reason; the user must disable auto-implement first or supply a valid
+// query.
+func (s *SettingsService) SetAutoImplementQuery(expr string) error {
+	expr = strings.TrimSpace(expr)
+	if err := s.updatePreferencesWithValidator(func(prefs *Preferences) error {
+		if prefs.AutoImplementEnabled {
+			if expr == "" {
+				return ErrAutoImplementQueryRequired
+			}
+			if _, parseErr := query.Parse(expr); parseErr != nil {
+				return fmt.Errorf("%w: %w", ErrAutoImplementQueryRequired, parseErr)
+			}
+		}
+		prefs.AutoImplementQuery = expr
+		return nil
+	}); err != nil {
+		return err
+	}
+	if controller, ok := s.activator.(AutoImplementController); ok {
+		controller.NotifyAutoImplementQueryChanged()
+	}
+	return nil
+}
+
+// ValidateAutoImplementQuery is a non-mutating validator the frontend
+// uses to render inline error messages without round-tripping a save.
+// Returns the parser's error verbatim so the UI can surface a useful
+// message. An empty query returns ErrAutoImplementQueryRequired so the
+// frontend can colour the field identically to a parse failure.
+func (s *SettingsService) ValidateAutoImplementQuery(expr string) error {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return ErrAutoImplementQueryRequired
+	}
+	_, err := query.Parse(expr)
+	return err
+}
+
+// AutoImplementController is implemented by composite activators that
+// own the auto-implement coordinator lifecycle (parallels
+// AutoGroomController). The SettingsService pokes these methods when
+// preferences change so the daemon reacts without waiting for the next
+// watcher tick.
+type AutoImplementController interface {
+	NotifyAutoImplementEnabled()
+	NotifyAutoImplementQueryChanged()
+	// NotifyDefaultAgentChanged is called by SettingsService whenever the
+	// default_agent preference changes. The coordinator re-evaluates the
+	// enable-prerequisite (auto-implement requires claude or codex) and
+	// the candidate scan eligibility for any tasks that lacked an
+	// assigned Agent (they fall back to the default agent).
+	NotifyDefaultAgentChanged()
 }
 
 // GetAutoGroomSettleMinutes returns the configured settle window before a
@@ -315,7 +460,17 @@ func defaultPreferences() Preferences {
 		DefaultAgent:           "none",
 		AutoGroomEnabled:       AutoGroomEnabledDefault,
 		AutoGroomSettleMinutes: AutoGroomSettleMinutesDefault,
+		AutoImplementEnabled:   AutoImplementEnabledDefault,
+		AutoImplementQuery:     "",
 	}
+}
+
+// normalizeAutoImplementQuery trims surrounding whitespace. The query is
+// otherwise free-form — Parse handles validation; persistence accepts
+// any string so the user can save a draft while auto-implement is
+// disabled.
+func normalizeAutoImplementQuery(expr string) string {
+	return strings.TrimSpace(expr)
 }
 
 func normalizePreferences(prefs Preferences, logger *slog.Logger) Preferences {
@@ -323,18 +478,34 @@ func normalizePreferences(prefs Preferences, logger *slog.Logger) Preferences {
 	prefs.AgentTimeoutMinutes = clampAgentTimeoutMinutes(prefs.AgentTimeoutMinutes, logger)
 	prefs.DefaultAgent = normalizeDefaultAgent(prefs.DefaultAgent, logger)
 	prefs.AutoGroomSettleMinutes = clampAutoGroomSettleMinutes(prefs.AutoGroomSettleMinutes, logger)
+	prefs.AutoImplementQuery = normalizeAutoImplementQuery(prefs.AutoImplementQuery)
 	return prefs
 }
 
 func (s *SettingsService) updatePreferences(mut func(*Preferences)) error {
+	return s.updatePreferencesWithValidator(func(prefs *Preferences) error {
+		mut(prefs)
+		return nil
+	})
+}
+
+// updatePreferencesWithValidator is the transactional read-validate-write
+// path. The mutator runs against the normalised in-memory copy after the
+// reload; if it returns an error, savePreferences is skipped so no
+// partial write reaches disk. Used by callers (auto-implement) whose
+// validation depends on fields the user could have flipped between two
+// separate read calls — keeping read+validate+write together closes the
+// TOCTOU window.
+func (s *SettingsService) updatePreferencesWithValidator(mut func(*Preferences) error) error {
 	prefs, err := s.loadPreferences()
 	if err != nil {
-		// Treat a corrupt file as empty — overwrite cleanly.
 		s.logger.Warn("preferences: read for write failed; starting fresh", "err", err)
 		prefs = defaultPreferences()
 	}
 	prefs = normalizePreferences(prefs, s.logger)
-	mut(&prefs)
+	if err := mut(&prefs); err != nil {
+		return err
+	}
 	prefs = normalizePreferences(prefs, s.logger)
 	return s.savePreferences(prefs)
 }

@@ -88,6 +88,11 @@ type SettingsServiceBindings = typeof SettingsService & {
   SetAutoGroomEnabled: (enabled: boolean) => Promise<void>;
   GetAutoGroomSettleMinutes: () => Promise<number>;
   SetAutoGroomSettleMinutes: (n: number) => Promise<void>;
+  GetAutoImplementEnabled: () => Promise<boolean>;
+  SetAutoImplementEnabled: (enabled: boolean) => Promise<void>;
+  GetAutoImplementQuery: () => Promise<string>;
+  SetAutoImplementQuery: (expr: string) => Promise<void>;
+  ValidateAutoImplementQuery: (expr: string) => Promise<void>;
 };
 
 const settingsService = SettingsService as unknown as SettingsServiceBindings;
@@ -416,6 +421,26 @@ export async function getAutoGroomSettleMinutes(): Promise<number> {
 
 export async function setAutoGroomSettleMinutes(n: number): Promise<void> {
   await requireSettingsMethod('SetAutoGroomSettleMinutes')(n);
+}
+
+export async function getAutoImplementEnabled(): Promise<boolean> {
+  return await requireSettingsMethod('GetAutoImplementEnabled')();
+}
+
+export async function setAutoImplementEnabled(enabled: boolean): Promise<void> {
+  await requireSettingsMethod('SetAutoImplementEnabled')(enabled);
+}
+
+export async function getAutoImplementQuery(): Promise<string> {
+  return await requireSettingsMethod('GetAutoImplementQuery')();
+}
+
+export async function setAutoImplementQuery(expr: string): Promise<void> {
+  await requireSettingsMethod('SetAutoImplementQuery')(expr);
+}
+
+export async function validateAutoImplementQuery(expr: string): Promise<void> {
+  await requireSettingsMethod('ValidateAutoImplementQuery')(expr);
 }
 
 // Error-message heuristics — the Wails bridge stringifies Go errors, so

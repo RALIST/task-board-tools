@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 1/6 | backlog | gui |
+| TB-177 | Auto task implementation | 2/6 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-262 | Auto-review | 0/4 | backlog | gui |
 | TB-267 | Auto-implement: respect epic child order | 0/0 | backlog | gui |
@@ -71,7 +71,6 @@
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-177 | Auto task implementation | feature | P0 | L | gui |
-| TB-178 | GUI: persist auto-implement settings and query | feature | P0 | M | gui |
 | TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |
 | TB-180 | GUI: show auto-implement controls and feedback | feature | P0 | S | gui |
 | TB-186 | Change parent task | feature | P2 | L | gui |

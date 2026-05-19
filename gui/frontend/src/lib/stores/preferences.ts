@@ -3,6 +3,8 @@ import {
   getAgentTimeoutMinutes,
   getAutoGroomEnabled,
   getAutoGroomSettleMinutes,
+  getAutoImplementEnabled,
+  getAutoImplementQuery,
   getCLIPath,
   getDefaultAgent,
   getMaxWorkers,
@@ -10,10 +12,13 @@ import {
   setAgentTimeoutMinutes as apiSetAgentTimeoutMinutes,
   setAutoGroomEnabled as apiSetAutoGroomEnabled,
   setAutoGroomSettleMinutes as apiSetAutoGroomSettleMinutes,
+  setAutoImplementEnabled as apiSetAutoImplementEnabled,
+  setAutoImplementQuery as apiSetAutoImplementQuery,
   setCLIPath as apiSetCLIPath,
   setDefaultAgent as apiSetDefaultAgent,
   setMaxWorkers as apiSetMaxWorkers,
   setPeriodicRecoveryEnabled as apiSetPeriodicRecoveryEnabled,
+  validateAutoImplementQuery as apiValidateAutoImplementQuery,
 } from '$lib/api';
 import { pushToast } from './toast';
 
@@ -27,6 +32,8 @@ export interface PreferencesState {
   periodicRecoveryEnabled: boolean;
   autoGroomEnabled: boolean;
   autoGroomSettleMinutes: number;
+  autoImplementEnabled: boolean;
+  autoImplementQuery: string;
   loaded: boolean;
 }
 
@@ -38,6 +45,8 @@ const DEFAULT_STATE: PreferencesState = {
   periodicRecoveryEnabled: true,
   autoGroomEnabled: false,
   autoGroomSettleMinutes: 5,
+  autoImplementEnabled: false,
+  autoImplementQuery: '',
   loaded: false,
 };
 
@@ -60,6 +69,8 @@ export async function loadPreferences(): Promise<void> {
         periodicRecoveryEnabled,
         autoGroomEnabled,
         autoGroomSettleMinutes,
+        autoImplementEnabled,
+        autoImplementQuery,
       ] = await Promise.all([
         getMaxWorkers(),
         getAgentTimeoutMinutes(),
@@ -68,6 +79,8 @@ export async function loadPreferences(): Promise<void> {
         getPeriodicRecoveryEnabled(),
         getAutoGroomEnabled(),
         getAutoGroomSettleMinutes(),
+        getAutoImplementEnabled(),
+        getAutoImplementQuery(),
       ]);
 
       preferences.set({
@@ -88,6 +101,8 @@ export async function loadPreferences(): Promise<void> {
           60,
           DEFAULT_STATE.autoGroomSettleMinutes,
         ),
+        autoImplementEnabled: autoImplementEnabled === true,
+        autoImplementQuery: typeof autoImplementQuery === 'string' ? autoImplementQuery : '',
         loaded: true,
       });
     } catch (err) {
@@ -142,6 +157,32 @@ export async function setAutoGroomSettleMinutes(value: number): Promise<void> {
   );
 }
 
+export async function setAutoImplementEnabled(value: boolean): Promise<void> {
+  await optimisticWrite('autoImplementEnabled', value, 'auto-implement', () =>
+    apiSetAutoImplementEnabled(value),
+  );
+}
+
+export async function setAutoImplementQuery(value: string): Promise<void> {
+  const next = value.trim();
+  await optimisticWrite('autoImplementQuery', next, 'auto-implement query', () =>
+    apiSetAutoImplementQuery(next),
+  );
+}
+
+// validateAutoImplementQuery proxies the backend non-mutating validator.
+// Components use it to render inline parse errors without round-tripping
+// a save. Returns a string error message on failure or null on success
+// so callers can wire it into existing reactive validation patterns.
+export async function validateAutoImplementQuery(expr: string): Promise<string | null> {
+  try {
+    await apiValidateAutoImplementQuery(expr);
+    return null;
+  } catch (err) {
+    return stringifyError(err);
+  }
+}
+
 export const preferencesStore = {
   subscribe: preferences.subscribe,
   load: loadPreferences,
@@ -152,6 +193,9 @@ export const preferencesStore = {
   setPeriodicRecoveryEnabled,
   setAutoGroomEnabled,
   setAutoGroomSettleMinutes,
+  setAutoImplementEnabled,
+  setAutoImplementQuery,
+  validateAutoImplementQuery,
 };
 
 export function _resetPreferencesStoreForTesting(): void {
