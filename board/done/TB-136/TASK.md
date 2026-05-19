@@ -64,4 +64,3 @@ works — it just isn't resumable. Recovery sees no SessionID →
 - 2026-05-14: Created
 - 2026-05-19: Started — moved to in-progress
 - 2026-05-19: Done
-

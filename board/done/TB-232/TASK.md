@@ -34,4 +34,3 @@ When EnableClaudeUsageTap patches settings.local.json, it points statusLine.comm
 - 2026-05-19: Added 8 new tests in `gui/app/claude_tap_test.go` (capture-local, capture-global, restore-local, unmask-global, re-enable preserves sidecar, end-to-end chain, single-quote safety, helper unit test). Existing 7 tests updated to isolate `$HOME` for hermeticity. All 15 tests pass. Full `gui/app` suite passes (ok ~44s).
 - 2026-05-19: Verified end-to-end against the developer's actual `~/.claude/settings.json` (`sh /Users/ralist/.claude/statusline-command.sh`): chained output produces the user's colored multi-segment statusline (`~/path (branch) [model | context%]`) while `tb-gui-usage.json` still records the JSON payload.
 - 2026-05-19: Done
-
