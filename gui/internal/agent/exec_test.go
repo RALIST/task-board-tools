@@ -432,6 +432,47 @@ echo ok
 	}
 }
 
+// TestCodexRunner_ResumeArgs is the TB-139 contract: in ModeResume +
+// non-empty SessionID, args become `exec --json resume <uuid>
+// <prompt>` — codex's documented resume invocation form. Fresh runs
+// keep `exec --json <prompt>` from TB-134.
+func TestCodexRunner_ResumeArgs(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "argv")
+	dir := makeStubScript(t, "codex", `
+printf '%s\n' "$@" > `+argFile+`
+echo ok
+`)
+	withPATH(t, dir)
+
+	var out bytes.Buffer
+	r := NewCodexRunner()
+	uuid := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	_, err := r.Run(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Prompt:      "continue",
+		Mode:        ModeResume,
+		SessionID:   uuid,
+		Stdout:      &out,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, err := os.ReadFile(argFile)
+	if err != nil {
+		t.Fatalf("argv file: %v", err)
+	}
+	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	want := []string{"exec", "--json", "resume", uuid, "continue"}
+	if len(args) != len(want) {
+		t.Fatalf("argv length: got %d want %d (%#v)", len(args), len(want), args)
+	}
+	for i, w := range want {
+		if args[i] != w {
+			t.Fatalf("argv[%d]: got %q want %q (full=%#v)", i, args[i], w, args)
+		}
+	}
+}
+
 func TestCodexRunner_PassesPromptPositionally(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "argv")
 	dir := makeStubScript(t, "codex", `

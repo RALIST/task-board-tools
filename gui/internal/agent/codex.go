@@ -29,14 +29,31 @@ func NewCodexRunner() *CodexRunner { return &CodexRunner{} }
 // `**Agent:**` metadata field.
 func (r *CodexRunner) Name() string { return "codex" }
 
-// Run invokes `codex exec --json <prompt>` with the rendered prompt as
-// the single positional argument. See runExternal for the lifecycle
-// contract.
+// Run invokes `codex exec --json <prompt>` (fresh) or `codex exec
+// --json resume <uuid> <prompt>` (resume). See runExternal for the
+// lifecycle contract.
+//
+// Resume args per TB-130: when Mode == ModeResume and SessionID is
+// non-empty, the `resume <uuid>` positional pair is inserted between
+// `--json` and the prompt. Codex then continues the named session and
+// emits a NEW session_id on its own — the translator's OnSessionID
+// callback captures that as the resumable id for any future resume
+// (the chain is traceable via the queued event's `resumed_from`).
+//
+// An empty SessionID in ModeResume is a wiring bug — the caller MUST
+// supply one from resumableSessionID. We don't second-guess it here;
+// the runner would just invoke `codex exec --json resume "" <prompt>`
+// and codex would fail with a clear error.
 func (r *CodexRunner) Run(ctx context.Context, in RunInput) (RunResult, error) {
 	if in.Stdout != nil {
 		in.Stdout = newCodexJsonTranslator(in.Stdout, in.OnSessionID)
 	}
-	args := []string{"exec", "--json", in.Prompt}
+	var args []string
+	if in.Mode == ModeResume && in.SessionID != "" {
+		args = []string{"exec", "--json", "resume", in.SessionID, in.Prompt}
+	} else {
+		args = []string{"exec", "--json", in.Prompt}
+	}
 	res, _ := runExternal(ctx, in, "codex", args)
 	return res, res.Err
 }
