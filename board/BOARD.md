@@ -30,13 +30,13 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-236 | macOS titlebar double-click should zoom/restore window | P2 | gui | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-235 | Require ReviewRef metadata before code-review moves | P1 | workflow | — |
+| — | — | — | — | — |
 
 ## Backlog
 
@@ -76,13 +76,14 @@
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-233 | Auto-implement priority: rank review-failed backlog tasks first | improvement | P2 | S | gui |
 | TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P3 | S | gui |
-| TB-236 | macOS titlebar double-click should zoom/restore window | bug | P2 | M | gui |
 | TB-237 | Save diffrent agent actions in diffrent fields | improvement | P2 | L | cli |
+| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | improvement | P2 | S | workflow |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-235 | Require ReviewRef metadata before code-review moves | improvement | workflow |
 | TB-232 | tb-gui usage tap: chain to user's original statusline instead of replacing it | bug | gui |
 | TB-231 | Address TB-130 adversarial review findings | bug | gui |
 | TB-230 | CLI: avoid backups when init content is unchanged | bug | cli |
@@ -132,4 +133,3 @@
 | TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |
 | TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | gui |
 | TB-165 | TB-93/GUI: empty-state hint should say 'drag onto this drawer' not 'onto the task' | improvement | gui |
-| TB-164 | TB-93/GUI: surface drag-and-drop in-flight state via attach:dropping/attach:dropped events | improvement | gui |
