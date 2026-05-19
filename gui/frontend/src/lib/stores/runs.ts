@@ -24,6 +24,13 @@ export interface Run {
   status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'interrupted' | '';
   exitCode: number;
   logPath: string;
+  // TB-130 resume linkage. sessionId is the agent-side conversation id
+  // (claude/codex). resumedFrom carries the parent session's id for runs
+  // launched via ResumeAgent. resumedFromRun is the parent run's id —
+  // that's what the UI shows as a chip; session ids stay internal.
+  sessionId?: string;
+  resumedFrom?: string;
+  resumedFromRun?: string;
 }
 
 type RunMap = Map<string, Run>;

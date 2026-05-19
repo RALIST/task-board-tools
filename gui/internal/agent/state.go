@@ -25,6 +25,10 @@ const (
 	EvStdout   EventName = "stdout"
 	EvStderr   EventName = "stderr"
 	EvFinished EventName = "finished"
+	// EvSession captures the agent-side conversation id immediately
+	// after EvStarted (TB-130). One per run, always preceded by EvStarted
+	// so recovery's pidAlive cross-check stays meaningful.
+	EvSession EventName = "session"
 )
 
 // Status is the terminal disposition of a run, written into the `finished`
@@ -52,23 +56,60 @@ const (
 //
 // Schema (locked here; the documentation table in TB-47 cross-references):
 //
-//	queued   {ts, run_id, task_id, event:"queued",   agent, mode}
+//	queued   {ts, run_id, task_id, event:"queued",   agent, mode, resumed_from?, resumed_from_run?}
 //	started  {ts, run_id, task_id, event:"started",  agent, mode, pid}
+//	session  {ts, run_id, task_id, event:"session",  session_id, pid, cwd, run_env}
 //	stdout   {ts, run_id, task_id, event:"stdout",   mode, line}
 //	stderr   {ts, run_id, task_id, event:"stderr",   mode, line}
 //	finished {ts, run_id, task_id, event:"finished", agent, mode, status, exit_code, reason?}
+//
+// TB-130 added SessionID/ResumedFrom/ResumedFromRun/Cwd/RunEnv for the
+// resume flow. RunEnv is the on-disk allowlisted replay of the env vars
+// the run was launched with — filtered to `TB_`-prefixed keys only by
+// FilterTBEnv so credential vars (ANTHROPIC_API_KEY etc.) never land in
+// a JSONL log file.
 type Event struct {
-	TS       string    `json:"ts"`
-	RunID    string    `json:"run_id"`
-	TaskID   string    `json:"task_id"`
-	Event    EventName `json:"event"`
-	Agent    string    `json:"agent,omitempty"`
-	Mode     string    `json:"mode,omitempty"`
-	PID      int       `json:"pid,omitempty"`
-	Line     string    `json:"line,omitempty"`
-	Status   Status    `json:"status,omitempty"`
-	ExitCode int       `json:"exit_code,omitempty"`
-	Reason   string    `json:"reason,omitempty"`
+	TS             string            `json:"ts"`
+	RunID          string            `json:"run_id"`
+	TaskID         string            `json:"task_id"`
+	Event          EventName         `json:"event"`
+	Agent          string            `json:"agent,omitempty"`
+	Mode           string            `json:"mode,omitempty"`
+	PID            int               `json:"pid,omitempty"`
+	Line           string            `json:"line,omitempty"`
+	Status         Status            `json:"status,omitempty"`
+	ExitCode       int               `json:"exit_code,omitempty"`
+	Reason         string            `json:"reason,omitempty"`
+	SessionID      string            `json:"session_id,omitempty"`
+	ResumedFrom    string            `json:"resumed_from,omitempty"`
+	ResumedFromRun string            `json:"resumed_from_run,omitempty"`
+	Cwd            string            `json:"cwd,omitempty"`
+	RunEnv         map[string]string `json:"run_env,omitempty"`
+}
+
+// FilterTBEnv reduces a `KEY=VALUE` env slice (RunInput.Env shape) to a
+// map of TB-prefixed keys only. Keys without a `TB_` prefix are dropped
+// on disk: JSONL log files live unencrypted, so persisting
+// credential-bearing vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+// `OAUTH_*`, etc.) would leak them. Returns nil when no key qualifies so
+// the `omitempty` JSON tag keeps the wire format clean.
+func FilterTBEnv(env []string) map[string]string {
+	var out map[string]string
+	for _, kv := range env {
+		i := strings.IndexByte(kv, '=')
+		if i <= 0 {
+			continue
+		}
+		key := kv[:i]
+		if !strings.HasPrefix(key, "TB_") {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string, 4)
+		}
+		out[key] = kv[i+1:]
+	}
+	return out
 }
 
 // ErrBoardDirMissing is returned by AppendEvent / NewLogWriter when the

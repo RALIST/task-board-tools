@@ -204,6 +204,9 @@ type runRecoveryView struct {
 	RunID        string
 	AgentName    string
 	PID          int
+	SessionID    string
+	Cwd          string
+	RunEnv       map[string]string
 	LastFinished *finishedEvent
 }
 
@@ -264,6 +267,23 @@ func readLatestRun(boardDir, taskID string) (runRecoveryView, bool, error) {
 			if ev.Agent != "" {
 				v.AgentName = ev.Agent
 			}
+		case agent.EvSession:
+			// EvSession is emitted exactly once per run, AFTER EvStarted —
+			// it carries the agent-side conversation id, the live PID, and
+			// the cwd / TB_ env replay context that ResumeAgent needs to
+			// re-launch in the original execution environment.
+			if ev.SessionID != "" {
+				v.SessionID = ev.SessionID
+			}
+			if ev.PID > 0 {
+				v.PID = ev.PID
+			}
+			if ev.Cwd != "" {
+				v.Cwd = ev.Cwd
+			}
+			if ev.RunEnv != nil {
+				v.RunEnv = ev.RunEnv
+			}
 		case agent.EvFinished:
 			v.LastFinished = &finishedEvent{
 				Status:   ev.Status,
@@ -278,4 +298,47 @@ func readLatestRun(boardDir, taskID string) (runRecoveryView, bool, error) {
 	}
 	latest := views[order[len(order)-1]]
 	return *latest, true, nil
+}
+
+// ResumeCandidate is the resolved execution context for resuming an
+// interrupted agent run. RunID is what the GUI surfaces as the
+// `resumed_from` chip on the new run; SessionID is what the agent CLI
+// needs (`claude -r <uuid>` / `codex exec --json resume <uuid>`).
+type ResumeCandidate struct {
+	SessionID string
+	RunID     string
+	Cwd       string
+	Env       map[string]string
+}
+
+// resumableSessionID returns the resume context for the *latest* run of
+// taskID. The lookup is intentionally one-deep — if the most recent run
+// failed before capturing a SessionID, resume is disabled and the helper
+// returns ok=false. Walking backward to an older successful run would
+// resume a stale conversation; the design's "no recursive resume" rule
+// (spec § 5) keeps the contract simple and predictable.
+//
+// Returns ok=false (no error) when:
+//   - the JSONL file does not exist yet,
+//   - the file exists but holds no runs, or
+//   - the latest run has no `session` event.
+//
+// Returns a non-nil error only on unexpected IO failure.
+func resumableSessionID(boardDir, taskID string) (ResumeCandidate, bool, error) {
+	view, ok, err := readLatestRun(boardDir, taskID)
+	if err != nil {
+		return ResumeCandidate{}, false, err
+	}
+	if !ok {
+		return ResumeCandidate{}, false, nil
+	}
+	if view.SessionID == "" {
+		return ResumeCandidate{}, false, nil
+	}
+	return ResumeCandidate{
+		SessionID: view.SessionID,
+		RunID:     view.RunID,
+		Cwd:       view.Cwd,
+		Env:       view.RunEnv,
+	}, true, nil
 }

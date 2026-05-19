@@ -22,17 +22,27 @@ import (
 // Times are RFC3339 strings on the wire so they survive Wails serialization
 // unchanged; LogPath is absolute so the frontend doesn't need to know about
 // boardDir.
+//
+// SessionID/ResumedFrom/ResumedFromRun are TB-130 additions surfacing the
+// agent-side resume linkage to the UI. SessionID is the agent CLI's
+// conversation id (claude/codex); ResumedFrom is the parent session id
+// when this run was kicked off via ResumeAgent; ResumedFromRun is the
+// parent RunID (the chip the UI displays — internal session ids never
+// reach the user).
 type Run struct {
-	RunID      string `json:"runId"`
-	TaskID     string `json:"taskId"`
-	Agent      string `json:"agent"`
-	Mode       string `json:"mode"`
-	QueuedAt   string `json:"queuedAt"`
-	StartedAt  string `json:"startedAt"`
-	FinishedAt string `json:"finishedAt"`
-	Status     string `json:"status"`
-	ExitCode   int    `json:"exitCode"`
-	LogPath    string `json:"logPath"`
+	RunID          string `json:"runId"`
+	TaskID         string `json:"taskId"`
+	Agent          string `json:"agent"`
+	Mode           string `json:"mode"`
+	QueuedAt       string `json:"queuedAt"`
+	StartedAt      string `json:"startedAt"`
+	FinishedAt     string `json:"finishedAt"`
+	Status         string `json:"status"`
+	ExitCode       int    `json:"exitCode"`
+	LogPath        string `json:"logPath"`
+	SessionID      string `json:"sessionId,omitempty"`
+	ResumedFrom    string `json:"resumedFrom,omitempty"`
+	ResumedFromRun string `json:"resumedFromRun,omitempty"`
 }
 
 // ErrRunLogNotFound is returned by GetRunLog when the on-disk file is
@@ -100,6 +110,12 @@ func (s *AgentService) ListRuns(ctx context.Context, id string) ([]Run, error) {
 			r.QueuedAt = ev.TS
 			r.Agent = ev.Agent
 			r.Mode = ev.Mode
+			if ev.ResumedFrom != "" {
+				r.ResumedFrom = ev.ResumedFrom
+			}
+			if ev.ResumedFromRun != "" {
+				r.ResumedFromRun = ev.ResumedFromRun
+			}
 			if r.Status == "" {
 				r.Status = "queued"
 			}
@@ -110,6 +126,10 @@ func (s *AgentService) ListRuns(ctx context.Context, id string) ([]Run, error) {
 			}
 			if r.Status == "queued" || r.Status == "" {
 				r.Status = "running"
+			}
+		case agent.EvSession:
+			if ev.SessionID != "" {
+				r.SessionID = ev.SessionID
 			}
 		case agent.EvFinished:
 			r.FinishedAt = ev.TS

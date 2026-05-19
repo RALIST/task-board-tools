@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -102,9 +103,64 @@ func TestAppendEvent_RoundTripsAllShapes(t *testing.T) {
 	}
 	for i, ev := range events {
 		ev.TaskID = "TB-1" // writer fills it in
-		if got[i] != ev {
+		// Event carries a map (RunEnv) which prevents direct struct equality.
+		if !reflect.DeepEqual(got[i], ev) {
 			t.Errorf("event %d mismatch:\n got %+v\nwant %+v", i, got[i], ev)
 		}
+	}
+}
+
+func TestAppendEvent_SessionEventRoundTrip(t *testing.T) {
+	dir := newBoardDir(t)
+	ev := Event{
+		TS:        "2026-05-14T10:00:00Z",
+		RunID:     "r_session1",
+		Event:     EvSession,
+		SessionID: "11111111-2222-3333-4444-555555555555",
+		PID:       12345,
+		Cwd:       "/tmp/board/worktrees/TB-1",
+		RunEnv:    map[string]string{"TB_BOARD_PATH": "/tmp/board"},
+	}
+	if err := AppendEvent(dir, "TB-1", ev); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+
+	path := StatePath(dir, "TB-1")
+	got := readJSONL(t, path)
+	if len(got) != 1 {
+		t.Fatalf("got %d events, want 1", len(got))
+	}
+	ev.TaskID = "TB-1"
+	if !reflect.DeepEqual(got[0], ev) {
+		t.Errorf("session event mismatch:\n got %+v\nwant %+v", got[0], ev)
+	}
+}
+
+func TestFilterTBEnv_KeepsTBPrefixedKeysOnly(t *testing.T) {
+	in := []string{
+		"TB_BOARD_PATH=/tmp/board",
+		"ANTHROPIC_API_KEY=sk-ant-secret",
+		"OPENAI_API_KEY=sk-oai-secret",
+		"PATH=/usr/local/bin",
+		"TB_WORKTREE=/tmp/wt",
+		"HOME=/home/u",
+		"NOT_AN_ENV", // no `=`, must be skipped
+		"=VALUEONLY", // empty key, must be skipped
+	}
+	got := FilterTBEnv(in)
+	want := map[string]string{
+		"TB_BOARD_PATH": "/tmp/board",
+		"TB_WORKTREE":   "/tmp/wt",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FilterTBEnv mismatch:\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestFilterTBEnv_NoMatchingKeysReturnsNil(t *testing.T) {
+	got := FilterTBEnv([]string{"HOME=/home/u", "PATH=/usr/bin"})
+	if got != nil {
+		t.Fatalf("FilterTBEnv: expected nil for no matches, got %v", got)
 	}
 }
 

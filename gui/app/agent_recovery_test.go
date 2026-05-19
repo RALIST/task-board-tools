@@ -462,3 +462,102 @@ func readJSONL(t *testing.T, path string) []agent.Event {
 	}
 	return out
 }
+
+// --- TB-130: resumableSessionID tests ---
+//
+// These exercise the helper directly without a tb binary fixture — only
+// AppendEvent + os scaffolding. resumableSessionID is the gate for the
+// Resume button and for recovery's interrupted-vs-failed branch (TB-137),
+// so its "latest run only" invariant is the contract we lock down here.
+
+func resumableSessionTestBoard(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "backlog", "TB-1"), 0o755); err != nil {
+		t.Fatalf("mkdir backlog/TB-1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "backlog", "TB-1", "TASK.md"), []byte("# TB-1: t\n"), 0o644); err != nil {
+		t.Fatalf("write TASK.md: %v", err)
+	}
+	return dir
+}
+
+func TestResumableSessionID_NoJSONLFile(t *testing.T) {
+	dir := resumableSessionTestBoard(t)
+	_, ok, err := resumableSessionID(dir, "TB-1")
+	if err != nil {
+		t.Fatalf("resumableSessionID: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected ok=false for missing JSONL")
+	}
+}
+
+func TestResumableSessionID_LatestRunHasSession(t *testing.T) {
+	dir := resumableSessionTestBoard(t)
+	events := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: "r_a", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T10:00:01Z", RunID: "r_a", Event: agent.EvStarted, Agent: "claude", PID: 1000},
+		{TS: "2026-05-14T10:00:02Z", RunID: "r_a", Event: agent.EvSession,
+			SessionID: "uuid-aaaa",
+			PID:       1000,
+			Cwd:       "/tmp/wt/TB-1",
+			RunEnv:    map[string]string{"TB_BOARD_PATH": "/tmp/board"},
+		},
+	}
+	for _, ev := range events {
+		if err := agent.AppendEvent(dir, "TB-1", ev); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	cand, ok, err := resumableSessionID(dir, "TB-1")
+	if err != nil {
+		t.Fatalf("resumableSessionID: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	want := ResumeCandidate{
+		SessionID: "uuid-aaaa",
+		RunID:     "r_a",
+		Cwd:       "/tmp/wt/TB-1",
+		Env:       map[string]string{"TB_BOARD_PATH": "/tmp/board"},
+	}
+	if cand.SessionID != want.SessionID || cand.RunID != want.RunID || cand.Cwd != want.Cwd {
+		t.Fatalf("ResumeCandidate mismatch:\n got %+v\nwant %+v", cand, want)
+	}
+	if got := cand.Env["TB_BOARD_PATH"]; got != "/tmp/board" {
+		t.Fatalf("Env TB_BOARD_PATH: got %q, want %q", got, "/tmp/board")
+	}
+}
+
+// Spec § 5 invariant: helper looks at the latest run ONLY. If the latest
+// run failed before capturing a session id, resume is disabled — even
+// when an older run did capture one. Walking backward would resume a
+// stale conversation.
+func TestResumableSessionID_LatestRunHasNoSession_OlderRunDoes(t *testing.T) {
+	dir := resumableSessionTestBoard(t)
+	events := []agent.Event{
+		// Older run with session captured (would be resumable on its own).
+		{TS: "2026-05-14T10:00:00Z", RunID: "r_old", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T10:00:01Z", RunID: "r_old", Event: agent.EvStarted, Agent: "claude", PID: 1000},
+		{TS: "2026-05-14T10:00:02Z", RunID: "r_old", Event: agent.EvSession, SessionID: "uuid-old", PID: 1000},
+		{TS: "2026-05-14T10:00:03Z", RunID: "r_old", Event: agent.EvFinished, Status: agent.StatusInterrupted, ExitCode: -1},
+		// Newer run failed before session capture (the "stale" case).
+		{TS: "2026-05-14T11:00:00Z", RunID: "r_new", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T11:00:01Z", RunID: "r_new", Event: agent.EvStarted, Agent: "claude", PID: 2000},
+		{TS: "2026-05-14T11:00:02Z", RunID: "r_new", Event: agent.EvFinished, Status: agent.StatusFailed, ExitCode: -1, Reason: "binary not found"},
+	}
+	for _, ev := range events {
+		if err := agent.AppendEvent(dir, "TB-1", ev); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	_, ok, err := resumableSessionID(dir, "TB-1")
+	if err != nil {
+		t.Fatalf("resumableSessionID: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected ok=false: latest run has no session event, walking backward must not resume the older one")
+	}
+}
