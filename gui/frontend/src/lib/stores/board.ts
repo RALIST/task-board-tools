@@ -10,6 +10,7 @@ import { loadBoard, getTask } from '../api';
 const emptySnapshot: BoardSnapshot = {
   backlog: [],
   inProgress: [],
+  codeReview: [],
   done: [],
   archive: [],
 } as BoardSnapshot;
@@ -41,7 +42,7 @@ export async function refresh(): Promise<void> {
     // from rendering under the newly selected project root when a board
     // switch fails (TB-145). Use a fresh object so mutators (e.g.
     // optimisticMove) can't poison the module-level reference.
-    board.set({ backlog: [], inProgress: [], done: [], archive: [] });
+    board.set({ backlog: [], inProgress: [], codeReview: [], done: [], archive: [] });
     loadError.set(stringifyError(err));
   }
 }
@@ -73,6 +74,7 @@ function spliceTask(snap: BoardSnapshot, t: Task): BoardSnapshot {
   const withoutTask = {
     backlog: snap.backlog.filter((x) => x.id !== t.id),
     inProgress: snap.inProgress.filter((x) => x.id !== t.id),
+    codeReview: (snap.codeReview ?? []).filter((x) => x.id !== t.id),
     done: snap.done.filter((x) => x.id !== t.id),
     archive: (snap.archive ?? []).filter((x) => x.id !== t.id),
   } as BoardSnapshot;
@@ -83,6 +85,9 @@ function spliceTask(snap: BoardSnapshot, t: Task): BoardSnapshot {
       break;
     case 'in-progress':
       withoutTask.inProgress = [...withoutTask.inProgress, t];
+      break;
+    case 'code-review':
+      withoutTask.codeReview = [...(withoutTask.codeReview ?? []), t];
       break;
     case 'done':
       withoutTask.done = [...withoutTask.done, t];
@@ -101,11 +106,14 @@ function spliceTask(snap: BoardSnapshot, t: Task): BoardSnapshot {
 // optimisticMove updates the local snapshot synchronously so a drag-drop
 // feels instant. Callers must keep the original snapshot if MoveTask fails
 // so they can revert with board.set(original).
-export function optimisticMove(id: string, target: 'backlog' | 'in-progress' | 'done'): BoardSnapshot {
+export function optimisticMove(
+  id: string,
+  target: 'backlog' | 'in-progress' | 'code-review' | 'done',
+): BoardSnapshot {
   const snap = get(board);
   // Locate the task in any column.
   let task: Task | undefined;
-  for (const col of [snap.backlog, snap.inProgress, snap.done, snap.archive ?? []]) {
+  for (const col of [snap.backlog, snap.inProgress, snap.codeReview ?? [], snap.done, snap.archive ?? []]) {
     const hit = col.find((x) => x.id === id);
     if (hit) { task = { ...hit, status: target }; break; }
   }
@@ -120,7 +128,7 @@ export function revert(snap: BoardSnapshot): void {
 }
 
 export const totalTaskCount = derived(board, ($b) =>
-  $b.backlog.length + $b.inProgress.length + $b.done.length,
+  $b.backlog.length + $b.inProgress.length + ($b.codeReview?.length ?? 0) + $b.done.length,
 );
 
 function stringifyError(err: unknown): string {

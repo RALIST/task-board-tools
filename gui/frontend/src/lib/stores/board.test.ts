@@ -103,6 +103,7 @@ function snapshot(id: string, title: string): BoardSnapshot {
   return {
     backlog: [task(id, title, 'backlog')],
     inProgress: [],
+    codeReview: [],
     done: [],
     archive: [],
   } as BoardSnapshot;

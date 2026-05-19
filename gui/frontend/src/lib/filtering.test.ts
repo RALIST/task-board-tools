@@ -37,6 +37,7 @@ function snapshot(columns: Partial<BoardSnapshot>): BoardSnapshot {
   return {
     backlog: columns.backlog ?? [],
     inProgress: columns.inProgress ?? [],
+    codeReview: columns.codeReview ?? [],
     done: columns.done ?? [],
     archive: columns.archive ?? [],
   };

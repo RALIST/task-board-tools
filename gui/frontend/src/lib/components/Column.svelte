@@ -3,13 +3,15 @@
   import Card from './Card.svelte';
   import { dndzone, type DndEvent } from 'svelte-dnd-action';
 
+  export type DropTarget = 'backlog' | 'in-progress' | 'code-review' | 'done';
+
   interface Props {
     title: string;
-    status: 'backlog' | 'in-progress' | 'done' | 'archive';
+    status: 'backlog' | 'in-progress' | 'code-review' | 'done' | 'archive';
     tasks: Task[];
     draggable?: boolean;
     onSelect?: (id: string) => void;
-    onDrop?: (taskId: string, target: 'backlog' | 'in-progress' | 'done') => void;
+    onDrop?: (taskId: string, target: DropTarget) => void;
   }
 
   let { title, status, tasks, draggable = true, onSelect, onDrop }: Props = $props();
@@ -47,7 +49,7 @@
     if (!onDrop) return;
     const incoming = next.find((n) => !tasks.some((t) => t.id === n.id));
     if (incoming) {
-      onDrop(incoming.id, status as 'backlog' | 'in-progress' | 'done');
+      onDrop(incoming.id, status as DropTarget);
     }
   }
 </script>

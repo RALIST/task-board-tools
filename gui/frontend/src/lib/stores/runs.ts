@@ -17,7 +17,7 @@ export interface Run {
   runId: string;
   taskId: string;
   agent: string;
-  mode: 'implement' | 'groom' | 'resume';
+  mode: 'implement' | 'groom' | 'review' | 'resume';
   queuedAt: string;
   startedAt: string;
   finishedAt: string;
@@ -273,6 +273,7 @@ function nowISO(): string {
 
 function normalizeMode(mode: unknown): Run['mode'] {
   if (mode === 'groom') return 'groom';
+  if (mode === 'review') return 'review';
   if (mode === 'resume') return 'resume';
   return 'implement';
 }

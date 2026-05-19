@@ -27,7 +27,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
 }
 
 function snapshot(tasks: Task[]): BoardSnapshot {
-  return { backlog: tasks, inProgress: [], done: [], archive: [] };
+  return { backlog: tasks, inProgress: [], codeReview: [], done: [], archive: [] };
 }
 
 function triggers(): HTMLButtonElement[] {

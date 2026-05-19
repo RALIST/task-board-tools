@@ -19,7 +19,9 @@
     removeAttachments,
     renameTask,
     resumeAgent,
+    reviewTask,
     runAgent,
+    submitReview,
     type AgentName,
     type Attachment,
     type EditTaskInput,
@@ -83,6 +85,8 @@
   let userClearedAgent = $state(false);
   let runStarting = $state(false);
   let groomStarting = $state(false);
+  let reviewStarting = $state(false);
+  let submittingReview = $state(false);
   let resumeStarting = $state(false);
   let clearingNeedsUser = $state(false);
   let groomReasons = $state<string[]>([]);
@@ -258,7 +262,13 @@
   let taskHasActiveRun = $derived(
     runs.some((r) => r.status === 'queued' || r.status === 'running'),
   );
-  let runBusy = $derived(taskHasActiveRun || runStarting || groomStarting || resumeStarting);
+  let runBusy = $derived(taskHasActiveRun || runStarting || groomStarting || resumeStarting || reviewStarting);
+  // TB-197/198: status-aware affordances. Submit-to-review is offered on
+  // in-progress tasks (the typical "I'm done, please review" flow);
+  // Run-review on code-review tasks (kick a reviewer agent at the linked
+  // implementation).
+  let canSubmitReview = $derived(detail?.metadata.status === 'in-progress');
+  let canRunReview = $derived(detail?.metadata.status === 'code-review');
   let needsUser = $derived(taskAgentStatus === 'needs-user');
   let canResume = $derived(taskAgentStatus === 'interrupted' && !runBusy);
   // TB-182: parse the ## User Attention section out of the task body so the
@@ -429,6 +439,45 @@
       pushToast(`Clear failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       clearingNeedsUser = false;
+    }
+  }
+
+  async function onReviewClick() {
+    if (!detail) return;
+    const id = detail.metadata.id;
+    reviewStarting = true;
+    try {
+      const agentName = await ensureAgentPersisted();
+      if (!agentName) return;
+      const runId = await reviewTask(id);
+      upsertRun({
+        runId,
+        taskId: id,
+        agent: agentName,
+        mode: 'review',
+        status: 'queued',
+        queuedAt: new Date().toISOString(),
+      });
+      selectedRunID.set(runId);
+      pushToast(`Started review for ${id}`, 'success');
+    } catch (e) {
+      pushToast(`Review failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      reviewStarting = false;
+    }
+  }
+
+  async function onSubmitReviewClick() {
+    if (!detail) return;
+    const id = detail.metadata.id;
+    submittingReview = true;
+    try {
+      await submitReview(id);
+      pushToast(`Submitted ${id} to code review`, 'success');
+    } catch (e) {
+      pushToast(`Submit failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      submittingReview = false;
     }
   }
 
@@ -1219,6 +1268,28 @@
                   onclick={onGroomClick}>
                   {groomStarting ? 'Grooming…' : 'Groom'}
                 </button>
+                {#if canRunReview}
+                  <button
+                    class="secondary compact"
+                    type="button"
+                    disabled={!displayedAgent || runBusy || needsUser}
+                    title={needsUser
+                      ? 'Task needs user input — clear AgentStatus before reviewing'
+                      : (!displayedAgent ? 'Select an agent first' : 'Run a reviewer agent against the linked Review Target')}
+                    onclick={onReviewClick}>
+                    {reviewStarting ? 'Reviewing…' : 'Review'}
+                  </button>
+                {/if}
+                {#if canSubmitReview}
+                  <button
+                    class="secondary compact"
+                    type="button"
+                    disabled={submittingReview}
+                    title="Move this task to code-review for human / agent review"
+                    onclick={onSubmitReviewClick}>
+                    {submittingReview ? 'Submitting…' : 'Submit for review'}
+                  </button>
+                {/if}
                 {#if liveStatus === 'running' || liveStatus === 'queued'}
                   <button class="danger compact" type="button" onclick={startCancel}>
                     {cancelPrompt ? 'Click again to cancel' : 'Cancel'}

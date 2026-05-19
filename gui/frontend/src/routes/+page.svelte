@@ -199,7 +199,7 @@
     return p;
   }
 
-  async function onDrop(taskId: string, target: 'backlog' | 'in-progress' | 'done') {
+  async function onDrop(taskId: string, target: 'backlog' | 'in-progress' | 'code-review' | 'done') {
     const before = optimisticMove(taskId, target);
     try {
       await moveTask(taskId, target);

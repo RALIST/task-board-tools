@@ -54,6 +54,11 @@
   // TB-182: surface a "user attention" indicator on the card so a needs-user
   // task is immediately visible on the kanban without opening the drawer.
   let needsUserAttention = $derived(task.agentStatus === 'needs-user');
+  // TB-199: review-failed marker — visible on backlog tasks that got bounced
+  // back from code-review with actionable findings. Distinct from needs-user
+  // (an autonomous-agent pause); review-failed is a workflow signal for human
+  // and auto-implement triage.
+  let isReviewFailed = $derived(task.tags?.includes('review-failed') ?? false);
 
   $effect(() => {
     const id = task.id;
@@ -251,6 +256,12 @@
         class="needs-user-indicator"
         title={`${task.id} needs user input — open the drawer to see the question`}
         aria-label={`${task.id} needs user input`}>?</span>
+    {/if}
+    {#if isReviewFailed}
+      <span
+        class="review-failed-indicator"
+        title={`${task.id} failed code review — see Review Findings in the drawer`}
+        aria-label={`${task.id} failed code review`}>↩</span>
     {/if}
   </header>
 
@@ -450,6 +461,21 @@
     color: #a855f7;
     font-size: 12px;
     font-weight: 800;
+    line-height: 1;
+    cursor: help;
+  }
+  .review-failed-indicator {
+    margin-left: 4px;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(255, 90, 82, 0.22);
+    color: var(--p0);
+    font-size: 12px;
+    font-weight: 700;
     line-height: 1;
     cursor: help;
   }

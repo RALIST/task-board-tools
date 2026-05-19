@@ -69,7 +69,7 @@ vi.mock('$lib/stores/triage', () => ({
 // Board store powers the Details rail's epic progress row; mocked here so
 // tests can inject child task fixtures without touching the real loader.
 const boardMocks = vi.hoisted(() => {
-  let current: any = { backlog: [], inProgress: [], done: [], archive: [] };
+  let current: any = { backlog: [], inProgress: [], codeReview: [], done: [], archive: [] };
   const subs = new Set<(v: any) => void>();
   return {
     boardStore: {
@@ -83,7 +83,7 @@ const boardMocks = vi.hoisted(() => {
         for (const cb of subs) cb(current);
       },
       reset() {
-        current = { backlog: [], inProgress: [], done: [], archive: [] };
+        current = { backlog: [], inProgress: [], codeReview: [], done: [], archive: [] };
         for (const cb of subs) cb(current);
       },
     },
@@ -699,6 +699,7 @@ describe('TaskDrawer epic progress (TB-204)', () => {
     boardStore.set({
       backlog: [makeTaskFixture({ id: 'TB-2', parent: 'TB-1', status: 'backlog' })],
       inProgress: [makeTaskFixture({ id: 'TB-3', parent: 'TB-1', status: 'in-progress' })],
+      codeReview: [],
       done: [makeTaskFixture({ id: 'TB-4', parent: 'TB-1', status: 'done' })],
       archive: [],
     } as BoardSnapshot);
@@ -724,7 +725,7 @@ describe('TaskDrawer epic progress (TB-204)', () => {
     );
     apiMocks.listAttachments.mockResolvedValue([]);
     boardStore.set({
-      backlog: [], inProgress: [], done: [], archive: [],
+      backlog: [], inProgress: [], codeReview: [], done: [], archive: [],
     } as BoardSnapshot);
 
     component = mount(TaskDrawer, {

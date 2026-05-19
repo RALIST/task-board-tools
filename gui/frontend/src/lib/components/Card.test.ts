@@ -43,7 +43,7 @@ vi.mock('$lib/stores/toast', () => toastMock);
 // subscribe/set object avoids the TDZ trap that vi.mock's hoisting imposes on
 // real store instances created at top level.
 const boardMocks = vi.hoisted(() => {
-  let current: any = { backlog: [], inProgress: [], done: [], archive: [] };
+  let current: any = { backlog: [], inProgress: [], codeReview: [], done: [], archive: [] };
   const subs = new Set<(v: any) => void>();
   return {
     boardStore: {
@@ -57,7 +57,7 @@ const boardMocks = vi.hoisted(() => {
         for (const cb of subs) cb(current);
       },
       reset() {
-        current = { backlog: [], inProgress: [], done: [], archive: [] };
+        current = { backlog: [], inProgress: [], codeReview: [], done: [], archive: [] };
         for (const cb of subs) cb(current);
       },
     },
@@ -349,6 +349,7 @@ describe('Card.svelte epic progress (TB-204)', () => {
     boardStore.set({
       backlog: [epicTask(), makeTask({ id: 'TB-2', parent: 'TB-1', status: 'backlog' })],
       inProgress: [makeTask({ id: 'TB-3', parent: 'TB-1', status: 'in-progress' })],
+      codeReview: [],
       done: [makeTask({ id: 'TB-4', parent: 'TB-1', status: 'done' })],
       archive: [],
     });
@@ -365,7 +366,7 @@ describe('Card.svelte epic progress (TB-204)', () => {
   });
 
   it('renders cleanly for a 0/0 epic without misleading completion styling', async () => {
-    boardStore.set({ backlog: [epicTask()], inProgress: [], done: [], archive: [] });
+    boardStore.set({ backlog: [epicTask()], inProgress: [], codeReview: [], done: [], archive: [] });
     component = mount(Card, {
       target: document.body,
       props: { task: epicTask() },
@@ -387,6 +388,7 @@ describe('Card.svelte epic progress (TB-204)', () => {
     boardStore.set({
       backlog: [epicTask()],
       inProgress: [],
+      codeReview: [],
       done: [
         makeTask({ id: 'TB-2', parent: 'TB-1', status: 'done' }),
         makeTask({ id: 'TB-3', parent: 'TB-1', status: 'done' }),
@@ -411,6 +413,7 @@ describe('Card.svelte epic progress (TB-204)', () => {
         makeTask({ id: 'TB-5', parent: '', tags: [] }),
       ],
       inProgress: [],
+      codeReview: [],
       done: [],
       archive: [],
     });

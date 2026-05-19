@@ -11,6 +11,7 @@ import {
   CreateTask,
   EditTask,
   EditTaskBody,
+  FailReview,
   GetTask,
   ListAttachments,
   LoadBoard,
@@ -19,6 +20,10 @@ import {
   OpenAttachment,
   Regenerate,
   RemoveAttachments,
+  SetReviewFindings,
+  SetReviewTarget,
+  SetReviewerNotes,
+  SubmitReview,
   Triage,
 } from '../../bindings/tools/tb-gui/app/boardservice';
 import { Dialogs } from '@wailsio/runtime';
@@ -29,6 +34,7 @@ import {
   GroomTask,
   ListRuns,
   ResumeAgent,
+  ReviewTask,
   RunAgent,
 } from '../../bindings/tools/tb-gui/app/agentservice';
 import {
@@ -104,8 +110,31 @@ export async function renameTask(id: string, newTitle: string): Promise<void> {
   await EditTask(id, { title: trimmed } as EditTaskInput);
 }
 
-export async function moveTask(id: string, status: 'backlog' | 'in-progress' | 'done'): Promise<void> {
+export async function moveTask(
+  id: string,
+  status: 'backlog' | 'in-progress' | 'code-review' | 'done',
+): Promise<void> {
   await MoveTask(id, status);
+}
+
+export async function submitReview(id: string): Promise<void> {
+  await SubmitReview(id);
+}
+
+export async function setReviewTarget(id: string, body: string): Promise<void> {
+  await SetReviewTarget(id, body);
+}
+
+export async function setReviewerNotes(id: string, body: string): Promise<void> {
+  await SetReviewerNotes(id, body);
+}
+
+export async function setReviewFindings(id: string, body: string): Promise<void> {
+  await SetReviewFindings(id, body);
+}
+
+export async function failReview(id: string, findings: string): Promise<void> {
+  await FailReview(id, findings);
 }
 
 export async function closeTask(id: string): Promise<void> {
@@ -181,6 +210,10 @@ export async function runAgent(id: string): Promise<string> {
 
 export async function groomTask(id: string): Promise<string> {
   return await GroomTask(id);
+}
+
+export async function reviewTask(id: string): Promise<string> {
+  return await ReviewTask(id);
 }
 
 // resumeAgent continues an `interrupted` task's prior agent session
