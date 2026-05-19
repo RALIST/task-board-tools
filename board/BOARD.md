@@ -28,17 +28,17 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | tooling |
 
-## In Progress (1/2)
+## In Progress (0/2)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-176 | Track PID of launched agents | P2 | gui | — |
+| — | — | — | — | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-176 | Track PID of launched agents | P2 | gui | — |
 
 ## Ready
 
@@ -80,7 +80,7 @@
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
-| TB-233 | Auto-implement priority: rank review-failed backlog tasks first | improvement | P2 | S | gui |
+| TB-233 | Auto-implement priority: rank review-failed ready tasks first | improvement | P2 | S | gui |
 | TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P2 | S | gui |
 | TB-241 | GUI: Resume button enabled for interrupted tasks with no captured session | bug | P2 | S | gui |
 | TB-242 | Agent runner blocks on stdout EOF when child processes inherit pipes | bug | P1 | M | gui |
