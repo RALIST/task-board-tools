@@ -89,6 +89,14 @@ func main() {
 		ProjectRoot: settingsService.GetProjectRoot,
 	})
 
+	// Refresh the per-agent quota chip the moment a board opens. Without
+	// this, the seed runs before OpenBoard has set ProjectRoot, so claude
+	// falls into the "no project open" stub branch and the header chip
+	// shows "unknown" until the 5-minute ticker fires or the user clicks ↻.
+	settingsService.SetBoardOpenedHook(func(ctx context.Context) {
+		usageService.RefreshAgentUsage(ctx)
+	})
+
 	app := application.New(application.Options{
 		Name:        "tb-gui",
 		Description: "Task Board Tools GUI — kanban over markdown tasks",

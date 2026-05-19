@@ -27,6 +27,12 @@ const (
 	recentsDirName   = "tb-gui"
 )
 
+// boardOpenedHookTimeout caps the detached goroutine that fires the
+// post-OpenBoard hook (production: UsageService.RefreshAgentUsage). Slightly
+// larger than UsageService's own 8s refresh budget so the hook side never
+// races the inner cancel.
+const boardOpenedHookTimeout = 10 * time.Second
+
 // BoardInfo is the parsed `.tb.yaml` for the currently-open board.
 type BoardInfo struct {
 	ProjectRoot string `json:"projectRoot"`
@@ -92,6 +98,14 @@ type BoardActivator interface {
 	Deactivate() error
 }
 
+// BoardOpenedHook fires once OpenBoard has committed the new board state
+// (BoardService rebound, watcher switched, daemon activated, board:opened
+// emitted). Production wires it to UsageService.RefreshAgentUsage so the
+// per-agent quota chip picks up the new project's claude usage tap instead
+// of the seed-time "no project open" snapshot. Runs in a detached goroutine
+// — must not block, must tolerate being called with a fresh ctx.
+type BoardOpenedHook func(ctx context.Context)
+
 // SettingsService manages project root selection, recent-board persistence,
 // and the native folder picker. It also coordinates BoardService and the
 // watcher whenever the active board changes.
@@ -100,6 +114,11 @@ type SettingsService struct {
 	board     *BoardService
 	wch       Switcher
 	activator BoardActivator
+
+	// boardOpenedHook is fired in a goroutine after every successful
+	// OpenBoard. Set late via SetBoardOpenedHook because UsageService
+	// (the production wirer) is constructed after SettingsService.
+	boardOpenedHook BoardOpenedHook
 
 	// openMu serializes OpenBoard calls so two concurrent invocations
 	// cannot interleave: a slow candidate validation from an older call
@@ -155,6 +174,15 @@ func NewSettingsService(opts SettingsOptions) *SettingsService {
 
 // ServiceName satisfies the Wails service contract.
 func (s *SettingsService) ServiceName() string { return "SettingsService" }
+
+// SetBoardOpenedHook wires a callback fired after every successful OpenBoard.
+// Late binding because UsageService (the production hook target) is built
+// after SettingsService. Passing nil clears the hook. Safe to call any time.
+func (s *SettingsService) SetBoardOpenedHook(hook BoardOpenedHook) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.boardOpenedHook = hook
+}
 
 // GetProjectRoot returns the active project root, or "" if no board is open.
 func (s *SettingsService) GetProjectRoot() string {
@@ -256,6 +284,21 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 		app.Event.Emit("board:opened", info)
 		app.Event.Emit("recents:changed")
 		app.Event.Emit("board:reloaded")
+	}
+
+	// Fire the board-opened hook (production: UsageService.RefreshAgentUsage)
+	// in a detached goroutine. Detached so the Wails RPC ctx returning to the
+	// frontend doesn't cancel the refresh; bounded with its own short timeout
+	// so a stuck filesystem can't leak goroutines on repeated OpenBoard calls.
+	s.mu.RLock()
+	hook := s.boardOpenedHook
+	s.mu.RUnlock()
+	if hook != nil {
+		go func() {
+			hookCtx, cancel := context.WithTimeout(context.Background(), boardOpenedHookTimeout)
+			defer cancel()
+			hook(hookCtx)
+		}()
 	}
 
 	_ = ctx // keep the signature ergonomic; future hooks may honour cancel
