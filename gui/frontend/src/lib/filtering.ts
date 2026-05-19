@@ -5,7 +5,13 @@ import type { BoardSnapshot, Task } from './api';
 import type { BoardFilter } from './stores/filter';
 
 function allTasks(snap: BoardSnapshot): Task[] {
-  return [...snap.backlog, ...snap.inProgress, ...snap.done, ...(snap.archive ?? [])];
+  return [
+    ...snap.backlog,
+    ...snap.inProgress,
+    ...(snap.codeReview ?? []),
+    ...snap.done,
+    ...(snap.archive ?? []),
+  ];
 }
 
 function passes(t: Task, f: BoardFilter): boolean {
@@ -33,9 +39,10 @@ export function applyFilter(snap: BoardSnapshot, f: BoardFilter): BoardSnapshot 
   return {
     backlog: snap.backlog.filter((t) => passes(t, f)),
     inProgress: snap.inProgress.filter((t) => passes(t, f)),
+    codeReview: (snap.codeReview ?? []).filter((t) => passes(t, f)),
     done: snap.done.filter((t) => passes(t, f)),
     archive: (snap.archive ?? []).filter((t) => passes(t, f)),
-  } as BoardSnapshot;
+  };
 }
 
 export function observedValues(snap: BoardSnapshot, field: 'type' | 'priority' | 'module' | 'agent'): string[] {

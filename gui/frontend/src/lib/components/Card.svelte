@@ -277,13 +277,18 @@
       disabled={renameSaving}
       aria-label="Task title" />
   {:else}
-    <button
-      type="button"
+    <!-- Plain <div> rather than <button>: svelte-dnd-action refuses to start
+         a drag when pointerdown lands on an element exposing `.value` (true
+         for HTMLButtonElement) or `isContentEditable`, which made the title
+         (the largest target on the card) undraggable. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
+    <div
       class="ttl"
+      role="presentation"
       onclick={onTitleClick}
       ondblclick={onTitleDblClick}
       title="Click to open, double-click to rename"
-      aria-label={`${task.title} — click to open, double-click to rename`}>{task.title}</button>
+      aria-label={`${task.title} — click to open, double-click to rename`}>{task.title}</div>
   {/if}
 
   <footer class="meta">

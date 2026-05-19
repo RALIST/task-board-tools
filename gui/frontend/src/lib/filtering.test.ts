@@ -44,7 +44,13 @@ function snapshot(columns: Partial<BoardSnapshot>): BoardSnapshot {
 }
 
 function ids(snap: BoardSnapshot): string[] {
-  return [...snap.backlog, ...snap.inProgress, ...snap.done, ...(snap.archive ?? [])].map((t) => t.id);
+  return [
+    ...snap.backlog,
+    ...snap.inProgress,
+    ...(snap.codeReview ?? []),
+    ...snap.done,
+    ...(snap.archive ?? []),
+  ].map((t) => t.id);
 }
 
 describe('applyFilter', () => {
@@ -83,6 +89,22 @@ describe('applyFilter', () => {
     });
 
     expect(ids(filtered)).toEqual(['TB-2']);
+  });
+
+  it('preserves code-review tasks through the filter', () => {
+    const snap = snapshot({
+      backlog: [task('TB-1', { tags: ['epic'] })],
+      codeReview: [
+        task('TB-2', { status: 'code-review', tags: ['ui'] }),
+        task('TB-3', { status: 'code-review', tags: ['backend'] }),
+      ],
+    });
+
+    const all = applyFilter(snap, baseFilter);
+    expect(all.codeReview.map((t) => t.id)).toEqual(['TB-2', 'TB-3']);
+
+    const uiOnly = applyFilter(snap, { ...baseFilter, tags: ['ui'] });
+    expect(uiOnly.codeReview.map((t) => t.id)).toEqual(['TB-2']);
   });
 });
 
@@ -137,6 +159,15 @@ describe('epicProgress', () => {
       backlog: [task('TB-1', { tags: ['epic'] })],
       done: [task('TB-2', { parent: 'TB-1', status: 'done' })],
       archive: [task('TB-3', { parent: 'TB-1', status: 'archive' })],
+    });
+    expect(epicProgress(snap, 'TB-1')).toEqual({ done: 1, total: 2, percent: 50 });
+  });
+
+  it('counts children sitting in code-review', () => {
+    const snap = snapshot({
+      backlog: [task('TB-1', { tags: ['epic'] })],
+      codeReview: [task('TB-2', { parent: 'TB-1', status: 'code-review' })],
+      done: [task('TB-3', { parent: 'TB-1', status: 'done' })],
     });
     expect(epicProgress(snap, 'TB-1')).toEqual({ done: 1, total: 2, percent: 50 });
   });

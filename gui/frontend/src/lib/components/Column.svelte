@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Task } from '$lib/api';
   import Card from './Card.svelte';
-  import { dndzone, type DndEvent } from 'svelte-dnd-action';
+  import { dndzone, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
 
   export type DropTarget = 'backlog' | 'in-progress' | 'code-review' | 'done';
 
@@ -36,8 +36,17 @@
 
   function handleConsider(e: CustomEvent<DndEvent<{ id: string; task: Task }>>) {
     dragging = true;
-    dragOver = true;
     items = e.detail.items;
+    // svelte-dnd-action fires `consider` on every zone the pointer crosses,
+    // not just source + destination. Without this trigger check, columns the
+    // drag merely passed over would never see a clearing event and stay
+    // highlighted forever (finalize only fires on source + destination).
+    const trigger = e.detail.info?.trigger;
+    if (trigger === TRIGGERS.DRAGGED_ENTERED || trigger === TRIGGERS.DRAGGED_OVER_INDEX) {
+      dragOver = true;
+    } else if (trigger === TRIGGERS.DRAGGED_LEFT || trigger === TRIGGERS.DRAGGED_LEFT_ALL) {
+      dragOver = false;
+    }
   }
 
   function handleFinalize(e: CustomEvent<DndEvent<{ id: string; task: Task }>>) {
