@@ -40,12 +40,14 @@ import {
   ReviewTask,
   RunAgent,
 } from '../../bindings/tools/tb-gui/app/agentservice';
+import { Status as AutoGroomStatusBinding } from '../../bindings/tools/tb-gui/app/autogroomcoordinator';
 import {
   GetBoardInfo,
 } from '../../bindings/tools/tb-gui/app/settingsservice';
 import * as SettingsService from '../../bindings/tools/tb-gui/app/settingsservice';
 import type {
   Attachment,
+  AutoGroomStatus,
   BoardInfo,
   BoardSnapshot,
   CreateTaskInput,
@@ -59,6 +61,7 @@ import type {
 
 export type {
   Attachment,
+  AutoGroomStatus,
   BoardInfo,
   BoardSnapshot,
   CreateTaskInput,
@@ -353,6 +356,10 @@ export async function getProjectRoot(): Promise<string> {
 
 export async function getBoardInfo(): Promise<BoardInfo> {
   return await GetBoardInfo();
+}
+
+export async function getAutoGroomStatus(): Promise<AutoGroomStatus> {
+  return await AutoGroomStatusBinding();
 }
 
 export async function getMaxWorkers(): Promise<number> {

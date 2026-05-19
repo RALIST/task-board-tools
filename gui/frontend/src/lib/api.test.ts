@@ -14,6 +14,19 @@ vi.mock('@wailsio/runtime', () => ({
   Dialogs: {
     OpenFile: mocks.runtimeOpenFile,
   },
+  // Type-creation hooks used by the auto-generated AutoGroomStatus /
+  // BoardSnapshot models. Stub them as identity helpers so imports
+  // succeed without dragging the real runtime in.
+  Create: {
+    Any: (value: unknown) => value,
+    Array: (createItem: (value: unknown) => unknown) => (values: unknown[] = []) =>
+      values.map(createItem),
+    Map: (_createKey: (value: unknown) => unknown, createValue: (value: unknown) => unknown) =>
+      (value: Record<string, unknown> = {}) =>
+        Object.fromEntries(Object.entries(value).map(([key, item]) => [key, createValue(item)])),
+  },
+  Call: { ByID: vi.fn() },
+  CancellablePromise: Promise,
 }));
 
 vi.mock('../../bindings/tools/tb-gui/app/boardservice', () => ({

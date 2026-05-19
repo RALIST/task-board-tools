@@ -30,18 +30,18 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | tooling |
 
-## In Progress (2/2 ⚠)
+## In Progress (1/2)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-173 | GUI: persist auto-groom setting and toggle | P1 | gui | — |
-| TB-174 | GUI: auto-groom triage tasks via groom-mode daemon runs | P1 | gui | — |
+| TB-175 | GUI: surface auto-groom feedback and manual fallback | P1 | gui | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-173 | GUI: persist auto-groom setting and toggle | P1 | gui | — |
+| TB-174 | GUI: auto-groom triage tasks via groom-mode daemon runs | P1 | gui | — |
 
 ## Ready
 
@@ -72,7 +72,6 @@
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-172 | Auto-groom | feature | P1 | L | gui |
-| TB-175 | GUI: surface auto-groom feedback and manual fallback | feature | P1 | S | gui |
 | TB-177 | Auto task implementation | feature | P0 | L | gui |
 | TB-178 | GUI: persist auto-implement settings and query | feature | P0 | M | gui |
 | TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |

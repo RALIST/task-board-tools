@@ -27,6 +27,141 @@ vi.mock('$lib/stores/groomSuggestion', () => ({
   suggestGroom: vi.fn(),
 }));
 
+// TB-175: preferences + autoGroom stores feed the auto-groom chip + settle
+// pill on the card. Hoist them so each `it` can call `setPreferences` /
+// `setAutoGroom` to drive the derived state without bringing up the real
+// stores (which import Wails bindings).
+const preferenceMocks = vi.hoisted(() => {
+  let current: any = {
+    maxWorkers: 1,
+    agentTimeoutMinutes: 30,
+    defaultAgent: 'none',
+    cliPath: '',
+    periodicRecoveryEnabled: true,
+    autoGroomEnabled: false,
+    autoGroomSettleMinutes: 5,
+    loaded: true,
+  };
+  const subs = new Set<(v: any) => void>();
+  return {
+    preferencesStore: {
+      subscribe(cb: (v: any) => void) {
+        cb(current);
+        subs.add(cb);
+        return () => subs.delete(cb);
+      },
+      set(next: Partial<typeof current>) {
+        current = { ...current, ...next };
+        for (const cb of subs) cb(current);
+      },
+      reset() {
+        current = {
+          maxWorkers: 1,
+          agentTimeoutMinutes: 30,
+          defaultAgent: 'none',
+          cliPath: '',
+          periodicRecoveryEnabled: true,
+          autoGroomEnabled: false,
+          autoGroomSettleMinutes: 5,
+          loaded: true,
+        };
+        for (const cb of subs) cb(current);
+      },
+    },
+  };
+});
+vi.mock('$lib/stores/preferences', () => ({
+  preferencesStore: preferenceMocks.preferencesStore,
+  defaultAgent: { subscribe: (cb: (v: string) => void) => { cb('none'); return () => {}; } },
+}));
+
+const autoGroomMocks = vi.hoisted(() => {
+  let current: any = {
+    enabled: false,
+    defaultAgent: 'none',
+    needsDefaultAgent: false,
+    settleMinutes: 5,
+    lastScanAt: '',
+    lastSkipReasons: {},
+    settleEligibleAtMs: {},
+    loaded: false,
+  };
+  const subs = new Set<(v: any) => void>();
+  return {
+    autoGroomStore: {
+      subscribe(cb: (v: any) => void) {
+        cb(current);
+        subs.add(cb);
+        return () => subs.delete(cb);
+      },
+      set(next: Partial<typeof current>) {
+        current = { ...current, ...next };
+        for (const cb of subs) cb(current);
+      },
+      reset() {
+        current = {
+          enabled: false,
+          defaultAgent: 'none',
+          needsDefaultAgent: false,
+          settleMinutes: 5,
+          lastScanAt: '',
+          lastSkipReasons: {},
+          settleEligibleAtMs: {},
+          loaded: false,
+        };
+        for (const cb of subs) cb(current);
+      },
+    },
+  };
+});
+vi.mock('$lib/stores/autoGroom', () => ({
+  autoGroomStore: autoGroomMocks.autoGroomStore,
+}));
+
+// runs store: same vi.hoisted treatment so tests can put a fake groom run
+// on the runs list without importing the real store. `runsForTask` is the
+// reactive Readable variant the Card actually subscribes to (so chip
+// status updates without remount); we expose it here as a writable-shaped
+// store the tests can drive.
+const runsMocks = vi.hoisted(() => {
+  const taskSubs = new Map<string, Set<(v: any[]) => void>>();
+  let runsByTaskMap: Record<string, any[]> = {};
+  const subsFor = (id: string) => {
+    let s = taskSubs.get(id);
+    if (!s) {
+      s = new Set();
+      taskSubs.set(id, s);
+    }
+    return s;
+  };
+  const notify = (id: string) => {
+    const value = runsByTaskMap[id] ?? [];
+    for (const cb of subsFor(id)) cb(value);
+  };
+  return {
+    setRuns(id: string, runs: any[]) {
+      runsByTaskMap[id] = runs;
+      notify(id);
+    },
+    reset() {
+      runsByTaskMap = {};
+      for (const id of taskSubs.keys()) notify(id);
+    },
+    runsForTask: (id: string) => ({
+      subscribe(cb: (v: any[]) => void) {
+        cb(runsByTaskMap[id] ?? []);
+        subsFor(id).add(cb);
+        return () => subsFor(id).delete(cb);
+      },
+    }),
+    upsertRun: vi.fn(),
+  };
+});
+vi.mock('$lib/stores/runs', () => ({
+  runsForTask: (id: string) => runsMocks.runsForTask(id),
+  upsertRun: runsMocks.upsertRun,
+}));
+
 // Mock $lib/api so the rename flow under test never reaches the real Wails
 // bridge. Importing the real module would pull in the generated bindings
 // (which try to talk to the runtime); spying on `renameTask` keeps the
@@ -98,6 +233,9 @@ beforeEach(() => {
   apiMocks.resumeAgent.mockReset();
   toastMock.pushToast.mockReset();
   boardStore.reset();
+  (preferenceMocks.preferencesStore as { reset: () => void }).reset();
+  (autoGroomMocks.autoGroomStore as { reset: () => void }).reset();
+  runsMocks.reset();
 });
 
 afterEach(async () => {
@@ -484,5 +622,85 @@ describe('Card.svelte resume gating (TB-241)', () => {
     await tick();
 
     expect(apiMocks.resumeAgent).toHaveBeenCalledWith('TB-241');
+  });
+});
+
+describe('Card.svelte auto-groom slot (TB-175)', () => {
+  it('hides all auto-groom slot content when auto-groom is disabled', async () => {
+    preferenceMocks.preferencesStore.set({ autoGroomEnabled: false });
+    runsMocks.setRuns('TB-1', [
+      { runId: 'r_1', taskId: 'TB-1', agent: 'claude', mode: 'groom', status: 'queued' },
+    ]);
+    autoGroomMocks.autoGroomStore.set({ lastSkipReasons: { 'TB-1': 'settle' } });
+
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'backlog' }) },
+    });
+    await tick();
+
+    expect(document.querySelector('.auto-groom-chip')).toBeNull();
+    expect(document.querySelector('.auto-groom-settle')).toBeNull();
+  });
+
+  it('renders the auto-groom chip when enabled with a backlog groom run', async () => {
+    preferenceMocks.preferencesStore.set({ autoGroomEnabled: true });
+    runsMocks.setRuns('TB-1', [
+      { runId: 'r_1', taskId: 'TB-1', agent: 'claude', mode: 'groom', status: 'running' },
+    ]);
+
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'backlog' }) },
+    });
+    await tick();
+
+    const chip = document.querySelector('.auto-groom-chip');
+    expect(chip).not.toBeNull();
+    expect(chip!.className).toContain('per-action-running');
+  });
+
+  it('renders the settle waiting pill when the coordinator reports a settle skip', async () => {
+    preferenceMocks.preferencesStore.set({ autoGroomEnabled: true });
+    autoGroomMocks.autoGroomStore.set({ lastSkipReasons: { 'TB-1': 'settle' } });
+    // No groom runs yet — the chip should be absent but the settle pill present.
+    runsMocks.setRuns('TB-1', []);
+
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'backlog' }) },
+    });
+    await tick();
+
+    expect(document.querySelector('.auto-groom-chip')).toBeNull();
+    expect(document.querySelector('.auto-groom-settle')).not.toBeNull();
+  });
+
+  it('does NOT render the settle pill for non-settle skip reasons', async () => {
+    preferenceMocks.preferencesStore.set({ autoGroomEnabled: true });
+    autoGroomMocks.autoGroomStore.set({ lastSkipReasons: { 'TB-1': 'dedupe' } });
+
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'backlog' }) },
+    });
+    await tick();
+
+    expect(document.querySelector('.auto-groom-settle')).toBeNull();
+  });
+
+  it('only renders auto-groom slot content for backlog tasks', async () => {
+    preferenceMocks.preferencesStore.set({ autoGroomEnabled: true });
+    runsMocks.setRuns('TB-1', [
+      { runId: 'r_1', taskId: 'TB-1', agent: 'claude', mode: 'groom', status: 'queued' },
+    ]);
+
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'in-progress' }) },
+    });
+    await tick();
+
+    expect(document.querySelector('.auto-groom-chip')).toBeNull();
   });
 });

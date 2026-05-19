@@ -391,6 +391,14 @@ func (c *AutoGroomCoordinator) scan(ctx context.Context, boardDir string) {
 	for id, taskReasons := range reasons {
 		c.evaluate(ctx, boardDir, id, taskReasons, defaultAgent, settle)
 	}
+
+	// Notify the frontend that a scan finished. The frontend listener
+	// refetches Status() so settle-only skip changes (which don't
+	// produce any of the three terminal events queued/guarded-skip/
+	// promote-failed) still propagate to the card pill + drawer
+	// countdown. Cheap one-message-per-scan; the scan itself is
+	// debounced so this isn't chatty.
+	c.emit("auto-groom:scan-complete", map[string]any{})
 }
 
 // evaluate decides whether to queue a single candidate. Encapsulated so

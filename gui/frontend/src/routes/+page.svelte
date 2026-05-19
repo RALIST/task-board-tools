@@ -39,6 +39,10 @@
   import { registerAgentEventHandlers } from '$lib/stores/runs';
   import { registerTriageEventHandlers } from '$lib/stores/triage';
   import {
+    refresh as refreshAutoGroom,
+    registerAutoGroomEventHandlers,
+  } from '$lib/stores/autoGroom';
+  import {
     hydrate as hydrateUsage,
     registerUsageEventHandler,
   } from '$lib/stores/usage';
@@ -143,6 +147,14 @@
     );
     offEvents.push(
       registerTriageEventHandlers((name, handler) => Events.On(name, handler as any)),
+    );
+    // Auto-groom coordinator state (TB-174 + TB-175): edge-triggered
+    // needs-default-agent / cleared events plus queued/guarded-skip
+    // refresh the coordinator's Status snapshot used by Card chips
+    // and the drawer status row.
+    void refreshAutoGroom();
+    offEvents.push(
+      registerAutoGroomEventHandlers((name, handler) => Events.On(name, handler as any)),
     );
     // Per-agent quota usage (TB-107): seed from backend cache, then live-
     // update on agent-usage:updated events from the periodic refresh loop.

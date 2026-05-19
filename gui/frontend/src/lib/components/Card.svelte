@@ -7,6 +7,9 @@
   import { registerTaskTriageEventHandler, triageForTask } from '$lib/stores/triage';
   import { board } from '$lib/stores/board';
   import { epicProgress } from '$lib/filtering';
+  import { preferencesStore } from '$lib/stores/preferences';
+  import { autoGroomStore } from '$lib/stores/autoGroom';
+  import { runsForTask, type Run } from '$lib/stores/runs';
 
   interface Props {
     task: Task;
@@ -51,6 +54,42 @@
   let typeKey = $derived(task.type ?? '');
   let showGroomIndicator = $derived(task.status === 'backlog' && triageReasons.length > 0);
   let triageTitle = $derived(triageReasons.join(', '));
+  // Auto-groom chip is the live state of the most-recent mode=groom run
+  // for this task (TB-175). Shown only when auto-groom is enabled — when
+  // disabled, we hide the chip entirely so the M6 manual flow stays
+  // visually unchanged.
+  let autoGroomEnabledForCard = $derived($preferencesStore.autoGroomEnabled);
+  // Use the reactive runsForTask store (vs the plain runsByTask snapshot)
+  // so the chip status updates when an in-flight groom run advances
+  // through queued → running → success without requiring a re-mount.
+  let cardRuns = $derived(runsForTask(task.id));
+  let groomRunStatus = $derived.by<Run['status'] | ''>(() => {
+    if (!autoGroomEnabledForCard) return '';
+    const runs = $cardRuns.filter((r) => r.mode === 'groom');
+    return runs.length > 0 ? runs[0].status : '';
+  });
+  let showAutoGroomChip = $derived(
+    autoGroomEnabledForCard && task.status === 'backlog' && groomRunStatus !== '',
+  );
+  // Settle-waiting pill: the coordinator skipped this task because the
+  // settle window has not yet elapsed. Render only on backlog and only
+  // when the most-recent skip reason was specifically "settle".
+  let settleSkipReason = $derived($autoGroomStore.lastSkipReasons[task.id] ?? '');
+  let showSettleWaiting = $derived(
+    autoGroomEnabledForCard && task.status === 'backlog' && settleSkipReason === 'settle',
+  );
+  // Compose a single tooltip across all three slot-resident chips so the
+  // user can read the state without opening the drawer.
+  let groomSlotTitle = $derived.by<string>(() => {
+    if (showAutoGroomChip) {
+      return `Auto-groom run ${groomRunStatus}`;
+    }
+    if (showSettleWaiting) {
+      return 'Auto-groom waiting for the settle window to end.';
+    }
+    return triageTitle;
+  });
+  let showAnyGroomSlotContent = $derived(showGroomIndicator || showAutoGroomChip || showSettleWaiting);
   // TB-182: surface a "user attention" indicator on the card so a needs-user
   // task is immediately visible on the kanban without opening the drawer.
   let needsUserAttention = $derived(task.agentStatus === 'needs-user');
@@ -251,7 +290,7 @@
     {#if task.priority}
       <span class={`pri ${priorityClass}`}>{task.priority}</span>
     {/if}
-    <span class="groom-slot" aria-hidden={!showGroomIndicator}>
+    <span class="groom-slot" aria-hidden={!showAnyGroomSlotContent} title={groomSlotTitle}>
       {#if showGroomIndicator}
         <button
           class="groom-indicator"
@@ -259,6 +298,16 @@
           title={triageTitle}
           aria-label={`Needs grooming: ${triageTitle}`}
           onclick={openForGroom}>!</button>
+      {/if}
+      {#if showAutoGroomChip}
+        <span
+          class={`auto-groom-chip per-action-${groomRunStatus}`}
+          aria-label={`Auto-groom ${groomRunStatus}`}>
+          G
+        </span>
+      {/if}
+      {#if showSettleWaiting}
+        <span class="auto-groom-settle" aria-label="Auto-groom waiting on settle window">⏳</span>
       {/if}
     </span>
     {#if task.agentStatus === 'interrupted'}
@@ -438,12 +487,36 @@
     flex-shrink: 0;
   }
   .groom-slot {
-    width: 18px;
+    min-width: 18px;
     height: 18px;
     display: inline-flex;
     align-items: center;
+    justify-content: flex-start;
+    gap: 3px;
+    flex: 0 0 auto;
+  }
+  .auto-groom-chip {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    align-items: center;
     justify-content: center;
-    flex: 0 0 18px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.02em;
+  }
+  .auto-groom-settle {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--fg-dim);
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
   }
   .groom-indicator {
     display: inline-flex;

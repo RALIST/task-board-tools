@@ -211,6 +211,48 @@ func (f *autoGroomFixture) waitForActiveDrained(timeout time.Duration) {
 	f.t.Fatalf("active runs did not drain within %v", timeout)
 }
 
+// TestAutoGroomCoordinator_SettleSkipEmitsScanComplete pins the contract
+// that a scan which records nothing but settle-window skips still emits
+// `auto-groom:scan-complete` so the frontend autoGroomStore refetches
+// and the Card pill / drawer countdown appears. Without this, the
+// dominant "create a new backlog task, see the waiting pill" UX broke
+// because no other event fired during a settle-only scan.
+func TestAutoGroomCoordinator_SettleSkipEmitsScanComplete(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	if err := f.settings.SetAutoGroomEnabled(true); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if err := f.settings.SetDefaultAgent("claude"); err != nil {
+		t.Fatalf("default agent: %v", err)
+	}
+	if err := f.settings.SetAutoGroomSettleMinutes(10); err != nil {
+		t.Fatalf("settle 10: %v", err)
+	}
+
+	// Force the task mtime to match the fake clock so settle math kicks in.
+	taskPath := filepath.Join(f.boardDir, "backlog", "TB-1.md")
+	now := f.clock.now()
+	if err := os.Chtimes(taskPath, now, now); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	f.runScanSync()
+
+	// No groom queue event; only the scan-complete signal.
+	if got := f.countEmits("auto-groom:queued"); got != 0 {
+		t.Errorf("settle-skip scan queued runs: got %d, want 0", got)
+	}
+	if got := f.countEmits("auto-groom:scan-complete"); got != 1 {
+		t.Errorf("auto-groom:scan-complete: got %d, want 1", got)
+	}
+	if reason := f.coord.Status().LastSkipReasons["TB-1"]; reason != "settle" {
+		t.Errorf("Status skip reason: got %q, want \"settle\"", reason)
+	}
+}
+
 func TestAutoGroomCoordinator_DisabledNoEnqueue(t *testing.T) {
 	f := newAutoGroomFixture(t, "claude")
 	if err := f.settings.SetAutoGroomEnabled(false); err != nil {

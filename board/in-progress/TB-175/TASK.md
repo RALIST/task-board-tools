@@ -53,4 +53,6 @@ Make auto-groom visible and understandable in the GUI while preserving the exist
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
 - 2026-05-20: Edited acceptance
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
 

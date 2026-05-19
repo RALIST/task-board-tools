@@ -5,6 +5,7 @@
 **Size:** M
 **Module:** gui
 **Tags:** auto-groom,settings,frontend,backend
+**ReviewRef:** f262ec8
 **Branch:** —
 **Parent:** TB-172
 
@@ -52,4 +53,6 @@ Add a persisted `auto_groom_enabled` preference and Settings panel toggle that c
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited reviewref=f262ec8
+- 2026-05-20: Submitted to code-review
 

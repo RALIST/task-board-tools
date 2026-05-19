@@ -38,7 +38,8 @@
     type Run,
   } from '$lib/stores/runs';
   import { consumeGroomSuggestion, groomSuggestedFor } from '$lib/stores/groomSuggestion';
-  import { defaultAgent as defaultAgentPreference } from '$lib/stores/preferences';
+  import { defaultAgent as defaultAgentPreference, preferencesStore } from '$lib/stores/preferences';
+  import { autoGroomStore } from '$lib/stores/autoGroom';
   import { triageForTask } from '$lib/stores/triage';
   import { board } from '$lib/stores/board';
   import { epicProgress } from '$lib/filtering';
@@ -371,6 +372,41 @@
   // section body (Markdown) or null when the section isn't present.
   let userAttentionBody = $derived(needsUser ? extractUserAttention(detail?.body ?? '') : null);
   let groomEmphasized = $derived(groomReasons.length > 0 || groomHighlight);
+  // Auto-groom drawer status row (TB-175): only render anything when
+  // auto-groom is enabled. Three mutually exclusive states:
+  //   1. needs-default-agent → actionable error copy.
+  //   2. settling → countdown so the user knows the run is queued, just
+  //      waiting for the settle window to finish.
+  //   3. otherwise → small "Auto-grooming on" informational badge.
+  let autoGroomEnabledForDrawer = $derived($preferencesStore.autoGroomEnabled);
+  let drawerAutoGroomNeedsDefault = $derived(
+    autoGroomEnabledForDrawer && $preferencesStore.defaultAgent === 'none',
+  );
+  let drawerSettleSkipReason = $derived(
+    detail ? ($autoGroomStore.lastSkipReasons[detail.metadata.id] ?? '') : '',
+  );
+  let drawerSettleEligibleMs = $derived(
+    detail ? ($autoGroomStore.settleEligibleAtMs[detail.metadata.id] ?? 0) : 0,
+  );
+  let drawerInSettle = $derived(
+    autoGroomEnabledForDrawer && drawerSettleSkipReason === 'settle' && drawerSettleEligibleMs > 0,
+  );
+  // Coarse "minutes remaining" so the drawer doesn't need a per-second
+  // interval just to render guidance. Recomputed whenever the store or
+  // current time changes via $derived; close-to-zero rounds up to 1 so
+  // we never display "in 0 minutes".
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!drawerInSettle) return;
+    const id = setInterval(() => { now = Date.now(); }, 15000);
+    return () => clearInterval(id);
+  });
+  let drawerSettleMinutesRemaining = $derived.by<number>(() => {
+    if (!drawerInSettle) return 0;
+    const diffMs = drawerSettleEligibleMs - now;
+    if (diffMs <= 0) return 0;
+    return Math.max(1, Math.ceil(diffMs / 60000));
+  });
   // Epic progress derived from the live board store (mirrors Card.svelte).
   // Drives the "Progress" row in the Details rail; gated on the `epic` tag
   // so non-epic tasks never see it.
@@ -1632,6 +1668,23 @@
                   <option value="codex">codex</option>
                 </select>
               </div>
+              {#if autoGroomEnabledForDrawer}
+                <div class="auto-groom-status">
+                  {#if drawerAutoGroomNeedsDefault}
+                    <p class="auto-groom-needs-default" role="alert">
+                      Auto-groom is enabled but no default agent is set. Choose claude or codex
+                      in Settings.
+                    </p>
+                  {:else if drawerInSettle}
+                    <p class="auto-groom-settle-row">
+                      Auto-groom will run in ~{drawerSettleMinutesRemaining}m. Editing or
+                      attaching files resets the window.
+                    </p>
+                  {:else}
+                    <p class="auto-groom-on">Auto-grooming on</p>
+                  {/if}
+                </div>
+              {/if}
               <div class="agent-buttons">
                 <button
                   class="primary compact"
@@ -2170,6 +2223,35 @@
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
+  }
+  .auto-groom-status {
+    margin: 6px 0 8px;
+  }
+  .auto-groom-status p {
+    margin: 0;
+    padding: 7px 10px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+  .auto-groom-needs-default {
+    border: 1px solid rgba(244, 191, 79, 0.45);
+    background: rgba(244, 191, 79, 0.08);
+    color: #f4bf4f;
+  }
+  .auto-groom-settle-row {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--fg-dim);
+  }
+  .auto-groom-on {
+    border: 1px solid rgba(74, 141, 248, 0.32);
+    background: rgba(74, 141, 248, 0.1);
+    color: var(--accent);
+    font-weight: 500;
+    display: inline-block;
+    padding: 4px 9px;
+    font-size: 10.5px;
   }
   .pill {
     font-size: 10px;

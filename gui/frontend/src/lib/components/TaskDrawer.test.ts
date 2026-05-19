@@ -64,6 +64,39 @@ vi.mock('$lib/stores/groomSuggestion', () => ({
 
 vi.mock('$lib/stores/preferences', () => ({
   defaultAgent: { subscribe: (cb: (v: string) => void) => { cb('none'); return () => {}; } },
+  preferencesStore: {
+    subscribe: (cb: (v: any) => void) => {
+      cb({
+        maxWorkers: 1,
+        agentTimeoutMinutes: 30,
+        defaultAgent: 'none',
+        cliPath: '',
+        periodicRecoveryEnabled: true,
+        autoGroomEnabled: false,
+        autoGroomSettleMinutes: 5,
+        loaded: true,
+      });
+      return () => {};
+    },
+  },
+}));
+
+vi.mock('$lib/stores/autoGroom', () => ({
+  autoGroomStore: {
+    subscribe: (cb: (v: any) => void) => {
+      cb({
+        enabled: false,
+        defaultAgent: 'none',
+        needsDefaultAgent: false,
+        settleMinutes: 5,
+        lastScanAt: '',
+        lastSkipReasons: {},
+        settleEligibleAtMs: {},
+        loaded: false,
+      });
+      return () => {};
+    },
+  },
 }));
 
 vi.mock('$lib/stores/triage', () => ({
