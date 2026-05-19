@@ -345,7 +345,7 @@
 
   {#if visibleTags.length > 0 || hiddenTagCount > 0}
     <div class="tags">
-      {#each visibleTags as tag}
+      {#each visibleTags as tag (tag)}
         <span class="tag">{tag}</span>
       {/each}
       {#if hiddenTagCount > 0}

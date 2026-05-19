@@ -88,11 +88,6 @@ export default ts.config(
   {
     files: ['**/*.svelte'],
     rules: {
-      // Svelte 5 reactivity edge: a few existing components use `$effect`
-      // shorthand patterns that the rule flags. The compile-time check (run
-      // via `npm run check`) is authoritative for reactivity correctness.
-      'svelte/require-each-key': 'off',
-
       // `no-undef` doesn't follow template→script references reliably for
       // Svelte runes; TypeScript (via `npm run check`) is the source of truth
       // for undeclared identifiers in .svelte files.

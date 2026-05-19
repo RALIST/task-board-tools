@@ -33,7 +33,7 @@ Format Go with `gofmt`; keep CLI code in the existing single-package style and u
 
 ## Testing Guidelines
 
-Add table-driven Go tests next to the changed package (`*_test.go`). For GUI agent, watcher, daemon, and filesystem behavior, include integration-style tests when the bug depends on real processes, locks, or file events. Frontend logic tests use Vitest (`*.test.ts`); before treating UI code as complete, run `npm run check`, `npm run lint`, and (for changes touching exports or `package.json`) `npm run deadcode`.
+Add table-driven Go tests next to the changed package (`*_test.go`). For GUI agent, watcher, daemon, and filesystem behavior, include integration-style tests when the bug depends on real processes, locks, or file events. Frontend logic tests use Vitest (`*.test.ts`); before treating UI code as complete, run `npm run check`, `npm run lint`, and (for changes touching exports or `package.json`) `npm run deadcode`. `npm run deadcode` exits non-zero when knip reports any findings; the current baseline has 13 findings tracked by TB-247, so compare your finding list against that baseline rather than treating exit 1 as a regression.
 
 ## Commit & Pull Request Guidelines
 

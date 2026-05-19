@@ -203,7 +203,7 @@
           type="button"
           onclick={pickNull}>{nullLabel}</button>
       {/if}
-      {#each filteredOptions as opt}
+      {#each filteredOptions as opt (opt)}
         <button
           class="fd-option"
           role={single ? 'menuitemradio' : 'menuitemcheckbox'}

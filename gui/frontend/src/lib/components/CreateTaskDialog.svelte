@@ -203,7 +203,7 @@
         <span>Parent epic</span>
         <select bind:value={parent}>
           <option value="">(none)</option>
-          {#each epics as e}
+          {#each epics as e (e.id)}
             <option value={e.id}>{e.id} — {e.title}</option>
           {/each}
         </select>

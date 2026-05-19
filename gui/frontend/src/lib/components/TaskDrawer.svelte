@@ -1709,7 +1709,7 @@
               {#if effectiveRuns.length > 0}
                 <div class="rail-subhead">Run history</div>
                 <ul class="run-list" aria-label="Past runs">
-                  {#each effectiveRuns as r}
+                  {#each effectiveRuns as r (r.runId)}
                     <li>
                       <button
                         type="button"

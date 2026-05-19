@@ -99,6 +99,8 @@ GOLANGCI_LINT=/Users/ralist/go/bin/golangci-lint make lint-go
 ```bash
 cd gui/frontend && npm install
 cd gui/frontend && npm run check
+cd gui/frontend && npm run lint        # ESLint (typescript-eslint + Svelte 5)
+cd gui/frontend && npm run deadcode    # knip — unused exports/deps
 cd gui/frontend && npm test
 ```
 
