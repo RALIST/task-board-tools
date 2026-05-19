@@ -8,7 +8,7 @@
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
-| TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | code-review | tooling |
+| TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | ready | tooling |
 
 ## Finished Epics
 
@@ -28,25 +28,24 @@
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 
-## In Progress (0/2)
+## In Progress (1/2)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-176 | Track PID of launched agents | P2 | gui | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-205 | Setup ESLint and dead-code check for frontend | P2 | tooling | — |
-| TB-237 | Save diffrent agent actions in diffrent fields | P2 | cli | — |
+| TB-206 | Setup golangci-lint for project and initial run it | P2 | tooling | — |
 | TB-238 | Update implement.md agent prompt to set ReviewRef before submit | P2 | workflow | — |
 
 ## Ready
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| — | — | — | — | — | — |
+| TB-205 | Setup ESLint and dead-code check for frontend | tech-debt | P2 | M | tooling |
 
 ## Backlog
 
@@ -94,12 +93,18 @@
 | TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
 | TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | P1 | M | gui |
 | TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
+| TB-253 | 2 agents are running | bug | P2 | M |  |
+| TB-254 | Stale recovery should write per-mode pair when marking interrupted | tech-debt | P2 | S | gui |
+| TB-255 | TaskDrawer per-mode chip stale while same-mode run in flight | improvement | P2 | S | gui |
+| TB-256 | Test TestRunQueuedAgentSync_ResumeRehydratesParentContext should assert per-mode write on daemon replay | tech-debt | P2 | S | gui |
+| TB-257 | Stale recovery: also update per-mode pair when marking interrupted | tech-debt | P2 | S | gui |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
 | TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | feature | core |
+| TB-237 | Save diffrent agent actions in diffrent fields | improvement | cli |
 | TB-236 | macOS titlebar double-click should zoom/restore window | bug | gui |
 | TB-235 | Require ReviewRef metadata before code-review moves | improvement | workflow |
 | TB-232 | tb-gui usage tap: chain to user's original statusline instead of replacing it | bug | gui |
@@ -148,4 +153,3 @@
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
 | TB-168 | TB-93/GUI: test infra cleanup - hardcoded sleeps, /tmp/tb fallback, idDirRe negative case | tech-debt | gui |
 | TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |
-| TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | gui |
