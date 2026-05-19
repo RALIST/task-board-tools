@@ -4,10 +4,10 @@
 **Priority:** P2
 **Size:** S
 **Module:** workflow
-**Tags:** agents,workflow,docs
-**Agent:** claude
-**AgentStatus:** running
-**ReviewRef:** main@fd1233e
+**Tags:** agents,workflow,docs,review-failed
+**Agent:** codex
+**AgentStatus:** success
+**ReviewRef:** main
 **Branch:** —
 
 ## Goal
@@ -26,18 +26,18 @@ Update `gui/internal/agent/prompts/implement.md` so autonomous agents set `**Rev
 ## Review Target
 
 branch: main
-ReviewRef metadata: main@fd1233e
+ReviewRef metadata: main
 
 Surface area to verify:
-- gui/internal/agent/prompts/implement.md (lines 24–31): the targeted submit block now adds `tb edit {{TASK_ID}} --review-ref <branch|PR|commit>` between `tb review --target` and `tb review --submit`, and prose calls out `## Review Target` (human-readable) vs `**ReviewRef:**` (gating metadata required by TB-235).
-- No other code or behaviour changes. Surrounding sections (Role, Working contract bullets, User Attention handoff, Definition of Done, tb start footer) untouched.
+- gui/internal/agent/prompts/implement.md (lines 24-31): prompt includes `tb edit {{TASK_ID}} --review-ref <branch|PR|commit>` before `tb review --submit {{TASK_ID}}` and distinguishes `## Review Target` prose from `**ReviewRef:**` metadata.
+- board/BOARD.md: regenerated/staged from the committed task directories so it no longer lists task IDs in columns without matching committed task files.
+- No behavioral code changes.
 
-Diff: see commit fd1233e (`docs: TB-238: prompt agents to set ReviewRef before tb review --submit`). 4 files changed (prompt + board housekeeping for TB-238 move + BOARD.md regen + .next-id).
+Mirror check: `grep -n "review --submit\|ReviewRef\|review --target" gui/internal/agent/prompts/*.md` still confirms only `implement.md` carries the submit flow.
 
-Mirror check: `grep -n "review --submit\|ReviewRef\|review --target" gui/internal/agent/prompts/*.md` confirms only `implement.md` references the submit flow — `groom.md`, `resume.md`, `review.md` have no submit instructions to mirror.
+## Review Findings
 
-Verification:
-- cd gui && go test ./internal/agent/... — green (embed contents still load; prompt is consumed via go:embed so the test exercises the new file).
+- `board/BOARD.md` in the submitted commits is not regenerated from the committed task directories: it lists TB-239 as an in-progress epic and lists TB-202/TB-237/TB-239 under `## In Progress`, but the commit tree for the reviewed state contains no `board/in-progress/TB-202`, `board/in-progress/TB-237`, or `board/in-progress/TB-239` task files (only `board/backlog/TB-202/TASK.md` and `board/code-review/TB-238/TASK.md` for those IDs via `git ls-tree -r HEAD board`). Regenerate/stage `BOARD.md` and `.next-id` from the actual committed board source of truth, or remove the unrelated generated board churn before resubmitting TB-238.
 
 ## Related Tasks
 
@@ -62,4 +62,17 @@ Verification:
 - 2026-05-19: Edited review-target
 - 2026-05-19: Edited reviewref=main@fd1233e
 - 2026-05-19: Submitted to code-review
+- 2026-05-19: Edited agentstatus=success
+- 2026-05-19: Edited agent=codex
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Failed code review — moved to ready with review-failed marker
+- 2026-05-19: Edited agentstatus=failed
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Edited review-target
+- 2026-05-19: Edited reviewref=main
+- 2026-05-19: Submitted to code-review
+- 2026-05-19: Edited agentstatus=success
 
