@@ -7,6 +7,7 @@
 **Tags:** agents,workflow,docs
 **Agent:** claude
 **AgentStatus:** running
+**ReviewRef:** main@fd1233e
 **Branch:** —
 
 ## Goal
@@ -21,6 +22,22 @@ Update `gui/internal/agent/prompts/implement.md` so autonomous agents set `**Rev
 - [x] No behavioral code changes — this is a prompt-only edit. Surrounding sections (`## Role`, `## Working contract`, `## User Attention handoff`, `## Defenition of Done`, the `tb start` footer) remain untouched except for the targeted review-submit block.
 - [x] Manual verification: render the prompt for a sample task (e.g. via the GUI agent runner or by reading the file directly) and confirm the new `tb edit --review-ref` step appears before `tb review --submit` and that the `## Review Target` vs `**ReviewRef:**` distinction is clear.
 - [x] Optional: if `prompts/groom.md` or other agent prompts reference the same submit-to-code-review flow, mirror the wording; otherwise note in the Log that only `implement.md` needed the change. — Confirmed via `grep -n "review --submit\|ReviewRef\|review --target" gui/internal/agent/prompts/*.md`: only `implement.md` carries the submit flow, so no other prompt needed mirroring.
+
+## Review Target
+
+branch: main
+ReviewRef metadata: main@fd1233e
+
+Surface area to verify:
+- gui/internal/agent/prompts/implement.md (lines 24–31): the targeted submit block now adds `tb edit {{TASK_ID}} --review-ref <branch|PR|commit>` between `tb review --target` and `tb review --submit`, and prose calls out `## Review Target` (human-readable) vs `**ReviewRef:**` (gating metadata required by TB-235).
+- No other code or behaviour changes. Surrounding sections (Role, Working contract bullets, User Attention handoff, Definition of Done, tb start footer) untouched.
+
+Diff: see commit fd1233e (`docs: TB-238: prompt agents to set ReviewRef before tb review --submit`). 4 files changed (prompt + board housekeeping for TB-238 move + BOARD.md regen + .next-id).
+
+Mirror check: `grep -n "review --submit\|ReviewRef\|review --target" gui/internal/agent/prompts/*.md` confirms only `implement.md` references the submit flow — `groom.md`, `resume.md`, `review.md` have no submit instructions to mirror.
+
+Verification:
+- cd gui && go test ./internal/agent/... — green (embed contents still load; prompt is consumed via go:embed so the test exercises the new file).
 
 ## Related Tasks
 
@@ -42,4 +59,7 @@ Update `gui/internal/agent/prompts/implement.md` so autonomous agents set `**Rev
 - 2026-05-19: Edited agentstatus=running
 - 2026-05-19: Pulled into in-progress
 - 2026-05-19: Edited acceptance
+- 2026-05-19: Edited review-target
+- 2026-05-19: Edited reviewref=main@fd1233e
+- 2026-05-19: Submitted to code-review
 

@@ -27,20 +27,19 @@
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 
-## In Progress (4/2 ⚠)
+## In Progress (3/2 ⚠)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
 | TB-202 | Create proper name and icon for app | P2 | gui | — |
 | TB-237 | Save diffrent agent actions in diffrent fields | P2 | cli | — |
-| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | P2 | workflow | — |
 | TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | P1 | core | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | P2 | workflow | — |
 
 ## Ready
 
