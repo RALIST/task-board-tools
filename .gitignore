@@ -31,3 +31,6 @@ board/.board.lock
 /.claude/settings.local.json
 /.claude/tb-gui-statusline.sh
 /.claude/tb-gui-usage.json
+
+# tb-gui claude usage tap (auto-added)
+/.claude/tb-gui-statusline-original.json

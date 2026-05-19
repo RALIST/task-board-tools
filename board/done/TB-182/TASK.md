@@ -4,7 +4,7 @@
 **Priority:** P1
 **Size:** L
 **Agent:** claude
-**AgentStatus:** running
+**AgentStatus:** interrupted
 **Tags:** user-attention,agent,automation,ux,epic
 **Module:** agent
 **Branch:** —
@@ -75,4 +75,5 @@ Ship a shared user-attention protocol that lets autonomous agents stop safely wh
 - 2026-05-19: Edited agentstatus=running
 - 2026-05-19: Started — moved to in-progress
 - 2026-05-19: Done
+- 2026-05-19: Edited agentstatus=interrupted
 

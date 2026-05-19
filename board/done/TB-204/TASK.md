@@ -4,7 +4,7 @@
 **Priority:** P2
 **Size:** M
 **Agent:** claude
-**AgentStatus:** running
+**AgentStatus:** success
 **Module:** gui/frontend
 **Tags:** ux,epic,frontend
 **Branch:** —
@@ -61,4 +61,5 @@ Constraints / non-goals:
 - 2026-05-19: Started — moved to in-progress
 - 2026-05-19: Implemented epicProgress helper in filtering.ts, wired it into Card.svelte (compact `done/total` label + fixed-height progress bar, gated on `epic` tag) and TaskDrawer.svelte (Progress row in the Details rail). Both surfaces subscribe to the live `board` store so child status changes reflow without new backend calls. Added 5 helper unit tests + 4 Card component tests + 3 TaskDrawer component tests; full frontend suite (161 tests) + `npm run check` clean; CLI and GUI Go tests pass. Manual GUI test deferred — needs `task dev`.
 - 2026-05-19: Done
+- 2026-05-19: Edited agentstatus=success
 

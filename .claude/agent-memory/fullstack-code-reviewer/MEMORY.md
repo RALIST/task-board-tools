@@ -1,0 +1,1 @@
+- [TB-182 needs-user carve-out](project_needs_user_carveout.md) — recordTerminal preserves needs-user only over success/failed; cancelled/interrupted still write through
