@@ -1296,8 +1296,12 @@ func TestRunQueuedAgentSync_ResumeRehydratesParentContext(t *testing.T) {
 	parentCwd := boardDir
 	parentEnv := map[string]string{"TB_BOARD_PATH": boardDir}
 	parentEvents := []agent.Event{
-		{TS: "2026-05-14T10:00:00Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
-		{TS: "2026-05-14T10:00:01Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 4242},
+		// Parent's queued event carries Mode: "groom" so the resume's
+		// per-mode write (TB-237) can be asserted to land on GroomedBy
+		// / GroomStatus after the daemon-replay rehydrates ParentMode
+		// via runModeFor.
+		{TS: "2026-05-14T10:00:00Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeGroom.String()},
+		{TS: "2026-05-14T10:00:01Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", Mode: agent.ModeGroom.String(), PID: 4242},
 		{TS: "2026-05-14T10:00:02Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvSession,
 			SessionID: parentSessionID, PID: 4242, Cwd: parentCwd, RunEnv: parentEnv,
 		},
@@ -1356,6 +1360,26 @@ func TestRunQueuedAgentSync_ResumeRehydratesParentContext(t *testing.T) {
 	}
 	if !sawBoardPath {
 		t.Errorf("replayed env missing TB_BOARD_PATH=%s; got %v", boardDir, in.Env)
+	}
+
+	// TB-237: the daemon-replay branch must also write the per-mode pair
+	// onto the parent action's slot. With the parent queued as ModeGroom
+	// above, the replayed resume must land on GroomedBy / GroomStatus —
+	// proving runModeFor → effectiveMode → applyPerModeAttribution flows
+	// through RunQueuedAgentSync's resume path.
+	taskBytes, err := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	body := string(taskBytes)
+	if !strings.Contains(body, "**GroomedBy:** claude") {
+		t.Errorf("replayed resume must update parent action's pair; missing **GroomedBy:** in:\n%s", body)
+	}
+	if !strings.Contains(body, "**GroomStatus:** success") {
+		t.Errorf("replayed resume must update parent action's pair; missing **GroomStatus:** in:\n%s", body)
+	}
+	if strings.Contains(body, "**ImplementedBy:**") || strings.Contains(body, "**ReviewedBy:**") {
+		t.Errorf("daemon-replay resume should not populate non-parent actions in:\n%s", body)
 	}
 }
 
