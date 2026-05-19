@@ -22,7 +22,7 @@ type refreshedDoc struct {
 func generatedBoardDocs(prefix, boardPath string) []generatedDoc {
 	uppercasePrefix := strings.ToUpper(prefix)
 	return []generatedDoc{
-		{name: "CONVENTIONS.md", content: conventionsTemplate(uppercasePrefix)},
+		{name: "CONVENTIONS.md", content: conventionsTemplate(uppercasePrefix, boardPath)},
 		{name: "SKILL.md", content: skillTemplate(uppercasePrefix, boardPath)},
 	}
 }

@@ -103,6 +103,21 @@ func TestInitExistingBoardRefreshesDocsByDefault(t *testing.T) {
 	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "Use when working with a markdown task board through the tb CLI")
 }
 
+func TestInitGeneratedConventionsUseConfiguredBoardPath(t *testing.T) {
+	root := t.TempDir()
+
+	captureStdout(t, func() {
+		cmdInit([]string{root, "--board-path", ".workflow/tasks", "--prefix", "WS"})
+	})
+
+	boardDir := filepath.Join(root, ".workflow", "tasks")
+	conventions := readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md"))
+	assertContains(t, conventions, "This board root is configured in `.tb.yaml` as `.workflow/tasks`.")
+	assertContains(t, conventions, "generated views such as `.workflow/tasks/BOARD.md`")
+	assertContains(t, conventions, "Task IDs use the `WS-NNN` shape")
+	assertNotContains(t, conventions, "generated views such as `board/BOARD.md`")
+}
+
 func TestInitExistingBoardExpandsMinimalConfigWithAnnotatedDefaults(t *testing.T) {
 	root, boardDir := seedInitializedBoardForRefresh(t, "TB")
 	writeFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md"), "# Stale Conventions\n")

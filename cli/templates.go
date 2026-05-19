@@ -2,11 +2,13 @@ package main
 
 import "fmt"
 
-// conventionsTemplate returns a generic CONVENTIONS.md for the board.
-func conventionsTemplate(prefix string) string {
+// conventionsTemplate returns a generic CONVENTIONS.md for the configured board.
+func conventionsTemplate(prefix, boardPath string) string {
 	return fmt.Sprintf(`# Board Conventions
 
 This file describes how to work with this board as a kanban system. It is intentionally a policy guide, not a command manual. Detailed command syntax belongs in CLI help and in the board skill file.
+
+This board root is configured in `+"`"+`.tb.yaml`+"`"+` as `+"`%[2]s`"+`. Paths in this guide are relative to the project root unless stated otherwise. For this board, generated views such as `+"`%[2]s/BOARD.md`"+` live under that configured root. Another project may use a different board path.
 
 ## Kanban Flow
 
@@ -134,7 +136,7 @@ After making a `+"`needs-user`"+` handoff, stop cleanly. Do not mark the task do
 | `+"`quick-win`"+` | S-size tech-debt/improvement/bug |
 | `+"`epic`"+` | Parent/umbrella tasks with sub-tasks |
 | `+"`needs-split`"+` | XL tasks that should be broken down |
-`, prefix)
+`, prefix, boardPath)
 }
 
 // skillTemplate returns a generic SKILL.md for AI agents.

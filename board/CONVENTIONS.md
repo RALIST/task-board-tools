@@ -2,6 +2,8 @@
 
 This file describes how to work with this board as a kanban system. It is intentionally a policy guide, not a command manual. Detailed command syntax belongs in CLI help and in the board skill file.
 
+This board root is configured in `.tb.yaml` as `board`. Paths in this guide are relative to the project root unless stated otherwise. For this board, generated views such as `board/BOARD.md` live under that configured root. Another project may use a different board path.
+
 ## Kanban Flow
 
 The board flows in one direction:

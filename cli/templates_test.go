@@ -8,7 +8,7 @@ import (
 )
 
 func TestConventionsTemplateStaysPolicyFocused(t *testing.T) {
-	content := conventionsTemplate("TB")
+	content := conventionsTemplate("TB", "board")
 
 	for _, want := range []string{
 		"# Board Conventions",
@@ -56,10 +56,19 @@ func TestCheckedInConventionsMatchesTemplate(t *testing.T) {
 		t.Fatalf("read checked-in conventions: %v", err)
 	}
 
-	want := conventionsTemplate("TB")
+	want := conventionsTemplate("TB", "board")
 	if string(got) != want {
-		t.Fatalf("%s is out of sync with conventionsTemplate(\"TB\")", path)
+		t.Fatalf("%s is out of sync with conventionsTemplate(\"TB\", \"board\")", path)
 	}
+}
+
+func TestConventionsTemplateUsesConfiguredBoardPath(t *testing.T) {
+	content := conventionsTemplate("WS", ".workflow/tasks")
+
+	assertContains(t, content, "This board root is configured in `.tb.yaml` as `.workflow/tasks`.")
+	assertContains(t, content, "For this board, generated views such as `.workflow/tasks/BOARD.md` live under that configured root.")
+	assertContains(t, content, "Task IDs use the `WS-NNN` shape")
+	assertNotContains(t, content, "generated views such as `board/BOARD.md`")
 }
 
 func TestSkillTemplateIsPortableAgentSkill(t *testing.T) {
