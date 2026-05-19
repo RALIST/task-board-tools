@@ -4,10 +4,9 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 2/6 | backlog | gui |
+| TB-177 | Auto task implementation | 3/6 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-262 | Auto-review | 0/4 | backlog | gui |
-| TB-267 | Auto-implement: respect epic child order | 0/0 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
 
 ## Finished Epics
@@ -25,6 +24,7 @@
 | TB-182 | Add special labes\tags\status for user attention | 3/3 | agent |
 | TB-194 | Code-review column | 6/6 | workflow |
 | TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | 0/0 | core |
+| TB-267 | Auto-implement: respect epic child order | 0/0 | gui |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
@@ -94,7 +94,6 @@
 | TB-264 | GUI: enqueue code-review tasks for review-mode daemon runs | feature | P1 | M | gui |
 | TB-265 | GUI: surface auto-review state and decisions | feature | P1 | S | gui |
 | TB-266 | Daemon: reconcile autonomous stage transitions | improvement | P1 | M | gui |
-| TB-267 | Auto-implement: respect epic child order | feature | P1 | M | gui |
 | TB-269 | Docs: define staged autonomous agent workflow | improvement | P1 | S | docs |
 | TB-270 | Align agent prompts with staged kanban workflow | improvement | P1 | S | agent |
 | TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
@@ -109,6 +108,7 @@
 |----|-------|------|--------|
 | TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
 | TB-268 | Review-failed handoff clears retry-blocking agent state | bug | workflow |
+| TB-267 | Auto-implement: respect epic child order | feature | gui |
 | TB-253 | GUI Run History shows multiple concurrent RUNNING rows for one task | bug | gui |
 | TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | gui |
 | TB-244 | Periodic re-recovery for stale agent runs | improvement | gui |
@@ -156,4 +156,3 @@
 | TB-196 | CLI: add review target and notes commands | feature | cli |
 | TB-195 | CLI: add code-review status and submit flow | feature | cli |
 | TB-194 | Code-review column | feature | workflow |
-| TB-190 | Implement autosave instead of save with buttons | improvement | gui |

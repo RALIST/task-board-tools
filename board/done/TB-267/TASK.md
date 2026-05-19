@@ -5,6 +5,9 @@
 **Size:** M
 **Module:** gui
 **Tags:** auto-implement,daemon,epic,ordering
+**ImplementedBy:** claude
+**ImplementStatus:** success
+**ReviewRef:** TB-267 ships in next commit
 **Branch:** —
 **Parent:** TB-177
 
@@ -40,6 +43,11 @@ Block auto-implementation of a child task when an earlier sibling in the same ep
 - [ ] Unit tests cover no-parent, first child, blocked later child, unblocked later child, review-failed later child, archived earlier sibling, missing/deleted lower-ID sibling, sibling with blocking `AgentStatus`, and epic-card skip.
 - [ ] Verification includes `cd gui && go test ./...`.
 
+## Review Target
+
+- gui/internal/automation/epicorder/epicorder.go (new): pure EligibleForEpicOrder helper. Treats archive as closed (per board CONVENTIONS.md "archive is for obsolete/superseded/dropped work"). Blocks on missing predecessors (Status==""), epic-tagged candidates, and AgentStatus in {needs-user, interrupted, cancelled}.
+- gui/internal/automation/epicorder/epicorder_test.go: 14 tests covering no-parent, first child, blocked-by-backlog, unblocked-when-all-done, review-failed later child still blocked, archived treated as closed, missing predecessor blocks, needs-user/interrupted/cancelled all block, epic card not a candidate, unrelated parents ignored, higher-id ignored, ParseNumeric edge cases including double-dash rejection.
+
 ## Related Tasks
 
 - **TB-177** — Parent auto-implement epic.
@@ -52,3 +60,10 @@ Block auto-implementation of a child task when an earlier sibling in the same ep
 ## Log
 
 - 2026-05-19: Created
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited implemented-by=claude, implement-status=success, reviewref=TB-267 ships in next commit
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Edited review-target
+- 2026-05-20: Done
+
