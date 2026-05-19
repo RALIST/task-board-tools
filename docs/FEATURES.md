@@ -31,6 +31,7 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - New optional fields `**Agent:**` and `**AgentStatus:**` in task `.md`.
 - Parsed by `parseTaskFile`. Empty if absent.
 - Settable via `tb edit -a <agent> --agent-status <status>`.
+- `AgentStatus` enum: `queued | running | success | failed | cancelled | interrupted | needs-user`. `needs-user` (TB-182) is the autonomous-agent handoff — the task pauses with a `## User Attention` section, automation skips it, and the user clears with `tb edit <ID> --agent-status none`.
 - **Acceptance**: `tb edit WS-1 -a claude --agent-status queued && tb show WS-1 | grep Agent` shows both fields.
 
 ### F1.3 — JSON output ☑

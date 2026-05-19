@@ -51,6 +51,9 @@
   let typeKey = $derived(task.type ?? '');
   let showGroomIndicator = $derived(task.status === 'backlog' && triageReasons.length > 0);
   let triageTitle = $derived(triageReasons.join(', '));
+  // TB-182: surface a "user attention" indicator on the card so a needs-user
+  // task is immediately visible on the kanban without opening the drawer.
+  let needsUserAttention = $derived(task.agentStatus === 'needs-user');
 
   $effect(() => {
     const id = task.id;
@@ -243,6 +246,12 @@
         disabled={!canResumeOnCard}
         onclick={onCardResume}>↻</button>
     {/if}
+    {#if needsUserAttention}
+      <span
+        class="needs-user-indicator"
+        title={`${task.id} needs user input — open the drawer to see the question`}
+        aria-label={`${task.id} needs user input`}>?</span>
+    {/if}
   </header>
 
   {#if renaming}
@@ -429,6 +438,21 @@
   .resume-indicator:hover:not(:disabled) { background: rgba(245, 158, 11, 0.32); }
   .resume-indicator:disabled { opacity: 0.4; cursor: not-allowed; }
   .resume-indicator:focus-visible { outline: 2px solid #f59e0b; outline-offset: 1px; }
+  .needs-user-indicator {
+    margin-left: 4px;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(168, 85, 247, 0.22);
+    color: #a855f7;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    cursor: help;
+  }
   .pri-p0 { background: var(--p0); color: white; }
   .pri-p1 { background: var(--p1); color: black; }
   .pri-p2 { background: rgba(74, 141, 248, 0.18); color: var(--p2); }
@@ -525,6 +549,7 @@
   .agent-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .agent-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
   .agent-interrupted { background: rgba(245, 158, 11, 0.22); color: #f59e0b; }
+  .agent-needs-user { background: rgba(168, 85, 247, 0.22); color: #a855f7; }
   .agent-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
   .agent-glyph {
     display: inline-block;

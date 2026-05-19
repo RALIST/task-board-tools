@@ -23,7 +23,7 @@ type Task struct {
 	Status      string `json:"status"`      // directory name: backlog, in-progress, done, archive
 	FilePath    string `json:"filePath"`    // relative path from project root
 	Agent       string `json:"agent"`       // claude | codex | "" (optional)
-	AgentStatus string `json:"agentStatus"` // queued | running | success | failed | cancelled | interrupted | "" (optional)
+	AgentStatus string `json:"agentStatus"` // queued | running | success | failed | cancelled | interrupted | needs-user | "" (optional)
 }
 
 // validAgents enumerates the agents `tb edit -a` accepts. Empty is also
@@ -36,6 +36,13 @@ var validAgents = map[string]bool{"claude": true, "codex": true}
 // `tb edit --agent-status` path used by recovery can write them; the
 // "nothing manual writes interrupted" rule lives in code+docs, not here
 // (matching the cancelled precedent).
+//
+// `needs-user` is the agent-attention handoff (TB-182): an autonomous agent
+// stopped mid-run because user input is required. The agent writes both the
+// status and a `## User Attention` section through managed `tb edit` calls.
+// The carve-out in gui/app/agent_run.go's recordTerminal preserves this
+// status when a runner exits, so the agent's "stop and ask" intent is not
+// overwritten by the exit code.
 var validAgentStatuses = map[string]bool{
 	"queued":      true,
 	"running":     true,
@@ -43,6 +50,7 @@ var validAgentStatuses = map[string]bool{
 	"failed":      true,
 	"cancelled":   true,
 	"interrupted": true,
+	"needs-user":  true,
 }
 
 // maxMetadataLines limits how many lines we scan for metadata (performance).

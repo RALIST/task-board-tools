@@ -28,12 +28,12 @@ Define the CLI-level board contract for tasks waiting on human input: support `A
 
 ## Acceptance Criteria
 
-- [ ] `AgentStatus` supports `needs-user` everywhere task metadata is parsed, validated, rendered, and emitted as JSON, while existing statuses keep their current behavior.
-- [ ] `tb edit <ID> --agent-status needs-user` validates and writes the status; `--agent-status none` still clears `AgentStatus` for the user's resolution path.
-- [ ] A managed CLI path can create or replace `## User Attention` from stdin with the specific user ask and unblock condition, and section parsing treats it as a first-class task section.
-- [ ] Manual run, groom run, daemon queue, auto-groom, and auto-implement entry points reject or skip `needs-user` tasks with a clear message rather than immediately retrying them.
-- [ ] Go tests cover enum validation, metadata parsing, JSON output, attention-section upsert, clearing the status, and run/queue skip behavior.
-- [ ] Verification includes `cd cli && go test ./...` and `cd gui && go test ./...` if GUI backend status handling is touched.
+- [x] `AgentStatus` supports `needs-user` everywhere task metadata is parsed, validated, rendered, and emitted as JSON, while existing statuses keep their current behavior.
+- [x] `tb edit <ID> --agent-status needs-user` validates and writes the status; `--agent-status none` still clears `AgentStatus` for the user's resolution path.
+- [x] A managed CLI path can create or replace `## User Attention` from stdin with the specific user ask and unblock condition, and section parsing treats it as a first-class task section.
+- [x] Manual run, groom run, daemon queue, auto-groom, and auto-implement entry points reject or skip `needs-user` tasks with a clear message rather than immediately retrying them.
+- [x] Go tests cover enum validation, metadata parsing, JSON output, attention-section upsert, clearing the status, and run/queue skip behavior.
+- [x] Verification includes `cd cli && go test ./...` and `cd gui && go test ./...` if GUI backend status handling is touched.
 
 ## Related Tasks
 
@@ -50,4 +50,6 @@ Define the CLI-level board contract for tasks waiting on human input: support `A
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Done
 

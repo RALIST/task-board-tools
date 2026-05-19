@@ -63,3 +63,26 @@ Definition of done:
 - The task does not appear in `tb triage`.
 - Goal and acceptance criteria are filled.
 - The task is clear and ready for development.
+
+## When grooming cannot finish — User Attention handoff
+
+If you cannot groom the task safely — the intent is genuinely unclear, the
+task conflicts with another task in the board, you need product/architectural
+input, or the task is too stale to interpret — stop and hand off:
+
+1. `tb edit {{TASK_ID}} --user-attention -` with reason, specific question,
+   attempted context, and unblock condition (see below).
+2. `tb edit {{TASK_ID}} --agent-status needs-user`.
+3. Report that you halted grooming pending user input. Do NOT close, archive,
+   or move the task in this case.
+
+Required `## User Attention` content:
+
+- **Reason** — e.g. "unclear intent", "conflicting with TB-XXX", "needs product input".
+- **Specific question/action** — exactly what the user must clarify or do.
+- **Attempted context** — what you read (related tasks, docs, code) and what
+  hypotheses you considered.
+- **Unblock condition** — what answer/state lets grooming resume.
+
+Auto-groom skips `needs-user` tasks until the user clears the status with
+`tb edit {{TASK_ID}} --agent-status none`.

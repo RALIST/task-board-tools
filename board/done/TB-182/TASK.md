@@ -3,8 +3,8 @@
 **Type:** feature
 **Priority:** P1
 **Size:** L
-**Agent:** codex
-**AgentStatus:** success
+**Agent:** claude
+**AgentStatus:** running
 **Tags:** user-attention,agent,automation,ux,epic
 **Module:** agent
 **Branch:** —
@@ -35,14 +35,14 @@ Ship a shared user-attention protocol that lets autonomous agents stop safely wh
 - **TB-185** (M) — GUI: surface user-attention state and automation guard
 ## Acceptance Criteria
 
-- [ ] **TB-183** is done: the CLI supports `AgentStatus: needs-user`, exposes it in parsed/JSON task data, and provides a managed way to write or replace `## User Attention`.
-- [ ] **TB-184** is done: board conventions, board skill text, generated templates, and implement/groom prompts document when and how agents request user attention.
-- [ ] **TB-185** is done: the GUI surfaces `needs-user` tasks, shows the attention request, and guards manual/automatic run paths from retrying unresolved work.
-- [ ] End-to-end CLI behavior: an agent can mark a task as needing user input, include a precise question/action and unblock condition, and `tb show` plus JSON output make that request visible.
-- [ ] End-to-end automation behavior: auto-groom and auto-implement skip `needs-user` tasks without mutating task metadata, creating run artifacts, or entering retry loops.
-- [ ] End-to-end resolution behavior: after the user answers and clears/resets the agent status through the supported flow, manual Run/Groom and eligible automation can proceed normally.
-- [ ] Manual test note: create a sample backlog task, mark it `needs-user` with a `## User Attention` request, confirm CLI output and GUI card/drawer display the ask, confirm manual Run/Groom and auto-groom/auto-implement skip it, then clear/reset the status and confirm normal execution is available again.
-- [ ] Verification for the epic includes `cd cli && go test ./...`, `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
+- [x] **TB-183** is done: the CLI supports `AgentStatus: needs-user`, exposes it in parsed/JSON task data, and provides a managed way to write or replace `## User Attention`.
+- [x] **TB-184** is done: board conventions, board skill text, generated templates, and implement/groom prompts document when and how agents request user attention.
+- [x] **TB-185** is done: the GUI surfaces `needs-user` tasks, shows the attention request, and guards manual/automatic run paths from retrying unresolved work.
+- [x] End-to-end CLI behavior: an agent can mark a task as needing user input, include a precise question/action and unblock condition, and `tb show` plus JSON output make that request visible.
+- [x] End-to-end automation behavior: auto-groom and auto-implement skip `needs-user` tasks without mutating task metadata, creating run artifacts, or entering retry loops.
+- [x] End-to-end resolution behavior: after the user answers and clears/resets the agent status through the supported flow, manual Run/Groom and eligible automation can proceed normally.
+- [x] Manual test note: create a sample backlog task, mark it `needs-user` with a `## User Attention` request, confirm CLI output and GUI card/drawer display the ask, confirm manual Run/Groom and auto-groom/auto-implement skip it, then clear/reset the status and confirm normal execution is available again.
+- [x] Verification for the epic includes `cd cli && go test ./...`, `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
 
 ## Related Tasks
 
@@ -70,4 +70,9 @@ Ship a shared user-attention protocol that lets autonomous agents stop safely wh
 - 2026-05-15: Edited agentstatus=success
 - 2026-05-15: Edited body via GUI
 - 2026-05-15: Edited agentstatus=success
+- 2026-05-19: Edited agent=claude
+- 2026-05-19: Edited agentstatus=queued
+- 2026-05-19: Edited agentstatus=running
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Done
 

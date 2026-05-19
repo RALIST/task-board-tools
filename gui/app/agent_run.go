@@ -140,6 +140,10 @@ func (s *AgentService) ResumeAgent(ctx context.Context, id string) (string, erro
 	if err != nil {
 		return "", err
 	}
+	if detail.Metadata.AgentStatus == "needs-user" {
+		// TB-182: don't silently resume into a task that needs user input.
+		return "", ErrNeedsUserAttention
+	}
 	if detail.Metadata.AgentStatus != "interrupted" {
 		return "", fmt.Errorf("%w: AgentStatus is %q (want \"interrupted\")",
 			ErrCannotResume, detail.Metadata.AgentStatus)
@@ -272,6 +276,12 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 	switch detail.Metadata.AgentStatus {
 	case "queued", "running":
 		return "", ErrAlreadyRunning
+	case "needs-user":
+		// TB-182: the previous agent run stopped because the task needs a
+		// user decision. The `## User Attention` section captures the ask;
+		// users resolve it via `tb edit --agent-status none` before a new
+		// run can start.
+		return "", ErrNeedsUserAttention
 	}
 
 	runID := agent.GenerateRunID()
@@ -725,6 +735,12 @@ func (s *AgentService) postRun(c *cli.Client, ar *activeRun, boardDir string, re
 //
 // AgentStatus write happens LAST so a crash between the JSONL line and
 // the edit leaves the durable intent for next-start recovery.
+//
+// TB-182 carve-out: if the running agent set AgentStatus to `needs-user`
+// mid-run (via `tb edit --agent-status needs-user`), we must NOT overwrite
+// that with the exit-mapped status. The JSONL `finished` line still gets
+// written so run history is intact; the AgentStatus stays `needs-user`
+// until the user clears it through the resolution flow.
 func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir string, status agent.Status, reason string, exitCode int) {
 	ar.finishOnce.Do(func() {
 		ts := time.Now().UTC().Format(time.RFC3339)
@@ -749,8 +765,32 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 			"reason":    reason,
 			"mode":      ar.Mode,
 		})
-		if err := c.Edit(context.Background(), ar.TaskID, cli.EditInput{AgentStatus: string(status)}); err != nil {
-			slog.Warn("agent: AgentStatus write failed", "task", ar.TaskID, "run", ar.RunID, "status", status, "err", err)
+
+		// Preserve an agent-set `needs-user` over the exit-mapped status.
+		// We re-read AgentStatus from disk via BoardService.GetTask so the
+		// check sees whatever the in-flight agent wrote through tb edit.
+		//
+		// Scope: only the exit-mapped statuses (success / failed) are
+		// gated. User-explicit `cancelled` and recovery-driven `interrupted`
+		// still write through — explicit human or recovery intent wins
+		// over an agent's needs-user marker.
+		shouldWriteStatus := true
+		if (status == agent.StatusSuccess || status == agent.StatusFailed) && s.board != nil {
+			if latest, err := s.board.GetTask(context.Background(), ar.TaskID); err == nil {
+				if latest.Metadata.AgentStatus == "needs-user" {
+					shouldWriteStatus = false
+					slog.Info("agent: preserving needs-user AgentStatus over exit status",
+						"task", ar.TaskID, "run", ar.RunID, "exitStatus", status)
+				}
+			} else {
+				slog.Warn("agent: needs-user carve-out: GetTask failed; falling back to writing exit status",
+					"task", ar.TaskID, "run", ar.RunID, "err", err)
+			}
+		}
+		if shouldWriteStatus {
+			if err := c.Edit(context.Background(), ar.TaskID, cli.EditInput{AgentStatus: string(status)}); err != nil {
+				slog.Warn("agent: AgentStatus write failed", "task", ar.TaskID, "run", ar.RunID, "status", status, "err", err)
+			}
 		}
 		s.mu.Lock()
 		delete(s.active, ar.TaskID)

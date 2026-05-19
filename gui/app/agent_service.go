@@ -51,6 +51,13 @@ var ErrNotResumable = errors.New("task has no resumable session")
 // runs is documented as a follow-up.
 var ErrCannotResume = errors.New("task is not in interrupted state")
 
+// ErrNeedsUserAttention is returned by RunAgent / GroomTask / ResumeAgent
+// when the task's AgentStatus is `needs-user` (TB-182). The agent stopped
+// mid-run because a human decision is required; the user must read the
+// task's `## User Attention` section, then clear the status via
+// `tb edit --agent-status none` before any new run can start.
+var ErrNeedsUserAttention = errors.New("task is waiting for user input (AgentStatus: needs-user); clear --agent-status to retry")
+
 // Emitter is the contract AgentService needs to forward Wails events to the
 // frontend. *application.App.Event satisfies it in production; tests pass an
 // in-memory implementation. Defined narrowly here (Name + payload only) so

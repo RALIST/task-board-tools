@@ -453,6 +453,185 @@ func TestEditMetadataDoesNotScanBody(t *testing.T) {
 	assertContains(t, content, "Body examples must stay body examples:\n**Agent:** codex")
 }
 
+// TestEditUserAttentionSection covers the TB-182 `--user-attention`
+// managed-section path: insert, replace, strip-leading-heading, and
+// placement relative to Acceptance Criteria / Related Tasks / Log.
+func TestEditUserAttentionSection(t *testing.T) {
+	t.Run("inserts ## User Attention before Related Tasks", func(t *testing.T) {
+		initial := strings.Join([]string{
+			"# TB-1: Existing Task",
+			"",
+			"**Type:** bug",
+			"**Priority:** P2",
+			"**Size:** M",
+			"**Module:** cli",
+			"**Branch:** -",
+			"",
+			"## Goal",
+			"",
+			"Keep this goal.",
+			"",
+			"## Acceptance Criteria",
+			"",
+			"- [ ] Keep this.",
+			"",
+			"## Related Tasks",
+			"",
+			"- TB-9 — sibling",
+			"",
+			"## Log",
+			"",
+			"- 2026-05-19: Created",
+			"",
+		}, "\n")
+
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("write task: %v", err)
+		}
+
+		inputPath := filepath.Join(t.TempDir(), "ua.md")
+		body := "Reason: clarification needed.\n\nQuestion: should we keep legacy support?\n\nUnblock: user replies yes/no.\n"
+		if err := os.WriteFile(inputPath, []byte(body), 0644); err != nil {
+			t.Fatalf("write ua input: %v", err)
+		}
+
+		out := captureStdout(t, func() {
+			cmdEdit([]string{"TB-1", "--user-attention", inputPath})
+		})
+		assertContains(t, out, "user-attention")
+
+		data, err := os.ReadFile(taskPath)
+		if err != nil {
+			t.Fatalf("read task: %v", err)
+		}
+		content := string(data)
+		assertContains(t, content, "## User Attention\n\nReason: clarification needed.")
+		assertContains(t, content, "Unblock: user replies yes/no.")
+		// Placement: after Acceptance Criteria, before Related Tasks.
+		acceptIdx := strings.Index(content, "## Acceptance Criteria")
+		uaIdx := strings.Index(content, "## User Attention")
+		relIdx := strings.Index(content, "## Related Tasks")
+		if !(acceptIdx < uaIdx && uaIdx < relIdx) {
+			t.Fatalf("expected ## User Attention between Acceptance Criteria and Related Tasks; got order accept=%d ua=%d rel=%d\n%s",
+				acceptIdx, uaIdx, relIdx, content)
+		}
+		assertContains(t, content, ": Edited user-attention")
+	})
+
+	t.Run("replaces existing ## User Attention", func(t *testing.T) {
+		initial := strings.Join([]string{
+			"# TB-1: Existing Task",
+			"",
+			"**Type:** bug",
+			"**Priority:** P2",
+			"**Size:** M",
+			"**Module:** cli",
+			"**Branch:** -",
+			"",
+			"## Goal",
+			"",
+			"Keep this goal.",
+			"",
+			"## User Attention",
+			"",
+			"Old ask.",
+			"",
+			"## Log",
+			"",
+			"- 2026-05-19: Created",
+			"",
+		}, "\n")
+
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+			t.Fatalf("write task: %v", err)
+		}
+
+		inputPath := filepath.Join(t.TempDir(), "ua.md")
+		body := "## User Attention\n\nFresh ask with leading heading that should be stripped.\n"
+		if err := os.WriteFile(inputPath, []byte(body), 0644); err != nil {
+			t.Fatalf("write ua input: %v", err)
+		}
+
+		captureStdout(t, func() {
+			cmdEdit([]string{"TB-1", "--user-attention", inputPath})
+		})
+
+		data, err := os.ReadFile(taskPath)
+		if err != nil {
+			t.Fatalf("read task: %v", err)
+		}
+		content := string(data)
+		if strings.Count(content, "## User Attention") != 1 {
+			t.Fatalf("heading should not be duplicated:\n%s", content)
+		}
+		assertContains(t, content, "Fresh ask with leading heading that should be stripped.")
+		assertNotContains(t, content, "Old ask.")
+	})
+
+}
+
+// TestEditAgentStatusNeedsUser confirms the validator accepts the
+// `needs-user` value (TB-182) that autonomous agents write when they
+// stop because they need user input. The accompanying `## User
+// Attention` section is exercised in TestEditUserAttentionSection.
+func TestEditAgentStatusNeedsUser(t *testing.T) {
+	initial := strings.Join([]string{
+		"# TB-1: Existing Task",
+		"",
+		"**Type:** bug",
+		"**Priority:** P2",
+		"**Size:** M",
+		"**Module:** cli",
+		"**Agent:** claude",
+		"**AgentStatus:** running",
+		"**Branch:** -",
+		"",
+		"## Goal",
+		"",
+		"Cover needs-user round-trip.",
+		"",
+		"## Log",
+		"",
+		"- 2026-05-19: Created",
+		"",
+	}, "\n")
+
+	boardDir := newCommandTestBoard(t)
+	taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+	if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+		t.Fatalf("write task: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		cmdEdit([]string{"TB-1", "--agent-status", "needs-user"})
+	})
+	assertContains(t, out, "agentstatus=needs-user")
+
+	data, err := os.ReadFile(taskPath)
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	content := string(data)
+	assertContains(t, content, "**AgentStatus:** needs-user")
+	assertContains(t, content, ": Edited agentstatus=needs-user")
+
+	// Resolution path: clearing AgentStatus to "none" drops the field so
+	// manual Run/Groom and the daemon can pick the task up again.
+	captureStdout(t, func() {
+		cmdEdit([]string{"TB-1", "--agent-status", "none"})
+	})
+	data, err = os.ReadFile(taskPath)
+	if err != nil {
+		t.Fatalf("read after clear: %v", err)
+	}
+	content = string(data)
+	assertNotContains(t, metadataHeader(content), "**AgentStatus:**")
+}
+
 // TestEditAgentStatusInterrupted confirms the validator accepts the
 // `interrupted` value the recovery path needs to write. The "nothing
 // manual writes interrupted" rule is convention-based (same precedent

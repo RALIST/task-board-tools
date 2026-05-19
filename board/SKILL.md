@@ -99,6 +99,32 @@ Based on the argument, perform one of:
 - Directories are the source of truth — `BOARD.md` is a derived view
 - **Link related tasks** — when creating or grooming a task, use `tb grep` to find related tasks. Add `## Related Tasks` section with bidirectional links
 
+### Stopping for user attention (`needs-user`)
+
+If you cannot continue safely — unclear requirements, conflicting
+instructions, an external/manual blocker, a verification failure that needs
+a human call, or a stale task — stop and hand off via the managed `tb`
+flow. Do NOT guess, do NOT silently retry, do NOT mark the task done or
+failed.
+
+```
+tb edit <TB-NNN> --user-attention - <<'EOF'
+Reason: <unclear requirement | external blocker | conflict | verification failed | stale task>
+
+Question/Action: <the specific ask the user must answer or do>
+
+Attempted context: <what you tried, read, ruled out — be concrete>
+
+Unblock condition: <what answer/state lets the run resume>
+EOF
+tb edit <TB-NNN> --agent-status needs-user
+```
+
+The user clears the status with `tb edit <TB-NNN> --agent-status none`
+once they've responded. Auto-implement and auto-groom skip `needs-user`
+tasks; manual Run/Groom are blocked in the GUI with an explanatory
+tooltip.
+
 **Before coding:**
 
 1. Run `tb ls` to see the board
@@ -132,7 +158,7 @@ tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent I
 tb mv <TB-NNN> <status>                                               Move task
 tb start <TB-NNN>                                                     Start working
 tb done <TB-NNN>                                                      Mark done
-tb edit <TB-NNN> [--goal file|-] [--acceptance file|-]                Edit metadata/body sections
+tb edit <TB-NNN> [--goal file|-] [--acceptance file|-] [--user-attention file|-] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none]   Edit metadata/body sections
 tb attach <TB-NNN> <path>...                                          Copy files into task attachments
 tb attach --rm <TB-NNN> <attachment-name>...                          Remove task attachments
 tb assign <TB-NNN> <claude|codex>                                     Assign a runnable agent and queue pickup

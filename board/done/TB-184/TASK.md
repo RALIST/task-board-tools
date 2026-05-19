@@ -29,13 +29,13 @@ Document the user-attention handoff protocol so autonomous implement and groom a
 
 ## Acceptance Criteria
 
-- [ ] `board/CONVENTIONS.md` defines `AgentStatus: needs-user` and a `## User Attention` section with required content: reason/category, specific question or action, relevant attempted context, and unblock condition.
-- [ ] `board/SKILL.md`, `gui/internal/agent/prompts/implement.md`, and `gui/internal/agent/prompts/groom.md` tell agents to set `needs-user` and fill `## User Attention` when they cannot continue safely.
-- [ ] Prompt guidance covers unclear requirements, external/manual blockers, conflicting instructions, failed verification that needs a user decision, and stale/outdated tasks.
-- [ ] `cli/templates.go` generated conventions/skill templates include the same status and protocol so newly initialized boards inherit it.
-- [ ] `docs/ARCHITECTURE.md` and `docs/FEATURES.md` mention the lifecycle semantics and automation skip behavior.
-- [ ] Existing prompt/template tests are updated or added so the protocol text cannot drift silently.
-- [ ] Verification includes `cd cli && go test ./...` and `cd gui && go test ./...`.
+- [x] `board/CONVENTIONS.md` defines `AgentStatus: needs-user` and a `## User Attention` section with required content: reason/category, specific question or action, relevant attempted context, and unblock condition.
+- [x] `board/SKILL.md`, `gui/internal/agent/prompts/implement.md`, and `gui/internal/agent/prompts/groom.md` tell agents to set `needs-user` and fill `## User Attention` when they cannot continue safely.
+- [x] Prompt guidance covers unclear requirements, external/manual blockers, conflicting instructions, failed verification that needs a user decision, and stale/outdated tasks.
+- [x] `cli/templates.go` generated conventions/skill templates include the same status and protocol so newly initialized boards inherit it.
+- [x] `docs/ARCHITECTURE.md` and `docs/FEATURES.md` mention the lifecycle semantics and automation skip behavior.
+- [x] Existing prompt/template tests are updated or added so the protocol text cannot drift silently.
+- [x] Verification includes `cd cli && go test ./...` and `cd gui && go test ./...`.
 
 ## Related Tasks
 
@@ -52,4 +52,6 @@ Document the user-attention handoff protocol so autonomous implement and groom a
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Done
 

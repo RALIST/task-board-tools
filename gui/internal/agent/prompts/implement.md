@@ -30,6 +30,26 @@ Read `@board/SKILL.md` for important rules about working with the board and task
 - always check related tasks and parent tasks for blocker - move task back to backlog if you find blockers that are not resolved with comment.
 - If you need to ask for clarification, add a comment to the task and wait for a response. Do not make assumptions about unclear requirements.
 
+## User Attention handoff
+
+When you cannot continue safely — unclear requirements, conflicting
+instructions, an external/manual blocker, a verification failure that needs
+a human call, or a stale/outdated task — stop and hand off to the user:
+
+1. Write the request to the task with `tb edit {{TASK_ID}} --user-attention -` (heredoc form).
+   Include all four parts:
+   - **Reason** (one-line category, e.g. "unclear requirement", "external blocker", "verification failed").
+   - **Specific question or action** the user must answer or perform.
+   - **Attempted context** — what you already tried, what you read, what you ruled out.
+   - **Unblock condition** — exactly what answer/state lets the run resume.
+2. Set the agent status: `tb edit {{TASK_ID}} --agent-status needs-user`.
+3. Stop the run cleanly. Do NOT mark the task done, failed, or cancelled
+   in this case.
+
+The user resolves the ask by editing the task body (or doing the action),
+then clears the status with `tb edit {{TASK_ID}} --agent-status none`.
+Auto-implement and auto-groom skip `needs-user` tasks until that clear.
+
 
 ## Defenition of Done
 

@@ -28,14 +28,14 @@ Surface tasks that need user attention in the GUI and make manual, auto-groom, a
 
 ## Acceptance Criteria
 
-- [ ] Frontend and backend API types accept `AgentStatus: needs-user` without treating it as an unknown status.
-- [ ] Card and TaskDrawer surfaces show a clear user-attention badge/pill near the agent/status UI when a task has `needs-user`.
-- [ ] TaskDrawer renders the `## User Attention` content from the task body so the user can see the exact question/action and unblock condition.
-- [ ] Manual Run and Groom attempts on a `needs-user` task show an actionable explanation and do not start a run until the user resolves the request and clears/resets the status through the supported flow.
-- [ ] Auto-groom and auto-implement candidate selection skip `needs-user` tasks, record/emit enough diagnostic state for the UI, and do not create duplicate queued events, JSONL, or logs.
-- [ ] Tests cover status rendering, attention-section display, manual run/groom disabled or guarded state, and auto-groom/auto-implement skip behavior.
-- [ ] Manual test note: create a task, set `AgentStatus: needs-user` with a sample `## User Attention` request, confirm the card and drawer show the ask, confirm Run/Groom do not start, enable auto-groom/auto-implement and confirm the task is skipped without retry churn, then clear/reset the status and confirm normal controls work again.
-- [ ] Verification includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
+- [x] Frontend and backend API types accept `AgentStatus: needs-user` without treating it as an unknown status.
+- [x] Card and TaskDrawer surfaces show a clear user-attention badge/pill near the agent/status UI when a task has `needs-user`.
+- [x] TaskDrawer renders the `## User Attention` content from the task body so the user can see the exact question/action and unblock condition.
+- [x] Manual Run and Groom attempts on a `needs-user` task show an actionable explanation and do not start a run until the user resolves the request and clears/resets the status through the supported flow.
+- [x] Auto-groom and auto-implement candidate selection skip `needs-user` tasks, record/emit enough diagnostic state for the UI, and do not create duplicate queued events, JSONL, or logs.
+- [x] Tests cover status rendering, attention-section display, manual run/groom disabled or guarded state, and auto-groom/auto-implement skip behavior.
+- [x] Manual test note: create a task, set `AgentStatus: needs-user` with a sample `## User Attention` request, confirm the card and drawer show the ask, confirm Run/Groom do not start, enable auto-groom/auto-implement and confirm the task is skipped without retry churn, then clear/reset the status and confirm normal controls work again.
+- [x] Verification includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
 
 ## Related Tasks
 
@@ -54,4 +54,6 @@ Surface tasks that need user attention in the GUI and make manual, auto-groom, a
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Done
 

@@ -759,3 +759,120 @@ describe('TaskDrawer epic progress (TB-204)', () => {
     expect(document.querySelector('.epic-progress-cell')).toBeNull();
   });
 });
+
+describe('TaskDrawer user-attention UI (TB-182)', () => {
+  it('renders the needs-user pill, attention panel, and disables Run/Groom', async () => {
+    const body = [
+      '# TB-99: Needs help',
+      '',
+      '## Goal',
+      '',
+      'Do the thing.',
+      '',
+      '## User Attention',
+      '',
+      'Reason: clarification needed.',
+      '',
+      'Question: should we keep legacy support?',
+      '',
+      '## Log',
+      '',
+      '- 2026-05-19: Created',
+    ].join('\n');
+    apiMocks.getTask.mockResolvedValue({
+      ...makeDetail({ agent: 'claude', agentStatus: 'needs-user' }),
+      body,
+    });
+    apiMocks.listAttachments.mockResolvedValue([]);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    // Pill shows needs-user (the source of truth for this status is the
+    // task's agentStatus, not the run history).
+    const pill = document.querySelector('.pill.pill-needs-user');
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent?.trim()).toBe('needs-user');
+
+    // Panel is present with the rendered ## User Attention body.
+    const panel = document.querySelector('.user-attention-panel');
+    expect(panel).not.toBeNull();
+    expect(panel?.textContent ?? '').toMatch(/clarification needed/);
+    expect(panel?.textContent ?? '').toMatch(/legacy support/);
+
+    // Run and Groom buttons are disabled with the needs-user tooltip.
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.agent-buttons button'));
+    const runBtn = buttons.find((b) => b.textContent?.trim().startsWith('Run'));
+    const groomBtn = buttons.find((b) => b.textContent?.trim().startsWith('Groom'));
+    expect(runBtn).toBeDefined();
+    expect(groomBtn).toBeDefined();
+    expect(runBtn?.disabled).toBe(true);
+    expect(groomBtn?.disabled).toBe(true);
+    expect(runBtn?.title ?? '').toMatch(/needs user input/i);
+    expect(groomBtn?.title ?? '').toMatch(/needs user input/i);
+  });
+
+  it('shows fallback copy when needs-user has no ## User Attention section', async () => {
+    apiMocks.getTask.mockResolvedValue({
+      ...makeDetail({ agent: 'claude', agentStatus: 'needs-user' }),
+      body: '# TB-99: T\n\n## Goal\n\nGoal text only.\n',
+    });
+    apiMocks.listAttachments.mockResolvedValue([]);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const panel = document.querySelector('.user-attention-panel');
+    expect(panel).not.toBeNull();
+    expect(panel?.textContent ?? '').toMatch(/no.*User Attention.*section/i);
+  });
+
+  it('does not render the needs-user panel for other statuses', async () => {
+    apiMocks.getTask.mockResolvedValue(makeDetail({ agentStatus: 'success' }));
+    apiMocks.listAttachments.mockResolvedValue([]);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    expect(document.querySelector('.user-attention-panel')).toBeNull();
+    expect(document.querySelector('.pill.pill-needs-user')).toBeNull();
+  });
+
+  it('Clear status button calls editTask with agentStatus=none', async () => {
+    apiMocks.getTask.mockResolvedValue(makeDetail({ agent: 'claude', agentStatus: 'needs-user' }));
+    apiMocks.listAttachments.mockResolvedValue([]);
+    apiMocks.editTask.mockResolvedValue(undefined);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const clearBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('.user-attention-resolve button'))
+      .find((b) => b.textContent?.trim().startsWith('Clear status'));
+    expect(clearBtn).toBeDefined();
+    clearBtn!.click();
+    await tick();
+    await flushMicrotasks();
+
+    expect(apiMocks.editTask).toHaveBeenCalledWith('TB-99', { agentStatus: 'none' });
+  });
+});

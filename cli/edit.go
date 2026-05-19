@@ -29,13 +29,14 @@ func cmdEdit(args []string) {
 	module := fs.String("m", "", "module")
 	tags := fs.String("t", "", "tags (comma-separated, replaces existing)")
 	agent := fs.String("a", "", "agent (claude, codex)")
-	agentStatus := fs.String("agent-status", "", "agent status (queued, running, success, failed, cancelled, interrupted)")
+	agentStatus := fs.String("agent-status", "", "agent status (queued, running, success, failed, cancelled, interrupted, needs-user, none)")
 	title := fs.String("title", "", "task title (replaces the H1 header)")
 	goalPath := fs.String("goal", "", "replace/insert ## Goal from file path or - for stdin")
 	acceptancePath := fs.String("acceptance", "", "replace/insert ## Acceptance Criteria from file path or - for stdin")
+	userAttentionPath := fs.String("user-attention", "", "replace/insert ## User Attention from file path or - for stdin")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted] [--title \"New title\"] [--goal file|-] [--acceptance file|-]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--title \"New title\"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -85,7 +86,7 @@ func cmdEdit(args []string) {
 	if *agentStatus != "" {
 		*agentStatus = strings.ToLower(*agentStatus)
 		if *agentStatus != "none" && !validAgentStatuses[*agentStatus] {
-			fmt.Fprintf(os.Stderr, "error: invalid agent-status %q — use: queued, running, success, failed, cancelled, interrupted, none\n", *agentStatus)
+			fmt.Fprintf(os.Stderr, "error: invalid agent-status %q — use: queued, running, success, failed, cancelled, interrupted, needs-user, none\n", *agentStatus)
 			os.Exit(1)
 		}
 	}
@@ -140,8 +141,18 @@ func cmdEdit(args []string) {
 		changes = append(changes, editChange{field: "AgentStatus", value: *agentStatus, label: "agentstatus=" + *agentStatus})
 	}
 
-	if *goalPath == "-" && *acceptancePath == "-" {
-		fmt.Fprintln(os.Stderr, "error: --goal - and --acceptance - cannot both read from stdin; use a file for one input")
+	stdinSources := 0
+	if *goalPath == "-" {
+		stdinSources++
+	}
+	if *acceptancePath == "-" {
+		stdinSources++
+	}
+	if *userAttentionPath == "-" {
+		stdinSources++
+	}
+	if stdinSources > 1 {
+		fmt.Fprintln(os.Stderr, "error: only one of --goal, --acceptance, --user-attention may read from stdin (-); use files for the others")
 		os.Exit(1)
 	}
 
@@ -164,6 +175,14 @@ func cmdEdit(args []string) {
 		}
 		body = redactText(body)
 		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Acceptance Criteria", body: body, label: "acceptance"})
+	}
+	if *userAttentionPath != "" {
+		body, err := readBodyEditInput(*userAttentionPath, "user-attention")
+		if err != nil {
+			fatal("%v", err)
+		}
+		body = redactText(body)
+		bodyEdits = append(bodyEdits, bodyEdit{heading: "## User Attention", body: body, label: "user-attention"})
 	}
 
 	if len(changes) == 0 && len(bodyEdits) == 0 && !titleProvided {
@@ -305,6 +324,8 @@ func stripLeadingBodyHeading(body, label string) string {
 		heading = "## Goal"
 	case "acceptance":
 		heading = "## Acceptance Criteria"
+	case "user-attention":
+		heading = "## User Attention"
 	}
 	if heading == "" {
 		return body
@@ -324,10 +345,16 @@ func upsertTaskSection(content, heading, body string) string {
 
 	switch heading {
 	case "## Goal":
-		if idx, ok := findFirstMarkdownHeading(content, []string{"## Context", "## Acceptance Criteria", "## Related Tasks", "## Log"}); ok {
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Context", "## Acceptance Criteria", "## User Attention", "## Related Tasks", "## Log"}); ok {
 			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
 		}
 	case "## Acceptance Criteria":
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## User Attention", "## Related Tasks", "## Attachments", "## Log"}); ok {
+			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
+		}
+	case "## User Attention":
+		// Place above Related Tasks / Attachments / Log so the ask is
+		// visible immediately after Acceptance Criteria.
 		if idx, ok := findFirstMarkdownHeading(content, []string{"## Related Tasks", "## Attachments", "## Log"}); ok {
 			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
 		}
@@ -350,6 +377,7 @@ var taskMarkdownHeadings = map[string]bool{
 	"## Context":             true,
 	"## Subtasks":            true,
 	"## Acceptance Criteria": true,
+	"## User Attention":      true,
 	"## Related Tasks":       true,
 	"## Attachments":         true,
 	"## Log":                 true,

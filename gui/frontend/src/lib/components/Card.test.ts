@@ -423,3 +423,25 @@ describe('Card.svelte epic progress (TB-204)', () => {
     expect(document.querySelector('.card .epic-progress')).toBeNull();
   });
 });
+
+describe('Card.svelte needs-user indicator (TB-182)', () => {
+  it('renders the needs-user indicator when agentStatus is needs-user', async () => {
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-7', agent: 'claude', agentStatus: 'needs-user' }) },
+    });
+    await tick();
+    const indicator = document.querySelector('.card .needs-user-indicator');
+    expect(indicator).not.toBeNull();
+    expect(indicator?.getAttribute('aria-label') ?? '').toMatch(/TB-7 needs user input/);
+  });
+
+  it('does not render the needs-user indicator for other statuses', async () => {
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-7', agentStatus: 'success' }) },
+    });
+    await tick();
+    expect(document.querySelector('.card .needs-user-indicator')).toBeNull();
+  });
+});

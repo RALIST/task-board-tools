@@ -45,6 +45,12 @@ func TestPromptGroom_StatesGroomingMutationContract(t *testing.T) {
 		"`Related Tasks`",
 		"`Context`",
 		"Do not move the task",
+		// TB-182: groom prompt must describe the user-attention handoff
+		// so an agent that cannot finish grooming stops cleanly instead
+		// of guessing or silently retrying.
+		"--user-attention",
+		"--agent-status needs-user",
+		"Unblock condition",
 	}
 	for _, text := range required {
 		if !strings.Contains(PromptGroom, text) {

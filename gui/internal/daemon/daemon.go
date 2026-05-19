@@ -428,8 +428,26 @@ func (d *Daemon) scanQueued(ctx context.Context) error {
 // isReadyForDaemon returns true when a task has AgentStatus=queued AND
 // a non-empty Agent field. Both must hold; an explicit guard in the
 // watcher and scan paths keeps the dedup cheap.
+//
+// TB-182 (`needs-user`) is naturally filtered here: the daemon only
+// enqueues `queued` tasks, so a `needs-user` AgentStatus is skipped by
+// construction. Auto-groom / auto-implement entry points (TB-174 /
+// TB-179) consume this same predicate so they get the skip behavior for
+// free.
 func isReadyForDaemon(t AgentTask) bool {
 	return t.AgentStatus == "queued" && strings.TrimSpace(t.Agent) != ""
+}
+
+// IsAutomationEligible mirrors isReadyForDaemon's intent for future
+// automation entry points (auto-groom TB-174, auto-implement TB-179)
+// that need a single predicate to skip tasks that are not in a runnable
+// state. `needs-user` returns false so unresolved user-attention tasks
+// never enter an automated retry loop.
+func IsAutomationEligible(t AgentTask) bool {
+	if t.AgentStatus == "needs-user" {
+		return false
+	}
+	return isReadyForDaemon(t)
 }
 
 // EnqueueIfReady is the watcher-sink helper: GetTask the latest

@@ -23,6 +23,17 @@ func TestPromptImplement_NonEmptyAndContainsPlaceholders(t *testing.T) {
 			t.Errorf("PromptImplement missing placeholder %s", tok)
 		}
 	}
+	// TB-182: implement prompt must describe the user-attention handoff
+	// (stop cleanly when blocked instead of guessing or silently retrying).
+	for _, text := range []string{
+		"--user-attention",
+		"--agent-status needs-user",
+		"Unblock condition",
+	} {
+		if !strings.Contains(PromptImplement, text) {
+			t.Errorf("PromptImplement missing user-attention handoff text %q", text)
+		}
+	}
 }
 
 func TestRenderPrompt_ReplacesAllOccurrences(t *testing.T) {

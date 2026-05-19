@@ -7,7 +7,6 @@
 | TB-177 | Auto task implementation | 0/3 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
-| TB-182 | Add special labes\tags\status for user attention | 0/3 | backlog | agent |
 | TB-194 | Code-review column | 0/6 | backlog | workflow |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
 
@@ -22,6 +21,7 @@
 | TB-4 | M4: Agent assignment and manual runs from GUI | 10/10 | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
 | TB-130 | Agent session resume + interrupted-run recovery | 12/12 | gui |
+| TB-182 | Add special labes\tags\status for user attention | 3/3 | agent |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
@@ -60,10 +60,6 @@
 | TB-178 | GUI: persist auto-implement settings and query | feature | P0 | M | gui |
 | TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |
 | TB-180 | GUI: show auto-implement controls and feedback | feature | P0 | S | gui |
-| TB-182 | Add special labes\tags\status for user attention | feature | P1 | L | agent |
-| TB-183 | CLI: add user-attention agent status and note section | feature | P1 | M | cli |
-| TB-184 | Docs: define user-attention handoff protocol | improvement | P1 | S | docs |
-| TB-185 | GUI: surface user-attention state and automation guard | feature | P1 | M | gui |
 | TB-186 | Change parent task | feature | P2 | L | gui |
 | TB-187 | Quick add task to epic | improvement | P2 | M | gui/frontend |
 | TB-188 | Quick jump to child ticket | improvement | P2 | S | gui |
@@ -114,6 +110,10 @@
 | TB-204 | Show epic progress | improvement | gui/frontend |
 | TB-203 | obfuscation agents logs and tasks | bug | gui |
 | TB-201 | MacOS: window buttons hides header | bug | gui |
+| TB-185 | GUI: surface user-attention state and automation guard | feature | gui |
+| TB-184 | Docs: define user-attention handoff protocol | improvement | docs |
+| TB-183 | CLI: add user-attention agent status and note section | feature | cli |
+| TB-182 | Add special labes\tags\status for user attention | feature | agent |
 | TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |
@@ -134,7 +134,3 @@
 | TB-155 | TB-93/GUI: attachmentsLoading flicker on rapid task switch and concurrent refresh race | bug | gui |
 | TB-154 | TB-93/GUI: attachment list accessibility improvements (aria-label, keyboard nav) | improvement | gui |
 | TB-153 | TB-93/GUI: attachment remove is destructive single-click without confirmation | improvement | gui |
-| TB-152 | TB-93/GUI: TaskDrawer attachments UI has no component-level tests | tech-debt | gui |
-| TB-151 | TB-93/GUI: watcher attach() lacks mutex for concurrent Switch invocations | bug | gui |
-| TB-150 | TB-93/GUI: watcher race during file->folder promotion misses first TASK.md edit | bug | gui |
-| TB-149 | TB-93/GUI: Windows cmd.exe metacharacter injection in OpenAttachment | bug | gui |

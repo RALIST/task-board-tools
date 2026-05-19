@@ -85,7 +85,7 @@ Usage:
   tb mv <ID> <status>                                                    Move task (status: backlog|in-progress|done|archive)
   tb start <ID>                                                          Start working
   tb done <ID>                                                           Mark done
-  tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted] [--title "New title"] [--goal file|-] [--acceptance file|-]
+  tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
   tb attach <ID> <path>...                                               Copy files into task attachments
   tb attach --rm <ID> <attachment-name>...                               Remove task attachments
   tb assign <ID> <agent>                                                 Assign claude|codex and queue for daemon pickup
@@ -106,7 +106,7 @@ Commands:
   mv, move          Move task between statuses
   start             Move task to in-progress
   done              Move task to done
-  edit              Edit task metadata, title (--title), and Goal/Acceptance Criteria sections
+  edit              Edit task metadata, title (--title), and Goal/Acceptance Criteria/User Attention sections
   attach            Copy files into task attachments; --rm: Remove task attachments by name
   assign            Assign a runnable agent and set AgentStatus=queued for daemon pickup
   close             Archive task (moves to archive/)

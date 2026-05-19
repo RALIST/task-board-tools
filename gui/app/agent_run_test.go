@@ -1399,6 +1399,172 @@ func TestResumeCycle_KillBeforeSessionStaysFailed(t *testing.T) {
 	}
 }
 
+// TestStartAgentRunRejectsNeedsUser ensures RunAgent and GroomTask
+// refuse to start a fresh run on a task that is currently parked in
+// `needs-user` (TB-182). Resolution requires `tb edit --agent-status
+// none` first.
+func TestStartAgentRunRejectsNeedsUser(t *testing.T) {
+	stub := &stubRunner{name: "claude", exitCode: 0}
+	svc, _ := realTbBoardForRun(t, "claude", stub)
+
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client on BoardService")
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "needs-user"}); err != nil {
+		t.Fatalf("seed needs-user: %v", err)
+	}
+
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); !errors.Is(err, ErrNeedsUserAttention) {
+		t.Fatalf("RunAgent on needs-user: got %v, want ErrNeedsUserAttention", err)
+	}
+	if _, err := svc.GroomTask(context.Background(), "TB-1"); !errors.Is(err, ErrNeedsUserAttention) {
+		t.Fatalf("GroomTask on needs-user: got %v, want ErrNeedsUserAttention", err)
+	}
+	if _, err := svc.ResumeAgent(context.Background(), "TB-1"); !errors.Is(err, ErrNeedsUserAttention) {
+		t.Fatalf("ResumeAgent on needs-user: got %v, want ErrNeedsUserAttention", err)
+	}
+
+	// Clearing the status with --agent-status none re-enables manual run.
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "none"}); err != nil {
+		t.Fatalf("clear needs-user: %v", err)
+	}
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("RunAgent after clear: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+}
+
+// needsUserSettingRunner is a stub runner that flips the task's
+// AgentStatus to `needs-user` via the CLI client mid-run, before
+// returning a successful exit code. It mirrors what an in-process agent
+// would do via `tb edit --agent-status needs-user --user-attention -`.
+type needsUserSettingRunner struct {
+	stub     stubRunner
+	cli      *cli.Client
+	id       string
+	exitCode int
+}
+
+func (r *needsUserSettingRunner) Name() string { return r.stub.Name() }
+
+func (r *needsUserSettingRunner) Run(ctx context.Context, in agent.RunInput) (agent.RunResult, error) {
+	if in.OnStarted != nil {
+		in.OnStarted(99999, 99999)
+	}
+	if err := r.cli.Edit(context.Background(), r.id, cli.EditInput{AgentStatus: "needs-user"}); err != nil {
+		return agent.RunResult{}, err
+	}
+	return agent.RunResult{ExitCode: r.exitCode}, nil
+}
+
+// TestPostRunPreservesNeedsUser locks the TB-182 carve-out: when the
+// running agent set AgentStatus=needs-user mid-run, the postRun
+// terminal-status write must NOT overwrite it with the exit-mapped
+// status. The JSONL `finished` line still records the exit outcome so
+// run history is intact.
+func TestPostRunPreservesNeedsUser(t *testing.T) {
+	cases := []struct {
+		name           string
+		exitCode       int
+		expectStatus   agent.Status
+		expectAgentMD  string // expected substring in task .md AgentStatus line
+	}{
+		{
+			name:          "success exit preserves needs-user",
+			exitCode:      0,
+			expectStatus:  agent.StatusSuccess,
+			expectAgentMD: "**AgentStatus:** needs-user",
+		},
+		{
+			name:          "failed exit preserves needs-user",
+			exitCode:      1,
+			expectStatus:  agent.StatusFailed,
+			expectAgentMD: "**AgentStatus:** needs-user",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, boardDir := realTbBoardForRun(t, "claude", &stubRunner{name: "claude"})
+			c := svc.board.snapshot()
+			if c == nil {
+				t.Fatalf("no CLI client on BoardService")
+			}
+
+			custom := &needsUserSettingRunner{
+				stub:     stubRunner{name: "claude"},
+				cli:      c,
+				id:       "TB-1",
+				exitCode: tc.exitCode,
+			}
+			svc.setRunnerFactory(func(name string) (agent.Runner, error) { return custom, nil })
+
+			if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
+				t.Fatalf("RunAgent: %v", err)
+			}
+			waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+			taskBytes, err := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
+			if err != nil {
+				t.Fatalf("read task: %v", err)
+			}
+			body := string(taskBytes)
+			if !strings.Contains(body, tc.expectAgentMD) {
+				t.Fatalf("needs-user was overwritten; task body:\n%s", body)
+			}
+
+			// The JSONL `finished` event still captures the real exit outcome so
+			// run history is intact.
+			events := readEvents(t, boardDir, "TB-1")
+			last := events[len(events)-1]
+			if last.Event != agent.EvFinished {
+				t.Fatalf("last event not finished: %+v", last)
+			}
+			if last.Status != tc.expectStatus {
+				t.Fatalf("finished event status: got %q, want %q", last.Status, tc.expectStatus)
+			}
+		})
+	}
+}
+
+// TestCancelOverridesNeedsUser ensures the TB-182 needs-user carve-out
+// is scoped to exit-mapped statuses only: an explicit user-initiated
+// cancel (which writes `cancelled`) wins over a needs-user marker the
+// agent set mid-run. Same precedent for daemon shutdown's cancel write.
+func TestCancelOverridesNeedsUser(t *testing.T) {
+	svc, boardDir := realTbBoardForRun(t, "claude", &stubRunner{name: "claude"})
+	c := svc.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client on BoardService")
+	}
+
+	// Seed needs-user as if an agent already wrote it.
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "needs-user"}); err != nil {
+		t.Fatalf("seed needs-user: %v", err)
+	}
+
+	// Manually construct an activeRun and route it through recordTerminal
+	// with status=cancelled — this is the same code path finishCancelled
+	// would exercise from the UI Cancel button or daemon shutdown.
+	ar := &activeRun{
+		RunID:  agent.GenerateRunID(),
+		TaskID: "TB-1",
+		Agent:  "claude",
+		Mode:   agent.ModeImplement.String(),
+		Done:   make(chan struct{}),
+	}
+	svc.recordTerminal(c, ar, boardDir, agent.StatusCancelled, "user cancelled", -1)
+
+	taskBytes, err := os.ReadFile(filepath.Join(boardDir, "backlog", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	body := string(taskBytes)
+	if !strings.Contains(body, "**AgentStatus:** cancelled") {
+		t.Fatalf("cancel must win over needs-user; got body:\n%s", body)
+	}
+}
+
 // silence unused
 var _ io.Writer = (*lineSink)(nil)
 

@@ -84,6 +84,7 @@
   let runStarting = $state(false);
   let groomStarting = $state(false);
   let resumeStarting = $state(false);
+  let clearingNeedsUser = $state(false);
   let groomReasons = $state<string[]>([]);
   let groomHighlight = $state(false);
   let groomHighlightTimer: ReturnType<typeof setTimeout> | null = null;
@@ -258,7 +259,12 @@
     runs.some((r) => r.status === 'queued' || r.status === 'running'),
   );
   let runBusy = $derived(taskHasActiveRun || runStarting || groomStarting || resumeStarting);
+  let needsUser = $derived(taskAgentStatus === 'needs-user');
   let canResume = $derived(taskAgentStatus === 'interrupted' && !runBusy);
+  // TB-182: parse the ## User Attention section out of the task body so the
+  // drawer can surface the ask near the agent controls. Returns the raw
+  // section body (Markdown) or null when the section isn't present.
+  let userAttentionBody = $derived(needsUser ? extractUserAttention(detail?.body ?? '') : null);
   let groomEmphasized = $derived(groomReasons.length > 0 || groomHighlight);
   // Epic progress derived from the live board store (mirrors Card.svelte).
   // Drives the "Progress" row in the Details rail; gated on the `epic` tag
@@ -405,6 +411,24 @@
       pushToast(`Resume failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       resumeStarting = false;
+    }
+  }
+
+  // TB-182: clear the needs-user marker once the user has responded.
+  // Sends `agentStatus: "none"` to the CLI which drops the AgentStatus
+  // line entirely so manual Run/Groom and the daemon can pick the task
+  // up again.
+  async function onClearNeedsUserClick() {
+    if (!detail || clearingNeedsUser) return;
+    const id = detail.metadata.id;
+    clearingNeedsUser = true;
+    try {
+      await editTask(id, { agentStatus: 'none' } as EditTaskInput);
+      pushToast(`Cleared user-attention status on ${id}`, 'success');
+    } catch (e) {
+      pushToast(`Clear failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      clearingNeedsUser = false;
     }
   }
 
@@ -841,6 +865,32 @@
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // extractUserAttention returns the contents of the `## User Attention`
+  // section from a task body, or null when the section isn't present.
+  // Mirrors the CLI's section parsing (cli/edit.go) — boundaries are the
+  // next `## ` heading or end-of-file.
+  function extractUserAttention(body: string): string | null {
+    if (!body) return null;
+    const lines = body.split('\n');
+    let start = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim() === '## User Attention') {
+        start = i + 1;
+        break;
+      }
+    }
+    if (start === -1) return null;
+    let end = lines.length;
+    for (let i = start; i < lines.length; i++) {
+      if (lines[i].startsWith('## ')) {
+        end = i;
+        break;
+      }
+    }
+    const body2 = lines.slice(start, end).join('\n').trim();
+    return body2 || null;
+  }
+
   function stripFrontmatter(body: string): string {
     const lines = body.split('\n');
     for (let i = 0; i < Math.min(lines.length, 30); i++) {
@@ -1084,10 +1134,45 @@
             <section class="rail-section agent-section">
               <div class="section-head">
                 <h3>Agent</h3>
-                {#if liveStatus}
+                {#if needsUser}
+                  <span class="pill pill-needs-user" title="Task is waiting for user input — see User Attention panel">needs-user</span>
+                {:else if liveStatus}
                   <span class={`pill pill-${liveStatus}`}>{liveStatus}</span>
                 {/if}
               </div>
+              {#if needsUser}
+                <div class="user-attention-panel" role="note" aria-label="User attention required">
+                  <div class="user-attention-head">
+                    <span class="user-attention-badge">User attention required</span>
+                    <span class="user-attention-hint">The previous agent run stopped because it needs a decision.</span>
+                  </div>
+                  {#if userAttentionBody}
+                    <article class="user-attention-body markdown">
+                      {@html renderMarkdown(userAttentionBody)}
+                    </article>
+                  {:else}
+                    <p class="hint">
+                      No <code>## User Attention</code> section in the task body.
+                      Check the task file or run history for the agent's ask.
+                    </p>
+                  {/if}
+                  <div class="user-attention-resolve">
+                    <p>
+                      After you answer in the task body (or grant the ask),
+                      click <strong>Clear status</strong> below to re-enable
+                      Run and Groom. (Equivalent CLI:
+                      <code>tb edit {detail.metadata.id} --agent-status none</code>.)
+                    </p>
+                    <button
+                      class="primary compact"
+                      type="button"
+                      disabled={clearingNeedsUser}
+                      onclick={onClearNeedsUserClick}>
+                      {clearingNeedsUser ? 'Clearing…' : 'Clear status'}
+                    </button>
+                  </div>
+                </div>
+              {/if}
               <div class="field">
                 <span class="field-label">Assigned</span>
                 <select
@@ -1104,8 +1189,10 @@
                 <button
                   class="primary compact"
                   type="button"
-                  disabled={!displayedAgent || runBusy}
-                  title={!displayedAgent ? 'Select an agent first' : (liveStatus === 'running' ? 'Already running' : 'Start a fresh conversation')}
+                  disabled={!displayedAgent || runBusy || needsUser}
+                  title={needsUser
+                    ? 'Task needs user input — clear AgentStatus before running again'
+                    : (!displayedAgent ? 'Select an agent first' : (liveStatus === 'running' ? 'Already running' : 'Start a fresh conversation'))}
                   onclick={onRunClick}>
                   {runStarting ? 'Starting…' : 'Run'}
                 </button>
@@ -1122,11 +1209,13 @@
                   </button>
                 {/if}
                 <button
-                  class:emphasized={groomEmphasized && !runBusy}
+                  class:emphasized={groomEmphasized && !runBusy && !needsUser}
                   class="secondary compact"
                   type="button"
-                  disabled={!displayedAgent || runBusy}
-                  title={groomReasons.length > 0 ? `Needs grooming: ${groomReasons.join(', ')}` : (!displayedAgent ? 'Select an agent first' : '')}
+                  disabled={!displayedAgent || runBusy || needsUser}
+                  title={needsUser
+                    ? 'Task needs user input — clear AgentStatus before grooming again'
+                    : (groomReasons.length > 0 ? `Needs grooming: ${groomReasons.join(', ')}` : (!displayedAgent ? 'Select an agent first' : ''))}
                   onclick={onGroomClick}>
                   {groomStarting ? 'Grooming…' : 'Groom'}
                 </button>
@@ -1581,7 +1670,64 @@
   .pill-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .pill-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
   .pill-interrupted { background: rgba(245, 158, 11, 0.22); color: #f59e0b; }
+  .pill-needs-user { background: rgba(168, 85, 247, 0.22); color: #a855f7; }
   .pill-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
+
+  .user-attention-panel {
+    margin-top: 4px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid rgba(168, 85, 247, 0.42);
+    background: rgba(168, 85, 247, 0.10);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .user-attention-head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .user-attention-badge {
+    font-size: 10px;
+    font-weight: 700;
+    color: #a855f7;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .user-attention-hint {
+    font-size: 11px;
+    color: var(--fg-dim);
+  }
+  .user-attention-body {
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--fg);
+    background: rgba(0, 0, 0, 0.18);
+    padding: 8px 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+  }
+  .user-attention-resolve {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .user-attention-resolve p {
+    font-size: 11px;
+    color: var(--fg-dim);
+    margin: 0;
+  }
+  .user-attention-resolve code {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+  }
+  .user-attention-resolve button {
+    align-self: flex-start;
+  }
 
   .chip.resumed-from {
     font-size: 10px;

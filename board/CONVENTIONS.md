@@ -55,6 +55,15 @@ Why this task exists. Link to the task or session where it was discovered.
 - [ ] Criterion 1
 - [ ] Criterion 2
 
+## User Attention
+
+*(optional — only present when an autonomous agent paused because it needs a human decision)*
+
+- Reason: short category — unclear requirement, external blocker, conflict, failed verification, stale task.
+- Question/Action: the specific ask the user must answer or do.
+- Attempted context: what the agent already tried, read, or ruled out.
+- Unblock condition: exactly what answer/state lets the run resume.
+
 ## Attachments
 
 ## Related Tasks
@@ -116,6 +125,27 @@ Quick capture: `tb create "Title" -m module -d "description"`
 - Size guide: S = <1h, M = 1-4h, L = 4-8h, XL = multi-session
 - Tags: comma-separated. Filter with `tb ls -t tag`
 
+### Agent lifecycle (AgentStatus)
+
+`AgentStatus` tracks the in-flight state of an autonomous agent (claude or codex) on a task. Valid values:
+
+| Value | Meaning |
+|-------|---------|
+| _(empty)_ | No agent run in progress. Manual or daemon-driven runs may start. |
+| `queued` | Assigned and waiting for a worker. |
+| `running` | Currently executing. |
+| `success` | Last run finished with exit code 0. |
+| `failed` | Last run finished with a non-zero exit code or a runtime error. |
+| `cancelled` | The user cancelled the run (UI button or `tb edit --agent-status cancelled`). |
+| `interrupted` | Recovery-initiated: the daemon crashed mid-run with a captured session id; the user can Resume. Reserved for `RecoverStale`. |
+| `needs-user` | The agent stopped because user input is required. The task carries a `## User Attention` section with the specific ask. Auto-groom and auto-implement skip `needs-user` tasks; manual Run/Groom are blocked in the GUI. Resolve by reading the ask, updating the task body or doing the action, then clearing the status with `tb edit <ID> --agent-status none`. |
+
+Autonomous agents that cannot continue safely use the `needs-user` handoff:
+
+1. `tb edit <ID> --user-attention -` (heredoc) with reason, question/action, attempted context, and unblock condition.
+2. `tb edit <ID> --agent-status needs-user`.
+3. Stop the run cleanly — do not mark the task done, failed, or cancelled.
+
 ### Tag taxonomy
 
 **Cross-cutting concerns:**
@@ -161,7 +191,7 @@ tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [-n N] [--parent I
 tb mv <TB-NNN> <status>                                                    — Move task between statuses
 tb start <TB-NNN>                                                          — Move to in-progress
 tb done <TB-NNN>                                                           — Move to done
-tb edit <TB-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled] [--title "New title"] [--goal file|-] [--acceptance file|-]
+tb edit <TB-NNN> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
 tb attach <TB-NNN> <path>...                                               — Copy files into task attachments
 tb attach --rm <TB-NNN> <attachment-name>...                               — Remove task attachments
 tb assign <TB-NNN> <claude|codex>                                          — Assign a runnable agent and queue pickup
