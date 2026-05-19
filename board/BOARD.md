@@ -4,9 +4,10 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 2/4 | backlog | gui |
+| TB-177 | Auto task implementation | 0/4 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
+| TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | 0/0 | in-progress | core |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
 
 ## Finished Epics
@@ -26,17 +27,26 @@
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 
-## In Progress
+## In Progress (4/2 ⚠)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-202 | Create proper name and icon for app | P2 | gui | — |
+| TB-237 | Save diffrent agent actions in diffrent fields | P2 | cli | — |
+| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | P2 | workflow | — |
+| TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | P1 | core | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
 | — | — | — | — | — |
+
+## Ready
+
+| ID | Title | Type | Priority | Size | Module |
+|----|-------|------|----------|------|--------|
+| — | — | — | — | — | — |
 
 ## Backlog
 
@@ -63,6 +73,8 @@
 | TB-175 | GUI: surface auto-groom feedback and manual fallback | feature | P1 | S | gui |
 | TB-176 | Track PID of launched agents | bug | P2 | M | gui |
 | TB-177 | Auto task implementation | feature | P0 | L | gui |
+| TB-178 | GUI: persist auto-implement settings and query | feature | P0 | M | gui |
+| TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |
 | TB-180 | GUI: show auto-implement controls and feedback | feature | P0 | S | gui |
 | TB-186 | Change parent task | feature | P2 | L | gui |
 | TB-187 | Quick add task to epic | improvement | P2 | M | gui/frontend |
@@ -71,13 +83,10 @@
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
-| TB-202 | Create proper name and icon for app | improvement | P2 | S | gui |
-| TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
+| TB-205 | Setup ESLint and dead-code check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-233 | Auto-implement priority: rank review-failed backlog tasks first | improvement | P2 | S | gui |
-| TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P3 | S | gui |
-| TB-237 | Save diffrent agent actions in diffrent fields | improvement | P2 | L | cli |
-| TB-238 | Update implement.md agent prompt to set ReviewRef before submit | improvement | P2 | S | workflow |
+| TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P2 | S | gui |
 
 ## Recently Done
 
@@ -125,11 +134,11 @@
 | TB-183 | CLI: add user-attention agent status and note section | feature | cli |
 | TB-182 | Add special labes\tags\status for user attention | feature | agent |
 | TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
-| TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | gui |
-| TB-178 | GUI: persist auto-implement settings and query | feature | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
 | TB-168 | TB-93/GUI: test infra cleanup - hardcoded sleeps, /tmp/tb fallback, idDirRe negative case | tech-debt | gui |
 | TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |
 | TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | gui |
+| TB-165 | TB-93/GUI: empty-state hint should say 'drag onto this drawer' not 'onto the task' | improvement | gui |
+| TB-164 | TB-93/GUI: surface drag-and-drop in-flight state via attach:dropping/attach:dropped events | improvement | gui |

@@ -21,11 +21,12 @@ Read `@board/SKILL.md` for important rules about working with the board and task
 - The task `.md` file is the source of truth. Use the `tb` CLI to read and
   mutate task state; never edit `BOARD.md` directly.
 - Make small, atomic commits. Run the project's test suite before declaring done.
-- When the work is complete, append a summary line to the task's `## Log` section via `tb`. If the change needs reviewer signoff, set the review target and submit to code-review instead of marking the task done:
+- When the work is complete, append a summary line to the task's `## Log` section via `tb`. If the change needs reviewer signoff, set both the human-readable `## Review Target` prose (via `tb review --target`) and the machine-readable `**ReviewRef:**` metadata (via `tb edit --review-ref`) before submitting — TB-235 gates moves into `code-review` on a non-empty `**ReviewRef:**`, and the prose section gives reviewers the context the metadata can't:
   ```sh
   tb review --target {{TASK_ID}} - <<'EOF'
   branch: <feature-branch>
   EOF
+  tb edit {{TASK_ID}} --review-ref <branch|PR|commit>
   tb review --submit {{TASK_ID}}
   ```
   When the change is small and you have authorisation to land it directly, run `tb done {{TASK_ID}}` to move the task to the `done` column.
