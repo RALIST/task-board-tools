@@ -10,7 +10,6 @@
 | TB-182 | Add special labes\tags\status for user attention | 0/3 | backlog | agent |
 | TB-194 | Code-review column | 0/6 | backlog | workflow |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
-| TB-204 | Show epic progress | 0/0 | in-progress | gui/frontend |
 
 ## Finished Epics
 
@@ -25,12 +24,13 @@
 | TB-130 | Agent session resume + interrupted-run recovery | 12/12 | gui |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
+| TB-204 | Show epic progress | 0/0 | gui/frontend |
 
 ## In Progress
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-204 | Show epic progress | P2 | gui/frontend | — |
+| — | — | — | — | — |
 
 ## Backlog
 
@@ -111,6 +111,7 @@
 | TB-210 | Manual QA: MVP live-board pass | spike | gui |
 | TB-208 | Switch projects bug | bug | gui |
 | TB-207 | Allow tasl title edit from GUI | improvement | gui |
+| TB-204 | Show epic progress | improvement | gui/frontend |
 | TB-203 | obfuscation agents logs and tasks | bug | gui |
 | TB-201 | MacOS: window buttons hides header | bug | gui |
 | TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
@@ -137,4 +138,3 @@
 | TB-151 | TB-93/GUI: watcher attach() lacks mutex for concurrent Switch invocations | bug | gui |
 | TB-150 | TB-93/GUI: watcher race during file->folder promotion misses first TASK.md edit | bug | gui |
 | TB-149 | TB-93/GUI: Windows cmd.exe metacharacter injection in OpenAttachment | bug | gui |
-| TB-148 | TB-93/CLI: confirm TB-96 hard-error reverted to warn+self-heal is intentional | tech-debt | cli |
