@@ -20,7 +20,7 @@ type Task struct {
 	Tags        string `json:"tags"` // comma-separated; emitted as []string in JSON
 	Branch      string `json:"branch"`
 	Parent      string `json:"parent"`      // parent epic task ID (e.g., "WS-32")
-	Status      string `json:"status"`      // directory name: backlog, in-progress, done, archive
+	Status      string `json:"status"`      // directory name: backlog, in-progress, code-review, done, archive
 	FilePath    string `json:"filePath"`    // relative path from project root
 	Agent       string `json:"agent"`       // claude | codex | "" (optional)
 	AgentStatus string `json:"agentStatus"` // queued | running | success | failed | cancelled | interrupted | needs-user | "" (optional)

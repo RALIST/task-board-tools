@@ -66,6 +66,8 @@ func main() {
 		cmdScan(os.Args[2:])
 	case "regenerate", "regen":
 		cmdRegenerate(os.Args[2:])
+	case "review":
+		cmdReview(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", cmd)
 		usage()
@@ -81,8 +83,13 @@ Usage:
   tb board [--json]                                                      Print board status (or JSON snapshot)
   tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
   tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID] [-n N]
-        [--status backlog|in-progress|done|archive|active|all] [--json]
-  tb mv <ID> <status>                                                    Move task (status: backlog|in-progress|done|archive)
+        [--status backlog|in-progress|code-review|done|archive|active|all] [--json]
+  tb mv <ID> <status>                                                    Move task (status: backlog|in-progress|code-review|done|archive)
+  tb review --submit <ID>                                                Submit in-progress (or review-failed backlog) task to code-review
+  tb review --target <ID> file|-                                         Write ## Review Target section
+  tb review --notes <ID> file|-                                          Write ## Reviewer Notes section
+  tb review --findings <ID> file|-                                       Write ## Review Findings section
+  tb review --fail <ID> file|-                                           Fail review: write findings, move to backlog, mark review-failed
   tb start <ID>                                                          Start working
   tb done <ID>                                                           Mark done
   tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
@@ -94,9 +101,12 @@ Usage:
   tb open <ID>                                                           Open in default editor
   tb epic <ID> [--status active|archive|all]                             Show epic progress
   tb triage [--json]                                                     Find tasks needing grooming
-  tb grep <pattern> [--status backlog|in-progress|done|archive|active|all] [-s] [-l]   Search tasks by regex
+  tb grep <pattern> [--status backlog|in-progress|code-review|done|archive|active|all] [-s] [-l]   Search tasks by regex
   tb scan [--apply] [--path dir]                                         Find untagged TODOs
   tb regenerate                                                          Regenerate BOARD.md
+
+Status aliases:
+  b=backlog  ip/wip=in-progress  cr/review=code-review  d=done
 
 Commands:
   init              Initialize board structure; existing boards refresh docs and annotated config with .bak backups
@@ -117,9 +127,7 @@ Commands:
   grep, search      Full-text regex search across all task files
   scan              Find untagged TODO/FIXME/HACK comments, create tasks, update source
   regenerate, regen Regenerate BOARD.md from directory contents
-
-Status aliases:
-  b=backlog  ip=in-progress  d=done
+  review            Code-review flow: submit, set Review Target/Reviewer Notes/Findings, fail back to backlog
 
 Task IDs use the configured prefix (default: PR). The prefix is optional in commands —
 "tb start 123" and "tb start PR-123" are equivalent.

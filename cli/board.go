@@ -13,12 +13,13 @@ import (
 
 // statusDirs lists the active board directories. Archive is intentionally not
 // active: it is a closed/hidden status for explicit inspection, not a synonym
-// for done.
-var statusDirs = []string{"backlog", "in-progress", "done"}
+// for done. `code-review` sits between in-progress and done and represents
+// implementation work awaiting reviewer signoff.
+var statusDirs = []string{"backlog", "in-progress", "code-review", "done"}
 
 // allStatusDirs adds archive to the active set; this is the expansion of
 // `--status all`.
-var allStatusDirs = []string{"backlog", "in-progress", "done", "archive"}
+var allStatusDirs = []string{"backlog", "in-progress", "code-review", "done", "archive"}
 
 // tbConfig holds the resolved per-project configuration.
 type tbConfig struct {
@@ -533,7 +534,7 @@ func findTask(boardDir, taskID string) (string, error) {
 	if err == nil {
 		return path, nil
 	}
-	return "", fmt.Errorf("task %s not found in any directory (backlog, in-progress, done, archive). Verify the ID with `tb ls --status all`", taskID)
+	return "", fmt.Errorf("task %s not found in any directory (backlog, in-progress, code-review, done, archive). Verify the ID with `tb ls --status all`", taskID)
 }
 
 func findTaskInStatuses(boardDir, taskID string, statuses []string) (string, error) {
@@ -586,24 +587,27 @@ func resolveStatus(input string) (string, error) {
 		return "backlog", nil
 	case "ip", "in-progress", "wip":
 		return "in-progress", nil
+	case "cr", "code-review", "review":
+		return "code-review", nil
 	case "d", "done":
 		return "done", nil
 	case "archive":
 		return "archive", nil
 	default:
-		return "", fmt.Errorf("unknown status %q — valid values: backlog (b), in-progress (ip), done (d), archive", input)
+		return "", fmt.Errorf("unknown status %q — valid values: backlog (b), in-progress (ip), code-review (cr/review), done (d), archive", input)
 	}
 }
 
 // resolveStatusFilter expands a `--status` filter input into the set of
 // directories to scan. Aliases:
 //
-//	b / backlog          -> [backlog]
-//	ip / wip / in-progress -> [in-progress]
-//	d / done             -> [done]
-//	archive              -> [archive]
-//	active               -> [backlog, in-progress, done]
-//	all                  -> [backlog, in-progress, done, archive]
+//	b / backlog              -> [backlog]
+//	ip / wip / in-progress   -> [in-progress]
+//	cr / review / code-review -> [code-review]
+//	d / done                 -> [done]
+//	archive                  -> [archive]
+//	active                   -> [backlog, in-progress, code-review, done]
+//	all                      -> [backlog, in-progress, code-review, done, archive]
 //
 // Returned slice is safe to range over without further mutation.
 func resolveStatusFilter(input string) ([]string, error) {
@@ -615,7 +619,7 @@ func resolveStatusFilter(input string) ([]string, error) {
 	default:
 		single, err := resolveStatus(input)
 		if err != nil {
-			return nil, fmt.Errorf("unknown status %q — valid values: backlog (b), in-progress (ip), done (d), archive, active, all", input)
+			return nil, fmt.Errorf("unknown status %q — valid values: backlog (b), in-progress (ip), code-review (cr/review), done (d), archive, active, all", input)
 		}
 		return []string{single}, nil
 	}

@@ -18,12 +18,12 @@ func cmdList(args []string) {
 	typeFilter := fs.String("T", "", "filter by type (exact match)")
 	priorityFilter := fs.String("p", "", "filter by priority (exact match)")
 	parentFilter := fs.String("parent", "", "filter by parent epic ID")
-	statusFilter := fs.String("status", "backlog", "status filter: backlog|in-progress|done|archive|active|all")
+	statusFilter := fs.String("status", "backlog", "status filter: backlog|in-progress|code-review|done|archive|active|all")
 	limit := fs.Int("n", 0, "limit results to N tasks (default: no limit)")
 	jsonOut := fs.Bool("json", false, "emit JSON array (empty selection → []) to stdout")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID] [--status backlog|in-progress|done|archive|active|all] [-n N] [--json]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID] [--status backlog|in-progress|code-review|done|archive|active|all] [-n N] [--json]\n\n")
 		fs.PrintDefaults()
 	}
 

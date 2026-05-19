@@ -95,6 +95,23 @@ func buildBoardContent(boardDir string) (string, error) {
 	}
 	b.WriteString("\n")
 
+	// Code Review
+	b.WriteString("## Code Review\n\n")
+	b.WriteString("| ID | Title | Priority | Module | Branch |\n")
+	b.WriteString("|----|-------|----------|--------|--------|\n")
+	tasks, err = collectTasks(boardDir, "code-review")
+	if err != nil {
+		return "", err
+	}
+	if len(tasks) == 0 {
+		b.WriteString("| — | — | — | — | — |\n")
+	} else {
+		for _, t := range tasks {
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", t.ID, t.Title, t.Priority, t.Module, t.Branch)
+		}
+	}
+	b.WriteString("\n")
+
 	// Backlog
 	b.WriteString("## Backlog\n\n")
 	b.WriteString("| ID | Title | Type | Priority | Size | Module |\n")

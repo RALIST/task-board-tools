@@ -120,6 +120,7 @@ type boardSnapshotJSON struct {
 	ActiveEpics   []taskJSON `json:"activeEpics"`
 	FinishedEpics []taskJSON `json:"finishedEpics"`
 	InProgress    []taskJSON `json:"inProgress"`
+	CodeReview    []taskJSON `json:"codeReview"`
 	Backlog       []taskJSON `json:"backlog"`
 	RecentlyDone  []taskJSON `json:"recentlyDone"`
 }
@@ -164,6 +165,10 @@ func buildBoardSnapshot(boardDir string) (boardSnapshotJSON, error) {
 	if err != nil {
 		return boardSnapshotJSON{}, err
 	}
+	codeReview, err := collectTasks(boardDir, "code-review")
+	if err != nil {
+		return boardSnapshotJSON{}, err
+	}
 	backlog, err := collectTasks(boardDir, "backlog")
 	if err != nil {
 		return boardSnapshotJSON{}, err
@@ -185,6 +190,7 @@ func buildBoardSnapshot(boardDir string) (boardSnapshotJSON, error) {
 		ActiveEpics:   marshalTasks(activeEpics),
 		FinishedEpics: marshalTasks(finishedEpics),
 		InProgress:    marshalTasks(inProgress),
+		CodeReview:    marshalTasks(codeReview),
 		Backlog:       marshalTasks(backlog),
 		RecentlyDone:  marshalTasks(done),
 	}, nil

@@ -355,7 +355,20 @@ func upsertTaskSection(content, heading, body string) string {
 	case "## User Attention":
 		// Place above Related Tasks / Attachments / Log so the ask is
 		// visible immediately after Acceptance Criteria.
-		if idx, ok := findFirstMarkdownHeading(content, []string{"## Related Tasks", "## Attachments", "## Log"}); ok {
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Review Target", "## Reviewer Notes", "## Review Findings", "## Related Tasks", "## Attachments", "## Log"}); ok {
+			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
+		}
+	case "## Review Target", "## Reviewer Notes", "## Review Findings":
+		// Review metadata sits between User Attention and Related Tasks
+		// so reviewers see target/notes/findings before scrolling to the
+		// log. Order within the triplet is preserved by anchoring each
+		// section to the next existing one further down.
+		anchors := map[string][]string{
+			"## Review Target":   {"## Reviewer Notes", "## Review Findings", "## Related Tasks", "## Attachments", "## Log"},
+			"## Reviewer Notes":  {"## Review Findings", "## Related Tasks", "## Attachments", "## Log"},
+			"## Review Findings": {"## Related Tasks", "## Attachments", "## Log"},
+		}
+		if idx, ok := findFirstMarkdownHeading(content, anchors[heading]); ok {
 			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
 		}
 	case "## Attachments":
@@ -378,6 +391,9 @@ var taskMarkdownHeadings = map[string]bool{
 	"## Subtasks":            true,
 	"## Acceptance Criteria": true,
 	"## User Attention":      true,
+	"## Review Target":       true,
+	"## Reviewer Notes":      true,
+	"## Review Findings":     true,
 	"## Related Tasks":       true,
 	"## Attachments":         true,
 	"## Log":                 true,

@@ -10,7 +10,7 @@ import (
 
 func cmdMove(args []string) {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: tb mv <ID> <status>\n\nExample: tb mv 123 ip\nAliases: b=backlog, ip=in-progress, d=done")
+		fmt.Fprintln(os.Stderr, "Usage: tb mv <ID> <status>\n\nExample: tb mv 123 ip\nAliases: b=backlog, ip=in-progress, cr=code-review (review), d=done")
 		os.Exit(1)
 	}
 	taskID := normalizeTaskID(args[0])
@@ -196,7 +196,7 @@ func resolveMoveSource(boardDir, taskID, targetStatus string) (taskRef, bool, er
 		return taskRef{}, false, err
 	}
 	if len(refs) == 0 {
-		return taskRef{}, false, fmt.Errorf("task %s not found in any directory (backlog, in-progress, done, archive). Verify the ID with `tb ls --status all`", taskID)
+		return taskRef{}, false, fmt.Errorf("task %s not found in any directory (backlog, in-progress, code-review, done, archive). Verify the ID with `tb ls --status all`", taskID)
 	}
 
 	var sourceRefs []taskRef
