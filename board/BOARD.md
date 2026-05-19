@@ -78,7 +78,6 @@
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
-| TB-202 | Create proper name and icon for app | improvement | P2 | S | gui |
 | TB-205 | Setup esling and deadcode check for frontend | tech-debt | P2 | M | tooling |
 | TB-206 | Setup golangci-lint for project and initial run it | tech-debt | P2 | M | tooling |
 | TB-226 | CLI: preserve literal command examples in task creation | bug | P1 | S | cli |
@@ -117,6 +116,7 @@
 | TB-207 | Allow tasl title edit from GUI | improvement | gui |
 | TB-204 | Show epic progress | improvement | gui/frontend |
 | TB-203 | obfuscation agents logs and tasks | bug | gui |
+| TB-202 | Create proper name and icon for app | improvement | gui |
 | TB-201 | MacOS: window buttons hides header | bug | gui |
 | TB-200 | Docs: document code-review workflow | improvement | docs |
 | TB-199 | Workflow: review-failed marker and retry priority | feature | agent |
@@ -138,4 +138,3 @@
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
 | TB-168 | TB-93/GUI: test infra cleanup - hardcoded sleeps, /tmp/tb fallback, idDirRe negative case | tech-debt | gui |
 | TB-167 | TB-93/CLI: minor polish - attach help-text grouping, --rm=false ambiguity, doc step ordering | tech-debt | cli |
-| TB-166 | TB-93/GUI: folder_tasks_test.go uses temp/staging names that don't match the CLI's real pattern | tech-debt | gui |
