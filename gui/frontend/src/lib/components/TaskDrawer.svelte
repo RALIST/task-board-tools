@@ -769,6 +769,17 @@
     metaSaveError = null;
     try {
       await editTask(id, payload);
+      // Guard against task-switch contamination: if the drawer's task
+      // changed during the await, the post-success state writes belong
+      // to a different task. Setting `metaPendingSavedIndicator` or
+      // clearing `userTouchedMetadata` on the new task would flash a
+      // bogus "Saved" chip or clobber the new task's draft. Surface
+      // a toast for the user (the save itself did persist to disk) and
+      // skip the state writes.
+      if (!detail || detail.metadata.id !== id) {
+        pushToast(`Saved ${id}`, 'success');
+        return;
+      }
       // Clear user-touched FIRST so the watcher's board:reloaded that
       // follows can refill the form from the freshly-saved detail.
       userTouchedMetadata = false;
@@ -783,25 +794,35 @@
       // makes form values equal detail.metadata again.
       metaPendingSavedIndicator = true;
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Same task-switch guard for the error path — surfacing an error
+      // on the new task would be misleading.
+      if (!detail || detail.metadata.id !== id) {
+        pushToast(`Save failed for ${id}: ${msg}`);
+        return;
+      }
       // Leave the form intact so the user can retry or correct.
       // userTouchedMetadata stays true so the next watcher refresh
       // can't overwrite the draft.
-      metaSaveError = e instanceof Error ? e.message : String(e);
+      metaSaveError = msg;
       pushToast(`Save failed: ${metaSaveError}`);
     } finally {
       metaSaving = false;
       // If edits arrived during the in-flight save, run again with the
-      // latest form values. Skipped on error so we don't hammer. Note:
-      // the resave's diff is computed against detail.metadata, which
-      // still lags the just-completed save until the watcher refresh
-      // catches up — so payload may redundantly re-include fields the
-      // first save already persisted. The CLI is idempotent under
-      // .board.lock so this is harmless, just a slightly fatter call.
-      if (metaPendingResave && !metaSaveError) {
-        metaPendingResave = false;
+      // latest form values. Skipped on error so we don't hammer.
+      // resetting pendingResave happens regardless so a future task's
+      // first save isn't perturbed by a stale flag.
+      //
+      // Note: the resave's diff is computed against detail.metadata,
+      // which still lags the just-completed save until the watcher
+      // refresh catches up — so payload may redundantly re-include
+      // fields the first save already persisted. The CLI is idempotent
+      // under .board.lock so this is harmless, just a slightly fatter
+      // call.
+      const wasQueued = metaPendingResave;
+      metaPendingResave = false;
+      if (wasQueued && !metaSaveError && detail && detail.metadata.id === id) {
         void runMetadataSave();
-      } else {
-        metaPendingResave = false;
       }
     }
   }
@@ -895,6 +916,14 @@
     bodySaveError = null;
     try {
       await editTaskBody(id, draft);
+      // Task-switch guard: see runMetadataSave for the same pattern.
+      // Without this, the new task's body editor would see a flashed
+      // "Saved" chip and (worse) `bodyDirty = false` would mask any
+      // unflushed draft on the new task.
+      if (!detail || detail.metadata.id !== id) {
+        pushToast(`Body saved for ${id}`, 'success');
+        return;
+      }
       // Optimistically clear dirty — onDirtyChange will reassert it if
       // the user typed further during the save. The watcher refresh that
       // follows will update detail.body; if `bodyDraft` still matches,
@@ -903,15 +932,19 @@
       bodyDirty = false;
       bodyPendingSavedIndicator = true;
     } catch (e) {
-      bodySaveError = e instanceof Error ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!detail || detail.metadata.id !== id) {
+        pushToast(`Body save failed for ${id}: ${msg}`);
+        return;
+      }
+      bodySaveError = msg;
       pushToast(`Body save failed: ${bodySaveError}`);
     } finally {
       bodySaving = false;
-      if (bodyPendingResave && !bodySaveError) {
-        bodyPendingResave = false;
+      const wasQueued = bodyPendingResave;
+      bodyPendingResave = false;
+      if (wasQueued && !bodySaveError && detail && detail.metadata.id === id) {
         void runBodySave();
-      } else {
-        bodyPendingResave = false;
       }
     }
   }

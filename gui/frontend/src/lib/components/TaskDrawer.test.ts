@@ -1066,11 +1066,63 @@ describe('TaskDrawer metadata autosave (TB-190)', () => {
 
     await unmount(component!);
     component = null;
-    await Promise.resolve();
-    await Promise.resolve();
+    await drainMicrotasks();
 
     expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
     expect(apiMocks.editTask).toHaveBeenCalledWith('TB-77', { priority: 'P1' });
+  });
+
+  it('does not flash Saved on a new task when a save for the previous task resolves after switch', async () => {
+    // Defer the first save so it resolves AFTER we switch tasks.
+    let resolveSlowSave!: () => void;
+    apiMocks.editTask.mockImplementationOnce(
+      () => new Promise<void>((res) => { resolveSlowSave = res; }),
+    );
+
+    // Open TB-77, queue a save.
+    apiMocks.getTask.mockResolvedValue(makeDetail({ id: 'TB-77', priority: 'P2' }));
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-77' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    vi.useFakeTimers();
+    try {
+      changeFormSelect('Priority', 'P0');
+      await tick();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 5);
+      await drainMicrotasks();
+      // Save is in flight, not yet resolved.
+      expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+
+      // Switch to TB-88. The drawer's reactive props change triggers
+      // the taskId-effect teardown (which flushes nothing because the
+      // save is in flight) and sets up fresh state for the new task.
+      apiMocks.getTask.mockResolvedValueOnce(makeDetail({ id: 'TB-88', priority: 'P3' }));
+      vi.useRealTimers();
+      await unmount(component!);
+      component = mount(TaskDrawer, {
+        target: document.body,
+        props: { taskId: 'TB-88' },
+      });
+      await tick();
+      await flushMicrotasks();
+      await tick();
+
+      // Now TB-77's save resolves — the guard must not promote a
+      // "saved" indicator onto TB-88.
+      resolveSlowSave();
+      await drainMicrotasks();
+      await drainMicrotasks();
+
+      // Status on TB-88 must NOT be 'saved' — it was never edited.
+      expect(metaStatus()).not.toBe('saved');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('flushes a pending save when the user clicks the × close button', async () => {
