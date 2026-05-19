@@ -31,13 +31,23 @@ func cmdEdit(args []string) {
 	agent := fs.String("a", "", "agent (claude, codex)")
 	agentStatus := fs.String("agent-status", "", "agent status (queued, running, success, failed, cancelled, interrupted, needs-user, none)")
 	reviewRef := fs.String("review-ref", "", "review reference (branch, PR URL, commit, worktree, or short ref); pass `none` to clear (TB-235)")
+	// TB-237: per-mode attribution. Mirrors the (agent, status) pair shape
+	// of `-a` / `--agent-status` but persisted on a separate **GroomedBy:**
+	// / **GroomStatus:** / **ImplementedBy:** / … line each. Pass `none`
+	// to clear the line.
+	groomedBy := fs.String("groomed-by", "", "agent that ran groom mode (claude, codex, none)")
+	groomStatus := fs.String("groom-status", "", "terminal status of last groom run (queued, running, success, failed, cancelled, interrupted, needs-user, none)")
+	implementedBy := fs.String("implemented-by", "", "agent that ran implement mode (claude, codex, none)")
+	implementStatus := fs.String("implement-status", "", "terminal status of last implement run (queued, running, success, failed, cancelled, interrupted, needs-user, none)")
+	reviewedBy := fs.String("reviewed-by", "", "agent that ran review mode (claude, codex, none)")
+	reviewStatus := fs.String("review-status", "", "terminal status of last review run (queued, running, success, failed, cancelled, interrupted, needs-user, none)")
 	title := fs.String("title", "", "task title (replaces the H1 header)")
 	goalPath := fs.String("goal", "", "replace/insert ## Goal from file path or - for stdin")
 	acceptancePath := fs.String("acceptance", "", "replace/insert ## Acceptance Criteria from file path or - for stdin")
 	userAttentionPath := fs.String("user-attention", "", "replace/insert ## User Attention from file path or - for stdin")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none] [--title \"New title\"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted|needs-user|none] [--review-ref value|none] [--groomed-by claude|none] [--groom-status status|none] [--implemented-by claude|none] [--implement-status status|none] [--reviewed-by claude|none] [--review-status status|none] [--title \"New title\"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -88,6 +98,46 @@ func cmdEdit(args []string) {
 		*agentStatus = strings.ToLower(*agentStatus)
 		if *agentStatus != "none" && !validAgentStatuses[*agentStatus] {
 			fmt.Fprintf(os.Stderr, "error: invalid agent-status %q — use: queued, running, success, failed, cancelled, interrupted, needs-user, none\n", *agentStatus)
+			os.Exit(1)
+		}
+	}
+	// TB-237: per-mode attribution flags share the same enums as `-a` /
+	// `--agent-status` plus the `none` sentinel that clears the metadata
+	// line. Mode labels appear in the validator error so callers see which
+	// flag they got wrong.
+	perModeAgents := []*struct {
+		val  *string
+		flag string
+	}{
+		{groomedBy, "groomed-by"},
+		{implementedBy, "implemented-by"},
+		{reviewedBy, "reviewed-by"},
+	}
+	for _, m := range perModeAgents {
+		if *m.val == "" {
+			continue
+		}
+		*m.val = strings.ToLower(*m.val)
+		if *m.val != "none" && !validAgents[*m.val] {
+			fmt.Fprintf(os.Stderr, "error: invalid %s %q — use: claude, codex, none\n", m.flag, *m.val)
+			os.Exit(1)
+		}
+	}
+	perModeStatuses := []*struct {
+		val  *string
+		flag string
+	}{
+		{groomStatus, "groom-status"},
+		{implementStatus, "implement-status"},
+		{reviewStatus, "review-status"},
+	}
+	for _, m := range perModeStatuses {
+		if *m.val == "" {
+			continue
+		}
+		*m.val = strings.ToLower(*m.val)
+		if *m.val != "none" && !validAgentStatuses[*m.val] {
+			fmt.Fprintf(os.Stderr, "error: invalid %s %q — use: queued, running, success, failed, cancelled, interrupted, needs-user, none\n", m.flag, *m.val)
 			os.Exit(1)
 		}
 	}
@@ -161,6 +211,25 @@ func cmdEdit(args []string) {
 	}
 	if *agentStatus != "" {
 		changes = append(changes, editChange{field: "AgentStatus", value: *agentStatus, label: "agentstatus=" + *agentStatus})
+	}
+	// TB-237: per-mode attribution. The label uses kebab-case so the log
+	// entry reads `groomed-by=claude, groom-status=success`.
+	for _, m := range []struct {
+		field string
+		flag  string
+		val   string
+	}{
+		{"GroomedBy", "groomed-by", *groomedBy},
+		{"GroomStatus", "groom-status", *groomStatus},
+		{"ImplementedBy", "implemented-by", *implementedBy},
+		{"ImplementStatus", "implement-status", *implementStatus},
+		{"ReviewedBy", "reviewed-by", *reviewedBy},
+		{"ReviewStatus", "review-status", *reviewStatus},
+	} {
+		if m.val == "" {
+			continue
+		}
+		changes = append(changes, editChange{field: m.field, value: m.val, label: m.flag + "=" + m.val})
 	}
 	if reviewRefProvided {
 		if clearReviewRef {
@@ -257,12 +326,25 @@ func cmdEdit(args []string) {
 	}
 
 	// Apply each metadata change.
-	// `Agent`, `AgentStatus`, and `ReviewRef` accept the sentinel "none" to
-	// mean "clear the field"; for those a value of "none" deletes the
-	// metadata line instead of writing it. Every other field is set verbatim.
+	// Fields that accept the sentinel "none" to mean "clear the field" —
+	// for these a value of "none" deletes the metadata line instead of
+	// writing it. Every other field is set verbatim. The set tracks both
+	// the legacy single Agent/AgentStatus pair and the TB-237 per-mode
+	// pairs so the same `--<flag> none` UX clears each of them uniformly.
+	clearable := map[string]bool{
+		"Agent":           true,
+		"AgentStatus":     true,
+		"ReviewRef":       true,
+		"GroomedBy":       true,
+		"GroomStatus":     true,
+		"ImplementedBy":   true,
+		"ImplementStatus": true,
+		"ReviewedBy":      true,
+		"ReviewStatus":    true,
+	}
 	var applied []string
 	for _, change := range changes {
-		if change.value == "none" && (change.field == "Agent" || change.field == "AgentStatus" || change.field == "ReviewRef") {
+		if change.value == "none" && clearable[change.field] {
 			lines = clearField(lines, change.field)
 		} else {
 			lines = setField(lines, change.field, change.value)

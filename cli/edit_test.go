@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -676,6 +679,150 @@ func TestEditAgentStatusInterrupted(t *testing.T) {
 	content := string(data)
 	assertContains(t, content, "**AgentStatus:** interrupted")
 	assertContains(t, content, ": Edited agentstatus=interrupted")
+}
+
+// TestEditPerModeAttribution exercises the TB-237 per-mode pairs end-to-end:
+// set each pair, verify the metadata lines and log entry, then clear and
+// verify the lines are dropped.
+func TestEditPerModeAttribution(t *testing.T) {
+	initial := strings.Join([]string{
+		"# TB-1: Existing Task",
+		"",
+		"**Type:** bug",
+		"**Priority:** P2",
+		"**Size:** M",
+		"**Module:** cli",
+		"**Branch:** -",
+		"",
+		"## Goal",
+		"",
+		"Cover per-mode attribution round-trip.",
+		"",
+		"## Log",
+		"",
+		"- 2026-05-19: Created",
+		"",
+	}, "\n")
+
+	boardDir := newCommandTestBoard(t)
+	taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+	if err := os.WriteFile(taskPath, []byte(initial), 0644); err != nil {
+		t.Fatalf("write task: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		cmdEdit([]string{
+			"TB-1",
+			"--groomed-by", "claude",
+			"--groom-status", "success",
+			"--implemented-by", "codex",
+			"--implement-status", "running",
+			"--reviewed-by", "claude",
+			"--review-status", "failed",
+		})
+	})
+	assertContains(t, out, "groomed-by=claude")
+	assertContains(t, out, "groom-status=success")
+	assertContains(t, out, "implemented-by=codex")
+	assertContains(t, out, "implement-status=running")
+	assertContains(t, out, "reviewed-by=claude")
+	assertContains(t, out, "review-status=failed")
+
+	data, err := os.ReadFile(taskPath)
+	if err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	content := string(data)
+	assertContains(t, content, "**GroomedBy:** claude")
+	assertContains(t, content, "**GroomStatus:** success")
+	assertContains(t, content, "**ImplementedBy:** codex")
+	assertContains(t, content, "**ImplementStatus:** running")
+	assertContains(t, content, "**ReviewedBy:** claude")
+	assertContains(t, content, "**ReviewStatus:** failed")
+
+	// Round-trip the parser too: each per-mode pair must come back via
+	// parseTaskFile so the JSON wire shape and the GUI see the values.
+	parsed, err := parseTaskFile(taskPath)
+	if err != nil {
+		t.Fatalf("parseTaskFile: %v", err)
+	}
+	if parsed.GroomedBy != "claude" || parsed.GroomStatus != "success" {
+		t.Fatalf("groom round-trip: got (%q,%q)", parsed.GroomedBy, parsed.GroomStatus)
+	}
+	if parsed.ImplementedBy != "codex" || parsed.ImplementStatus != "running" {
+		t.Fatalf("implement round-trip: got (%q,%q)", parsed.ImplementedBy, parsed.ImplementStatus)
+	}
+	if parsed.ReviewedBy != "claude" || parsed.ReviewStatus != "failed" {
+		t.Fatalf("review round-trip: got (%q,%q)", parsed.ReviewedBy, parsed.ReviewStatus)
+	}
+
+	// "none" sentinel clears the line, mirroring --agent / --agent-status.
+	captureStdout(t, func() {
+		cmdEdit([]string{
+			"TB-1",
+			"--groomed-by", "none",
+			"--groom-status", "none",
+		})
+	})
+	data, err = os.ReadFile(taskPath)
+	if err != nil {
+		t.Fatalf("read after clear: %v", err)
+	}
+	content = string(data)
+	assertNotContains(t, metadataHeader(content), "**GroomedBy:**")
+	assertNotContains(t, metadataHeader(content), "**GroomStatus:**")
+	// The other two pairs survive — clearing one pair must not collateral-
+	// damage neighbouring fields.
+	assertContains(t, metadataHeader(content), "**ImplementedBy:** codex")
+	assertContains(t, metadataHeader(content), "**ReviewStatus:** failed")
+}
+
+// TestEditPerModeAttributionInvalidValues confirms the validator rejects
+// bad agent names and status values on the new TB-237 flags. The validator
+// calls os.Exit(1), so we exec a child test binary scoped to one of the
+// invalid-value branches and inspect its exit code + stderr.
+func TestEditPerModeAttributionInvalidValues(t *testing.T) {
+	if mode := os.Getenv("TB_TEST_PER_MODE_INVALID"); mode != "" {
+		// Child re-exec branch: build a board, write a task, then let
+		// cmdEdit reject the bogus value via os.Exit(1).
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		body := "# TB-1: child\n\n**Type:** bug\n**Priority:** P2\n**Size:** M\n**Module:** cli\n**Branch:** -\n\n## Goal\n\nfoo\n\n## Log\n\n- 2026-05-19: Created\n"
+		if err := os.WriteFile(taskPath, []byte(body), 0644); err != nil {
+			t.Fatalf("write task: %v", err)
+		}
+		switch mode {
+		case "agent":
+			cmdEdit([]string{"TB-1", "--implemented-by", "bogus"})
+		case "status":
+			cmdEdit([]string{"TB-1", "--review-status", "bogus"})
+		}
+		return
+	}
+
+	cases := []struct {
+		mode       string
+		wantStderr string
+	}{
+		{mode: "agent", wantStderr: "invalid implemented-by"},
+		{mode: "status", wantStderr: "invalid review-status"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mode, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestEditPerModeAttributionInvalidValues$", "-test.v")
+			cmd.Env = append(os.Environ(), "TB_TEST_PER_MODE_INVALID="+tc.mode)
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			exitErr := &exec.ExitError{}
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("child should exit non-zero; got err=%v\nstderr:\n%s", err, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), tc.wantStderr) {
+				t.Fatalf("expected stderr to contain %q; got:\n%s", tc.wantStderr, stderr.String())
+			}
+		})
+	}
 }
 
 func metadataHeader(content string) string {

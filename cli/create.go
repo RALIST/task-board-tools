@@ -47,6 +47,10 @@ var flagsWithValue = map[string]bool{
 	"--status": true, "--parent": true, "--agent": true, "--agent-status": true,
 	"--goal": true, "--acceptance": true, "--user-attention": true, "--title": true,
 	"--review-ref": true,
+	// TB-237: per-mode attribution flags accepted by `tb edit`.
+	"--groomed-by": true, "--groom-status": true,
+	"--implemented-by": true, "--implement-status": true,
+	"--reviewed-by": true, "--review-status": true,
 }
 
 func cmdCreate(args []string) {

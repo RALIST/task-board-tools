@@ -30,6 +30,7 @@
   } from '$lib/api';
   import { pushToast } from '$lib/stores/toast';
   import {
+    deriveEffectiveRunStatus,
     runsForTask,
     selectedRunID,
     setRunsForTask,
@@ -325,21 +326,32 @@
     };
   });
 
-  // Selected run lookup for the status pill source-of-truth (per F4.3 the
-  // pill comes from the live Run record, not from currentTask.agentStatus
-  // which lags by one tb edit).
-  let selectedRun = $derived(runs.find((r) => r.runId === $selectedRunID) ?? null);
-  let liveStatus = $derived(selectedRun?.status ?? '');
   // TB-130: task-level agentStatus is the source of truth for whether
   // Resume is available — the selected run might be an older one the
   // user is browsing while the latest interrupted run sits at the top.
   let taskAgentStatus = $derived(detail?.metadata.agentStatus ?? '');
+  // Stale-run override: if the JSONL run history reports a run as still
+  // `running`/`queued` but the task's AgentStatus has been moved to a
+  // terminal value, the run-store is stale (a `finished` JSONL write
+  // was lost, or AgentStatus was updated outside `recordTerminal` —
+  // agent self-edit, manual `tb edit`, daemon killed mid-write). Without
+  // this, the drawer pill and run history show RUNNING forever while
+  // the kanban card correctly displays the terminal indicator. The
+  // override is a pure derivation; JSONL is not mutated here.
+  let effectiveRuns = $derived(
+    runs.map((r) => ({ ...r, status: deriveEffectiveRunStatus(r.status, taskAgentStatus) })),
+  );
+  // Selected run lookup for the status pill source-of-truth (per F4.3 the
+  // pill comes from the live Run record, not from currentTask.agentStatus
+  // which lags by one tb edit).
+  let selectedRun = $derived(effectiveRuns.find((r) => r.runId === $selectedRunID) ?? null);
+  let liveStatus = $derived(selectedRun?.status ?? '');
   // Task-scoped busy check: ANY run for this task in queued/running
   // gates Run/Groom/Resume. Selected-run-scoped (liveStatus) was unsound
   // — the user could view a terminal older run while a fresh one was in
   // flight and the gate would mis-report idle.
   let taskHasActiveRun = $derived(
-    runs.some((r) => r.status === 'queued' || r.status === 'running'),
+    effectiveRuns.some((r) => r.status === 'queued' || r.status === 'running'),
   );
   let runBusy = $derived(taskHasActiveRun || runStarting || groomStarting || resumeStarting || reviewStarting);
   // TB-197/198: status-aware affordances. Submit-to-review is offered on
@@ -364,6 +376,21 @@
   );
 
   let persistedAgent = $derived((detail?.metadata.agent ?? '') as AgentName);
+
+  // TB-237: per-action attribution. Each row is an action that has at
+  // least one of (agent, status) recorded — missing actions render
+  // nothing (no placeholder rows). Mode order matches the kanban flow.
+  type PerActionRow = { mode: string; label: string; agent: string; status: string };
+  let perActionAttributions = $derived.by<PerActionRow[]>(() => {
+    const md = detail?.metadata;
+    if (!md) return [];
+    const rows: PerActionRow[] = [
+      { mode: 'groom', label: 'Groomed', agent: md.groomedBy ?? '', status: md.groomStatus ?? '' },
+      { mode: 'implement', label: 'Implemented', agent: md.implementedBy ?? '', status: md.implementStatus ?? '' },
+      { mode: 'review', label: 'Reviewed', agent: md.reviewedBy ?? '', status: md.reviewStatus ?? '' },
+    ];
+    return rows.filter((r) => r.agent !== '' || r.status !== '');
+  });
   // The dropdown falls back to the configured default agent only when the
   // task has no agent set AND the user hasn't explicitly cleared the agent
   // on this task — otherwise picking "(none)" would silently snap back to
@@ -1378,6 +1405,8 @@
                 />
               {:else}
                 <article class="body markdown">
+                  <!-- HTML is DOMPurify-sanitized in renderMarkdown(). -->
+                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                   {@html renderMarkdown(stripFrontmatter(detail.body))}
                 </article>
               {/if}
@@ -1560,6 +1589,8 @@
                   </div>
                   {#if userAttentionBody}
                     <article class="user-attention-body markdown">
+                      <!-- HTML is DOMPurify-sanitized in renderMarkdown(). -->
+                      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                       {@html renderMarkdown(userAttentionBody)}
                     </article>
                   {:else}
@@ -1660,10 +1691,25 @@
                 {/if}
               </div>
 
-              {#if runs.length > 0}
+              {#if perActionAttributions.length > 0}
+                <div class="rail-subhead">Per action</div>
+                <ul class="per-action-list" aria-label="Per-action attribution">
+                  {#each perActionAttributions as row (row.mode)}
+                    <li>
+                      <span class="mode">{row.label}</span>
+                      <span class="agent">{row.agent || '—'}</span>
+                      {#if row.status}
+                        <span class={`pill pill-${row.status}`}>{row.status}</span>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+
+              {#if effectiveRuns.length > 0}
                 <div class="rail-subhead">Run history</div>
                 <ul class="run-list" aria-label="Past runs">
-                  {#each runs as r}
+                  {#each effectiveRuns as r}
                     <li>
                       <button
                         type="button"
@@ -2250,6 +2296,32 @@
     font-family: ui-monospace, monospace;
   }
   .run-list .agent { color: var(--fg-dim); }
+
+  /* TB-237: per-action attribution list. Mirrors .run-list visually but
+     rows are plain <span>s, not buttons, because the per-mode pair is
+     read-only. */
+  .per-action-list {
+    list-style: none;
+    margin: 0 0 8px 0;
+    padding: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .per-action-list li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+  .per-action-list .mode {
+    color: var(--p1);
+    border: 1px solid rgba(255, 184, 108, 0.24);
+    border-radius: 3px;
+    padding: 0 5px;
+    font-family: ui-monospace, monospace;
+  }
+  .per-action-list .agent { color: var(--fg-dim); }
 
   .run-log-wrap {
     min-height: 0;

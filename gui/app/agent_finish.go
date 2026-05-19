@@ -161,6 +161,34 @@ func parseRunMode(mode string) agent.Mode {
 	}
 }
 
+// runModeFor scans the task's JSONL run history and returns the
+// originating mode for the given RunID (read from its `queued` event).
+// Returns ok=false when the run is missing or has no queued event.
+// TB-237 uses this to look up a resume's parent action so the per-mode
+// pair update lands on the originating mode.
+func runModeFor(boardDir, taskID, runID string) (agent.Mode, bool) {
+	path := agent.StatePath(boardDir, taskID)
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		var ev agent.Event
+		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+			continue
+		}
+		if ev.RunID != runID || ev.Event != agent.EvQueued {
+			continue
+		}
+		return parseRunMode(ev.Mode), true
+	}
+	return "", false
+}
+
 // ErrNoQueuedRun is returned by findQueuedRun when no open queued
 // event exists for the task — meaning the daemon should not pick it up
 // even if the .md says AgentStatus=queued.

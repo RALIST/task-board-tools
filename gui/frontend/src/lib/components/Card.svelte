@@ -60,6 +60,20 @@
   // and auto-implement triage.
   let isReviewFailed = $derived(task.tags?.includes('review-failed') ?? false);
 
+  // TB-237: per-action attribution chips. One chip per action that has at
+  // least one of (agent, status) recorded — missing actions render
+  // nothing. Glyphs match the mode initials (G/I/R) and inherit the
+  // status-coloured palette via .per-action-<status>.
+  type PerActionChip = { mode: string; label: string; glyph: string; agent: string; status: string };
+  let perActionChips = $derived.by<PerActionChip[]>(() => {
+    const chips: PerActionChip[] = [
+      { mode: 'groom', label: 'Groomed', glyph: 'G', agent: task.groomedBy ?? '', status: task.groomStatus ?? '' },
+      { mode: 'implement', label: 'Implemented', glyph: 'I', agent: task.implementedBy ?? '', status: task.implementStatus ?? '' },
+      { mode: 'review', label: 'Reviewed', glyph: 'R', agent: task.reviewedBy ?? '', status: task.reviewStatus ?? '' },
+    ];
+    return chips.filter((c) => c.agent !== '' || c.status !== '');
+  });
+
   $effect(() => {
     const id = task.id;
     const offStore = triageForTask(id).subscribe((reasons) => {
@@ -280,8 +294,8 @@
     <!-- Plain <div> rather than <button>: svelte-dnd-action refuses to start
          a drag when pointerdown lands on an element exposing `.value` (true
          for HTMLButtonElement) or `isContentEditable`, which made the title
-         (the largest target on the card) undraggable. -->
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
+         (the largest target on the card) undraggable. role="presentation"
+         already silences the relevant Svelte a11y warnings on the <div>. -->
     <div
       class="ttl"
       role="presentation"
@@ -301,6 +315,14 @@
         {task.agent}{task.agentStatus ? ` · ${task.agentStatus}` : ''}
       </span>
     {/if}
+    {#each perActionChips as chip (chip.mode)}
+      <span
+        class={`per-action per-action-${chip.status || 'idle'}`}
+        title={`${chip.label}${chip.agent ? `: ${chip.agent}` : ''}${chip.status ? ` · ${chip.status}` : ''}`}
+        aria-label={[chip.label, chip.agent, chip.status].filter(Boolean).join(' ')}>
+        <span class="per-action-glyph">{chip.glyph}</span>
+      </span>
+    {/each}
   </footer>
 
   {#if isEpic && progress}
@@ -587,6 +609,33 @@
     width: 12px;
     text-align: center;
     margin-right: 3px;
+    font-weight: 700;
+    color: inherit;
+  }
+
+  /* TB-237: compact per-action chips. Same colour palette as .agent-* so
+     the user can read groom/implement/review status at a glance. */
+  .per-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 4px;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 1;
+    height: 16px;
+  }
+  .per-action-queued { background: rgba(255, 184, 108, 0.18); color: var(--p1); }
+  .per-action-running { background: rgba(74, 141, 248, 0.18); color: var(--p2); }
+  .per-action-success { background: rgba(80, 200, 120, 0.18); color: #50c878; }
+  .per-action-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
+  .per-action-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
+  .per-action-interrupted { background: rgba(245, 158, 11, 0.22); color: #f59e0b; }
+  .per-action-needs-user { background: rgba(168, 85, 247, 0.22); color: #a855f7; }
+  .per-action-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
+  .per-action-glyph {
+    display: inline-block;
+    text-align: center;
     font-weight: 700;
     color: inherit;
   }

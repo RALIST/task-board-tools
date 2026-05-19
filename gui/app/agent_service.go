@@ -183,6 +183,11 @@ type activeRun struct {
 	Agent  string
 	Mode   string
 
+	// ParentMode is the originating action's mode when Mode == ModeResume
+	// (TB-237): the per-mode pair we update at terminal mirrors the action
+	// the resume is continuing, not "resume" itself. Empty for fresh runs.
+	ParentMode string
+
 	// Pid/Pgid are populated by the Runner's OnStarted callback after
 	// cmd.Start() succeeds. Pgid is the leader's PID (matches Pid because
 	// the runner sets Setpgid=true).

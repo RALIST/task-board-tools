@@ -65,6 +65,49 @@ func promptVarsFromDetail(detail TaskDetail) agent.PromptVars {
 	}
 }
 
+// effectiveMode returns the mode that the per-mode attribution pair should
+// target for ar's run. For a fresh run that's just ar.Mode; for a resume
+// run it's the parent's originating mode (TB-237: resume updates the
+// originating action's pair, never a fourth slot).
+func effectiveMode(ar *activeRun) agent.Mode {
+	m := agent.Mode(ar.Mode)
+	if m == agent.ModeResume {
+		if pm := agent.Mode(ar.ParentMode); pm != "" && pm != agent.ModeResume {
+			return pm
+		}
+		return agent.ModeImplement
+	}
+	return m
+}
+
+// applyPerModeAttribution copies the (agent, status) pair into the
+// per-mode attribution fields on edit that match mode. The legacy
+// AgentStatus / Agent fields are not touched here — callers set those
+// directly. A run mode outside the three kanban actions is a no-op so a
+// future mode addition cannot accidentally overwrite an unrelated pair.
+//
+// Each per-mode pair reflects the most recent terminal state for THAT
+// action — same "latest wins" semantics as the legacy pair, just scoped.
+// So a cancelled resume of a previously-successful implement writes
+// implement-status=cancelled; the per-mode pair is not a "last-success"
+// sticky. needs-user is the one exception: recordTerminal's carve-out
+// gates this call on shouldWriteStatus, so an agent-set needs-user is
+// preserved on AgentStatus and the per-mode pair retains its prior
+// terminal value (the per-mode enum has no needs-user slot by design).
+func applyPerModeAttribution(edit *cli.EditInput, mode agent.Mode, agentName, status string) {
+	switch mode {
+	case agent.ModeGroom:
+		edit.GroomedBy = agentName
+		edit.GroomStatus = status
+	case agent.ModeImplement:
+		edit.ImplementedBy = agentName
+		edit.ImplementStatus = status
+	case agent.ModeReview:
+		edit.ReviewedBy = agentName
+		edit.ReviewStatus = status
+	}
+}
+
 func runMethodName(mode agent.Mode) string {
 	switch mode {
 	case agent.ModeGroom:
@@ -184,16 +227,24 @@ func (s *AgentService) ResumeAgent(ctx context.Context, id string) (string, erro
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	envSlice := envSliceFromMap(candidate.Env)
+	parentMode := candidate.Mode
+	if parentMode == "" || parentMode == agent.ModeResume {
+		// "No recursive resume" (TB-130 spec §5): a chained resume should
+		// never appear in practice, but guard defensively so the per-mode
+		// update still lands on a real action slot.
+		parentMode = agent.ModeImplement
+	}
 	ar := &activeRun{
-		RunID:     runID,
-		TaskID:    id,
-		Agent:     agentName,
-		Mode:      agent.ModeResume.String(),
-		Cancel:    cancel,
-		Done:      make(chan struct{}),
-		SessionID: candidate.SessionID,
-		Cwd:       candidate.Cwd,
-		Env:       envSlice,
+		RunID:      runID,
+		TaskID:     id,
+		Agent:      agentName,
+		Mode:       agent.ModeResume.String(),
+		ParentMode: parentMode.String(),
+		Cancel:     cancel,
+		Done:       make(chan struct{}),
+		SessionID:  candidate.SessionID,
+		Cwd:        candidate.Cwd,
+		Env:        envSlice,
 	}
 
 	s.mu.Lock()
@@ -451,6 +502,7 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 		resumeSessionID string
 		resumeCwd       string
 		resumeEnv       []string
+		parentMode      agent.Mode
 	)
 	if qr.Mode == agent.ModeResume {
 		if qr.ResumedFrom == "" || qr.ResumedFromRun == "" {
@@ -463,6 +515,15 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 		resumeSessionID = qr.ResumedFrom
 		resumeCwd = cwd
 		resumeEnv = envSliceFromMap(envMap)
+		// TB-237: look up the parent run's originating mode so the per-mode
+		// pair update at terminal lands on the right action. Fall back to
+		// ModeImplement when the parent JSONL is too old to carry mode.
+		if m, ok := runModeFor(boardDir, id, qr.ResumedFromRun); ok {
+			parentMode = m
+		}
+		if parentMode == "" || parentMode == agent.ModeResume {
+			parentMode = agent.ModeImplement
+		}
 	}
 
 	// Do not derive the runner context directly from ctx: if daemon
@@ -472,15 +533,16 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 	// failed{context canceled}.
 	runCtx, cancel := context.WithCancel(context.Background())
 	ar := &activeRun{
-		RunID:     qr.RunID,
-		TaskID:    id,
-		Agent:     agentName,
-		Mode:      qr.Mode.String(),
-		Cancel:    cancel,
-		Done:      make(chan struct{}),
-		SessionID: resumeSessionID,
-		Cwd:       resumeCwd,
-		Env:       resumeEnv,
+		RunID:      qr.RunID,
+		TaskID:     id,
+		Agent:      agentName,
+		Mode:       qr.Mode.String(),
+		ParentMode: parentMode.String(),
+		Cancel:     cancel,
+		Done:       make(chan struct{}),
+		SessionID:  resumeSessionID,
+		Cwd:        resumeCwd,
+		Env:        resumeEnv,
 	}
 
 	s.mu.Lock()
@@ -539,6 +601,17 @@ func (s *AgentService) HasActiveRun(taskID string) bool {
 	_, ok := s.active[taskID]
 	s.mu.Unlock()
 	return ok
+}
+
+// hasActiveRunID reports whether AgentService is tracking the specific
+// (taskID, runID) pair. ListRuns uses this to distinguish a "detached"
+// queued/running JSONL entry (no goroutine attached) from one that
+// AgentService is actively managing.
+func (s *AgentService) hasActiveRunID(taskID, runID string) bool {
+	s.mu.Lock()
+	ar, ok := s.active[taskID]
+	s.mu.Unlock()
+	return ok && ar != nil && ar.RunID == runID
 }
 
 // runGoroutine owns steps 5–7 of the lifecycle. It is invoked from
@@ -801,7 +874,13 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 			}
 		}
 		if shouldWriteStatus {
-			if err := c.Edit(context.Background(), ar.TaskID, cli.EditInput{AgentStatus: string(status)}); err != nil {
+			// TB-237: the per-mode pair is written under the same gate as
+			// the legacy AgentStatus so the needs-user carve-out also
+			// covers per-mode (matches AC "needs-user stays a single-
+			// cursor status … no per-mode needs-user fields").
+			edit := cli.EditInput{AgentStatus: string(status)}
+			applyPerModeAttribution(&edit, effectiveMode(ar), ar.Agent, string(status))
+			if err := c.Edit(context.Background(), ar.TaskID, edit); err != nil {
 				slog.Warn("agent: AgentStatus write failed", "task", ar.TaskID, "run", ar.RunID, "status", status, "err", err)
 			}
 		}
