@@ -136,6 +136,19 @@ Configuration:
   tb discovers .tb.yaml by walking up from the current directory.
   Fallback: TB_BOARD_DIR environment variable.
 
+Shell quoting for Markdown command spans:
+  Backticks inside DOUBLE quotes are command substitution in bash/zsh — the
+  shell runs the inner command BEFORE tb sees its arguments. To keep literal
+  ` + "`tb init`" + `-style spans in a title or description, use single quotes:
+
+    tb create 'Try ` + "`tb init`" + ` first' -d 'See ` + "`tb --help`" + `'
+
+  For richer Markdown bodies, prefer a heredoc via tb edit:
+
+    tb edit TB-123 --goal - <<'EOF'
+    See ` + "`tb init`" + ` and ` + "`tb --help`" + ` for details.
+    EOF
+
 Project refresh:
   Run tb init in an existing project to reconcile generated project files.
   Existing generated docs and the annotated .tb.yaml config surface are refreshed

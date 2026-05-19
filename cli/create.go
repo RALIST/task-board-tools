@@ -15,6 +15,30 @@ var (
 	validSizes      = map[string]bool{"S": true, "M": true, "L": true, "XL": true}
 )
 
+// createShellQuotingHelp explains the safe quoting recipes for task text that
+// contains Markdown command spans. It is printed after the flag list by
+// `tb create --help` so the user sees it next to the values they're trying to
+// quote.
+const createShellQuotingHelp = `
+Markdown command spans:
+  Backticks inside DOUBLE quotes are evaluated by your shell BEFORE tb runs.
+  For example, in bash/zsh:
+
+    tb create "Try ` + "`tb init`" + `"          # WRONG — shell runs ` + "`tb init`" + `
+
+  Use SINGLE quotes (or escape) so the backticks reach tb literally:
+
+    tb create 'Try ` + "`tb init`" + `' -d 'Run ` + "`tb --help`" + `'
+
+  For multi-line bodies or richer Markdown, prefer a heredoc via tb edit so
+  shell quoting cannot eat the contents:
+
+    tb create 'My task title' -m mymod
+    tb edit TB-123 --goal - <<'EOF'
+    See ` + "`tb init`" + ` and ` + "`tb --help`" + ` for details.
+    EOF
+`
+
 // flagsWithValue lists flags that consume the next argument. reorderArgs uses
 // this to know which args after a flag belong to that flag versus being a
 // positional. Bool flags (e.g. --json, --epic) are NOT in this map.
@@ -22,6 +46,7 @@ var flagsWithValue = map[string]bool{
 	"-p": true, "-T": true, "-s": true, "-m": true, "-t": true, "-d": true, "-a": true,
 	"--status": true, "--parent": true, "--agent": true, "--agent-status": true,
 	"--goal": true, "--acceptance": true, "--user-attention": true, "--title": true,
+	"--review-ref": true,
 }
 
 func cmdCreate(args []string) {
@@ -40,6 +65,7 @@ func cmdCreate(args []string) {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: tb create \"Title\" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--status backlog] [--legacy-file]\n\n")
 		fs.PrintDefaults()
+		fmt.Fprint(os.Stderr, createShellQuotingHelp)
 	}
 
 	// Go's flag package stops at the first non-flag argument, so
@@ -52,6 +78,7 @@ func cmdCreate(args []string) {
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "error: title is required\n\nUsage: tb create \"My task title\" -m module [-d \"description\"] [--legacy-file]")
+		fmt.Fprint(os.Stderr, createShellQuotingHelp)
 		os.Exit(1)
 	}
 	title := fs.Arg(0)

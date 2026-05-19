@@ -112,6 +112,44 @@ func TestCreateFolderTaskUpdatesParentSubtasks(t *testing.T) {
 	assertContains(t, parentContent, "Child Task\n\n## Acceptance Criteria")
 }
 
+// TestCreatePreservesLiteralBackticks asserts that when the argv reaching
+// cmdCreate already contains literal Markdown code spans, the saved task
+// file keeps them verbatim — no command substitution, no escaping, no
+// re-rendering. The shell-quoting pitfall is documented separately in help
+// text; the CLI's contract is to round-trip whatever argv it receives.
+func TestCreatePreservesLiteralBackticks(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	root := filepath.Dir(boardDir)
+
+	const (
+		literalTitle = "Try to init board with `tb init` and check if command passes"
+		literalDesc  = "Some description included command `tb --help`"
+	)
+
+	withWorkingDirForTest(t, root, func() {
+		captureStdout(t, func() {
+			cmdCreate([]string{
+				literalTitle,
+				"-m", "cli",
+				"-d", literalDesc,
+			})
+		})
+	})
+
+	taskPath := filepath.Join(boardDir, "backlog", "TB-2", folderTaskFileName)
+	assertPathExists(t, taskPath)
+	content := readFileForTest(t, taskPath)
+
+	assertContains(t, content, "# TB-2: "+literalTitle)
+	assertContains(t, content, "## Goal\n\n"+literalDesc+"\n")
+
+	// Backtick characters and the surrounded command names must survive
+	// verbatim. If anything along the cmdCreate path stripped, escaped, or
+	// re-rendered them, these assertions would fail.
+	assertContains(t, content, "`tb init`")
+	assertContains(t, content, "`tb --help`")
+}
+
 func TestCreateLegacyFileFlag(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	root := filepath.Dir(boardDir)
