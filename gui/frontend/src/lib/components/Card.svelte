@@ -1,8 +1,9 @@
 <script lang="ts">
   import { Events } from '@wailsio/runtime';
-  import { renameTask, type Task } from '$lib/api';
+  import { renameTask, resumeAgent, type Task } from '$lib/api';
   import { suggestGroom } from '$lib/stores/groomSuggestion';
   import { pushToast } from '$lib/stores/toast';
+  import { upsertRun } from '$lib/stores/runs';
   import { registerTaskTriageEventHandler, triageForTask } from '$lib/stores/triage';
 
   interface Props {
@@ -62,6 +63,38 @@
     ev.stopPropagation();
     suggestGroom(task.id);
     onSelect?.(task.id);
+  }
+
+  // TB-130: Resume icon-button on the card surface — saves the user
+  // from opening the drawer when they spot an interrupted task on the
+  // kanban. Visibility is gated on agentStatus === 'interrupted' (the
+  // task-level status, written by RecoverStale; the agent must
+  // resolve to a runnable name before we can issue ResumeAgent).
+  let resumeBusy = $state(false);
+  let canResumeOnCard = $derived(task.agentStatus === 'interrupted' && !!task.agent && !resumeBusy);
+
+  async function onCardResume(ev: MouseEvent | KeyboardEvent) {
+    ev.stopPropagation();
+    if (!canResumeOnCard) return;
+    resumeBusy = true;
+    try {
+      const runId = await resumeAgent(task.id);
+      // Optimistic queued row matches the drawer's onResumeClick so
+      // the Wails event soon refreshes it with the resume chip.
+      upsertRun({
+        runId,
+        taskId: task.id,
+        agent: task.agent ?? 'claude',
+        mode: 'resume',
+        status: 'queued',
+        queuedAt: new Date().toISOString(),
+      });
+      pushToast(`Resumed ${task.id}`, 'success');
+    } catch (e) {
+      pushToast(`Resume failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      resumeBusy = false;
+    }
   }
 
   function onCardKeydown(ev: KeyboardEvent) {
@@ -196,6 +229,15 @@
           onclick={openForGroom}>!</button>
       {/if}
     </span>
+    {#if task.agentStatus === 'interrupted'}
+      <button
+        class="resume-indicator"
+        type="button"
+        title={canResumeOnCard ? `Resume agent session for ${task.id}` : 'No runnable agent assigned'}
+        aria-label={`Resume agent session for ${task.id}`}
+        disabled={!canResumeOnCard}
+        onclick={onCardResume}>↻</button>
+    {/if}
   </header>
 
   {#if renaming}
@@ -345,6 +387,25 @@
   }
   .groom-indicator:hover { background: rgba(255, 184, 108, 0.28); }
   .groom-indicator:focus-visible { outline: 2px solid var(--p1); outline-offset: 1px; }
+
+  .resume-indicator {
+    margin-left: 4px;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    border: 0;
+    padding: 0;
+    border-radius: 50%;
+    background: rgba(245, 158, 11, 0.18);
+    color: #f59e0b;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .resume-indicator:hover:not(:disabled) { background: rgba(245, 158, 11, 0.32); }
+  .resume-indicator:disabled { opacity: 0.4; cursor: not-allowed; }
+  .resume-indicator:focus-visible { outline: 2px solid #f59e0b; outline-offset: 1px; }
   .pri-p0 { background: var(--p0); color: white; }
   .pri-p1 { background: var(--p1); color: black; }
   .pri-p2 { background: rgba(74, 141, 248, 0.18); color: var(--p2); }

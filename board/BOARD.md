@@ -89,6 +89,7 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-231 | Address TB-130 adversarial review findings | bug | gui |
 | TB-230 | CLI: avoid backups when init content is unchanged | bug | cli |
 | TB-229 | CLI: reconcile .tb.yaml with annotated config template | improvement | cli |
 | TB-228 | CLI: make init refresh existing boards by default | improvement | cli |
@@ -138,4 +139,3 @@
 | TB-149 | TB-93/GUI: Windows cmd.exe metacharacter injection in OpenAttachment | bug | gui |
 | TB-148 | TB-93/CLI: confirm TB-96 hard-error reverted to warn+self-heal is intentional | tech-debt | cli |
 | TB-147 | TB-93/CLI: implement startup recovery sweep for stale .promote/.attach staging dirs OR amend doc | tech-debt | cli |
-| TB-146 | TB-93/CLI: attach promotion orphans file-form agent state + logs | bug | cli |

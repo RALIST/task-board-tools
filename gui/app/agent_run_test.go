@@ -1229,6 +1229,131 @@ func TestResumeCycle_KillRecoverResume(t *testing.T) {
 	}
 }
 
+// TestRunQueuedAgentSync_ResumeRehydratesParentContext is the
+// adversarial-review BLOCKER fix: if the GUI crashes after
+// ResumeAgent appends the queued event (with resumed_from +
+// resumed_from_run + mode:"resume") but BEFORE the goroutine spawns,
+// the daemon's RunQueuedAgentSync replays the run from the JSONL.
+// Without rehydration, the runner would launch as a fresh implement
+// (no -r flag for Claude, no `resume <uuid>` for Codex) — resume
+// silently turns into "start over". This test seeds the exact
+// crash-before-spawn state and asserts the rehydrated RunInput.
+func TestRunQueuedAgentSync_ResumeRehydratesParentContext(t *testing.T) {
+	stub := &stubRunner{name: "claude", stdoutLines: []string{"resumed"}, exitCode: 0}
+	svc, _ := realTbBoardForRun(t, "claude", stub)
+	c := svc.board.snapshot()
+	boardDir, err := svc.board.resolveBoardDir(context.Background())
+	if err != nil {
+		t.Fatalf("resolveBoardDir: %v", err)
+	}
+
+	// Parent run with a session event — the resume context source.
+	parentRunID := "r_parent"
+	parentSessionID := "11111111-2222-4333-8444-555555555555"
+	parentCwd := boardDir
+	parentEnv := map[string]string{"TB_BOARD_PATH": boardDir}
+	parentEvents := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-14T10:00:01Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 4242},
+		{TS: "2026-05-14T10:00:02Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvSession,
+			SessionID: parentSessionID, PID: 4242, Cwd: parentCwd, RunEnv: parentEnv,
+		},
+		{TS: "2026-05-14T10:00:03Z", RunID: parentRunID, TaskID: "TB-1", Event: agent.EvFinished,
+			Status: agent.StatusInterrupted, ExitCode: -1, Reason: "interrupted by daemon restart"},
+	}
+	for _, ev := range parentEvents {
+		if err := agent.AppendEvent(boardDir, "TB-1", ev); err != nil {
+			t.Fatalf("append parent: %v", err)
+		}
+	}
+
+	// Resume queued event without subsequent started — exactly the
+	// state ResumeAgent leaves behind if the goroutine never spawns.
+	resumeRunID := "r_resume"
+	resumeQueued := agent.Event{
+		TS: "2026-05-14T11:00:00Z", RunID: resumeRunID, TaskID: "TB-1",
+		Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeResume.String(),
+		ResumedFrom: parentSessionID, ResumedFromRun: parentRunID,
+	}
+	if err := agent.AppendEvent(boardDir, "TB-1", resumeQueued); err != nil {
+		t.Fatalf("append resume queued: %v", err)
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("seed queued: %v", err)
+	}
+
+	// Daemon replay.
+	finalStatus, err := svc.RunQueuedAgentSync(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("RunQueuedAgentSync: %v", err)
+	}
+	if finalStatus != "success" {
+		t.Errorf("final status = %q, want success", finalStatus)
+	}
+
+	in := stub.input()
+	if in.Mode != agent.ModeResume {
+		t.Errorf("replayed RunInput.Mode = %q, want %q (mode was discarded)", in.Mode, agent.ModeResume)
+	}
+	if in.SessionID != parentSessionID {
+		t.Errorf("replayed RunInput.SessionID = %q, want %q (parent session was not rehydrated)", in.SessionID, parentSessionID)
+	}
+	if in.ProjectRoot != parentCwd {
+		t.Errorf("replayed RunInput.ProjectRoot = %q, want %q (parent cwd was not rehydrated)", in.ProjectRoot, parentCwd)
+	}
+	if in.Prompt != agent.PromptResume {
+		t.Errorf("replayed RunInput.Prompt did not match PromptResume; resume decorator skipped on replay")
+	}
+	var sawBoardPath bool
+	for _, kv := range in.Env {
+		if kv == "TB_BOARD_PATH="+boardDir {
+			sawBoardPath = true
+			break
+		}
+	}
+	if !sawBoardPath {
+		t.Errorf("replayed env missing TB_BOARD_PATH=%s; got %v", boardDir, in.Env)
+	}
+}
+
+// TestRunQueuedAgentSync_ResumeRejectsMissingParent guards the
+// rehydration error path: a malformed queued resume event (no
+// resumed_from / resumed_from_run, or a resumed_from_run that points
+// at a non-existent run) must NOT silently degrade to a fresh implement
+// — that was the exact failure the BLOCKER fix targets.
+func TestRunQueuedAgentSync_ResumeRejectsMissingParent(t *testing.T) {
+	stub := &stubRunner{name: "claude", exitCode: 0}
+	svc, _ := realTbBoardForRun(t, "claude", stub)
+	c := svc.board.snapshot()
+	boardDir, err := svc.board.resolveBoardDir(context.Background())
+	if err != nil {
+		t.Fatalf("resolveBoardDir: %v", err)
+	}
+
+	// Resume queued event whose resumed_from_run points at a run that
+	// has no session event in this JSONL.
+	resumeRunID := "r_resume"
+	bad := agent.Event{
+		TS: "2026-05-14T11:00:00Z", RunID: resumeRunID, TaskID: "TB-1",
+		Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeResume.String(),
+		ResumedFrom: "11111111-2222-4333-8444-555555555555", ResumedFromRun: "r_missing",
+	}
+	if err := agent.AppendEvent(boardDir, "TB-1", bad); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("seed queued: %v", err)
+	}
+
+	_, err = svc.RunQueuedAgentSync(context.Background(), "TB-1")
+	if err == nil {
+		t.Fatalf("RunQueuedAgentSync: expected error for missing parent run, got nil")
+	}
+	if !strings.Contains(err.Error(), "rehydrate") {
+		t.Fatalf("error should mention rehydrate failure; got %v", err)
+	}
+}
+
 // TestResumeCycle_KillBeforeSessionStaysFailed locks the negative
 // contract: when the mid-flight kill happens BEFORE a session id was
 // captured, recovery falls through to `failed` (resume isn't possible

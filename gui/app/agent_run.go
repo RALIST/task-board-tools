@@ -394,31 +394,53 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 	// When findQueuedRun returns ErrNoQueuedRun, the daemon owns the
 	// queued lifecycle: synthesise a fresh run_id + JSONL queued event +
 	// agent:run-queued emit so the frontend's run history surfaces it.
-	runID, mode, err := findQueuedRun(boardDir, id)
+	qr, err := findQueuedRun(boardDir, id)
 	if errors.Is(err, ErrNoQueuedRun) {
-		runID = agent.GenerateRunID()
-		mode = agent.ModeImplement
+		qr = queuedRun{RunID: agent.GenerateRunID(), Mode: agent.ModeImplement}
 		now := time.Now().UTC().Format(time.RFC3339)
 		if err := agent.AppendEvent(boardDir, id, agent.Event{
 			TS:     now,
-			RunID:  runID,
+			RunID:  qr.RunID,
 			TaskID: id,
 			Event:  agent.EvQueued,
 			Agent:  agentName,
-			Mode:   mode.String(),
+			Mode:   qr.Mode.String(),
 		}); err != nil {
 			return "", fmt.Errorf("RunQueuedAgentSync: append synthetic queued: %w", err)
 		}
 		s.emit("agent:run-queued", map[string]any{
-			"run_id":  runID,
+			"run_id":  qr.RunID,
 			"task_id": id,
 			"agent":   agentName,
-			"mode":    mode.String(),
+			"mode":    qr.Mode.String(),
 		})
 	} else if err != nil {
 		return "", fmt.Errorf("RunQueuedAgentSync: find queued run: %w", err)
 	}
-	runner = runnerForMode(runner, mode, detail)
+	runner = runnerForMode(runner, qr.Mode, detail)
+
+	// TB-130 BLOCKER fix: a daemon replay of a `mode:"resume"` queued run
+	// MUST rehydrate the parent session id + cwd + env, otherwise the
+	// runner would silently launch as a fresh implement (claude gets no
+	// `-r <uuid>`, codex gets `exec --json <prompt>` without resume).
+	// Resume turns into "start over" with no error surfaced to the user.
+	var (
+		resumeSessionID string
+		resumeCwd       string
+		resumeEnv       []string
+	)
+	if qr.Mode == agent.ModeResume {
+		if qr.ResumedFrom == "" || qr.ResumedFromRun == "" {
+			return "", fmt.Errorf("RunQueuedAgentSync: resume queued event missing resume linkage (run=%s)", qr.RunID)
+		}
+		cwd, envMap, ok := runSessionContext(boardDir, id, qr.ResumedFromRun)
+		if !ok {
+			return "", fmt.Errorf("RunQueuedAgentSync: parent run %s has no session event — cannot rehydrate resume", qr.ResumedFromRun)
+		}
+		resumeSessionID = qr.ResumedFrom
+		resumeCwd = cwd
+		resumeEnv = envSliceFromMap(envMap)
+	}
 
 	// Do not derive the runner context directly from ctx: if daemon
 	// shutdown closes ctx first, the runner can return context.Canceled
@@ -427,12 +449,15 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 	// failed{context canceled}.
 	runCtx, cancel := context.WithCancel(context.Background())
 	ar := &activeRun{
-		RunID:  runID,
-		TaskID: id,
-		Agent:  agentName,
-		Mode:   mode.String(),
-		Cancel: cancel,
-		Done:   make(chan struct{}),
+		RunID:     qr.RunID,
+		TaskID:    id,
+		Agent:     agentName,
+		Mode:      qr.Mode.String(),
+		Cancel:    cancel,
+		Done:      make(chan struct{}),
+		SessionID: resumeSessionID,
+		Cwd:       resumeCwd,
+		Env:       resumeEnv,
 	}
 
 	s.mu.Lock()

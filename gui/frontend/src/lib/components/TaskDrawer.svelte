@@ -248,7 +248,14 @@
   // Resume is available — the selected run might be an older one the
   // user is browsing while the latest interrupted run sits at the top.
   let taskAgentStatus = $derived(detail?.metadata.agentStatus ?? '');
-  let runBusy = $derived(liveStatus === 'queued' || liveStatus === 'running' || runStarting || groomStarting || resumeStarting);
+  // Task-scoped busy check: ANY run for this task in queued/running
+  // gates Run/Groom/Resume. Selected-run-scoped (liveStatus) was unsound
+  // — the user could view a terminal older run while a fresh one was in
+  // flight and the gate would mis-report idle.
+  let taskHasActiveRun = $derived(
+    runs.some((r) => r.status === 'queued' || r.status === 'running'),
+  );
+  let runBusy = $derived(taskHasActiveRun || runStarting || groomStarting || resumeStarting);
   let canResume = $derived(taskAgentStatus === 'interrupted' && !runBusy);
   let groomEmphasized = $derived(groomReasons.length > 0 || groomHighlight);
   let persistedAgent = $derived((detail?.metadata.agent ?? '') as AgentName);
@@ -1070,11 +1077,14 @@
                   onclick={onRunClick}>
                   {runStarting ? 'Starting…' : 'Run'}
                 </button>
-                {#if canResume}
+                {#if taskAgentStatus === 'interrupted'}
                   <button
                     class="primary compact resume"
                     type="button"
-                    title="Continue the previous agent session"
+                    disabled={!canResume}
+                    title={canResume
+                      ? 'Continue the previous agent session'
+                      : 'Another run is in progress for this task'}
                     onclick={onResumeClick}>
                     {resumeStarting ? 'Resuming…' : 'Resume'}
                   </button>

@@ -162,7 +162,7 @@ func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDi
 		r.logger.Info("recovery: stale running with session; marking interrupted",
 			"task", t.ID, "run", latest.RunID, "pid", latest.PID,
 			"agent", expectedAgent, "session", latest.SessionID)
-		return r.markInterrupted(ctx, c, boardDir, t, latest.RunID, "interrupted by daemon restart")
+		return r.markInterrupted(ctx, c, boardDir, t, latest.RunID, latest.SessionID, "interrupted by daemon restart")
 	}
 
 	r.logger.Info("recovery: stale running; marking failed",
@@ -176,8 +176,10 @@ func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDi
 // user can then click Resume to continue the captured session. The
 // validator (cli/task.go validAgentStatuses) was widened in TB-131
 // to accept "interrupted" via the same `tb edit --agent-status` path
-// every other status goes through.
-func (r *RecoveryService) markInterrupted(ctx context.Context, c *cli.Client, boardDir string, t Task, runID, reason string) error {
+// every other status goes through. sessionID is included in the Wails
+// emit so the frontend can display resume state without re-reading
+// JSONL (TB-130 review NIT).
+func (r *RecoveryService) markInterrupted(ctx context.Context, c *cli.Client, boardDir string, t Task, runID, sessionID, reason string) error {
 	if runID == "" {
 		runID = agent.GenerateRunID()
 	}
@@ -196,8 +198,28 @@ func (r *RecoveryService) markInterrupted(ctx context.Context, c *cli.Client, bo
 	if err := c.Edit(ctx, t.ID, cli.EditInput{AgentStatus: "interrupted"}); err != nil {
 		return fmt.Errorf("edit interrupted: %w", err)
 	}
-	r.emitFinished(runID, t.ID, string(agent.StatusInterrupted), -1, reason)
+	r.emitFinishedWithSession(runID, t.ID, string(agent.StatusInterrupted), -1, reason, sessionID)
 	return nil
+}
+
+// emitFinishedWithSession mirrors emitFinished but adds a session_id
+// to the Wails payload (TB-130). Kept as a separate helper so the
+// existing markFailed call sites stay unchanged.
+func (r *RecoveryService) emitFinishedWithSession(runID, taskID, status string, exitCode int, reason, sessionID string) {
+	if r.agent == nil {
+		return
+	}
+	payload := map[string]any{
+		"run_id":    runID,
+		"task_id":   taskID,
+		"status":    status,
+		"exit_code": exitCode,
+		"reason":    reason,
+	}
+	if sessionID != "" {
+		payload["session_id"] = sessionID
+	}
+	r.agent.emit("agent:run-finished", payload)
 }
 
 // markFailed appends synthetic finished{failed} JSONL for the given
