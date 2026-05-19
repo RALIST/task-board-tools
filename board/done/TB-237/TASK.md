@@ -88,7 +88,7 @@ Tests run:
 - `cd gui/frontend && npm test -- --run` — 190/190 tests pass.
 
 Follow-up resolution (post-review):
-- **nit #3 — addressed** in commits e0db4e7 (new TestRecordTerminalPerModeAttribution + TestRecordTerminalResumeUsesParentMode) and 861d474 (extends TestRunQueuedAgentSync_ResumeRehydratesParentContext to seed `Mode: ModeGroom` on the parent and assert the daemon-replay resume writes `**GroomedBy:** claude` / `**GroomStatus:** success`). Closes the regression gap on the daemon-replay branch of TB-237. See also [TB-256](../../done/TB-256/TASK.md) which tracked this exact follow-up.
+- **nit #3 — addressed** in commits e0db4e7 (new TestRecordTerminalPerModeAttribution + TestRecordTerminalResumeUsesParentMode) and 861d474 (extends TestRunQueuedAgentSync_ResumeRehydratesParentContext to seed `Mode: ModeGroom` on the parent and assert the daemon-replay resume writes `**GroomedBy:** claude` / `**GroomStatus:** success`). Closes the regression gap on the daemon-replay branch of TB-237. See also [TB-256](../../backlog/TB-256/TASK.md) which tracked this exact follow-up (its body notes that 861d474 should satisfy it — user to verify and close).
 - **nit #1 — tracked by [TB-254](../../backlog/TB-254/TASK.md)**: stale recovery doesn't update per-mode pairs when marking `interrupted`/`failed`. The AC explicitly called out `agent_run.go` / `agent_finish.go` (the terminal-write path), so this fits as a small follow-up.
 - **nit #2 — tracked by [TB-255](../../backlog/TB-255/TASK.md)**: TaskDrawer doesn't visually hint that a per-mode row is stale while a fresh same-action run is in flight. The displayed value matches the documented "most recent terminal state" semantics, but a small UX dim/`(updating…)` chip would remove the ambiguity.
 
