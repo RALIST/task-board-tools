@@ -48,6 +48,7 @@ Run checks from the module directories:
 ```bash
 cd cli && go test ./...
 cd gui && go test ./...
+make lint-go       # runs golangci-lint in cli/ and gui/ via the root wrapper
 cd gui/frontend && npm install
 cd gui/frontend && npm run check
 cd gui/frontend && npm run lint        # ESLint (typescript-eslint + Svelte 5)

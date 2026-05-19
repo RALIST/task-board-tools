@@ -16,6 +16,7 @@ In short: create tasks for work items and move them across columns as they progr
 - `cd cli && go build -o tb .` builds the CLI.
 - `cd cli && go test ./...` runs CLI tests.
 - `cd gui && go test ./...` runs GUI backend tests.
+- `make lint-go` runs golangci-lint for both Go modules by entering `cli/` and `gui/` explicitly; set `GOLANGCI_LINT=/path/to/golangci-lint` when the binary is not on `PATH`.
 - `cd gui/frontend && npm install` installs frontend dependencies.
 - `cd gui/frontend && npm run check` runs Svelte/TypeScript checks.
 - `cd gui/frontend && npm run lint` runs ESLint (typescript-eslint + eslint-plugin-svelte).

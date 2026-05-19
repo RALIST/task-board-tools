@@ -86,6 +86,14 @@ cd cli && go test ./...
 cd gui && go test ./...
 ```
 
+**Go lint**:
+
+```bash
+make lint-go
+# or, when golangci-lint is not on PATH:
+GOLANGCI_LINT=/Users/ralist/go/bin/golangci-lint make lint-go
+```
+
 **GUI frontend**:
 
 ```bash
