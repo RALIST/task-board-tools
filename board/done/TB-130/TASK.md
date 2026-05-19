@@ -95,33 +95,33 @@ TB-133 and TB-134 land):
 
 ## Acceptance Criteria
 
-- [ ] All 12 sub-tasks (TB-131 through TB-142) merged.
-- [ ] **Fake-runner contract:** killing the fake runner mid-stream
+- [x] All 12 sub-tasks (TB-131 through TB-142) merged.
+- [x] **Fake-runner contract:** killing the fake runner mid-stream
       after a SessionID is captured leaves the task in `interrupted`,
       not `failed`.
-- [ ] **Fake-runner contract:** killing the fake runner mid-stream
+- [x] **Fake-runner contract:** killing the fake runner mid-stream
       BEFORE a SessionID is captured leaves the task in `failed`
       (existing behaviour, unchanged).
-- [ ] **Fake-runner contract:** clicking Resume on an `interrupted`
+- [x] **Fake-runner contract:** clicking Resume on an `interrupted`
       task spawns a new fake run with the expected resume flag
       (`-r <uuid>` for Claude, `resume <uuid>` for Codex), the
       expected `Cwd`, the expected `Env["TB_BOARD_PATH"]`, and the
       resume prompt body. The resumed run's `queued` JSONL event
       carries `resumed_from: <uuid>` and `resumed_from_run: <runid>`.
-- [ ] `RunAgent` and `ResumeAgent` produce visibly distinct entries in
+- [x] `RunAgent` and `ResumeAgent` produce visibly distinct entries in
       run history (different `mode`, `resumed_from` chip on Resume).
-- [ ] Cancelled carve-out unchanged: a user-cancelled task with a
+- [x] Cancelled carve-out unchanged: a user-cancelled task with a
       SessionID still becomes `cancelled` on recovery, never
       `interrupted`.
-- [ ] No regression: `worktrees.enabled: false` boards still work.
+- [x] No regression: `worktrees.enabled: false` boards still work.
       Resume runs in the persisted `cwd` (verified via fake runner
       assertion); a future TB-114 board hands the worktree path
       through unchanged.
-- [ ] Documentation invariants in `CLAUDE.md`, `cli/CLAUDE.md`, and
+- [x] Documentation invariants in `CLAUDE.md`, `cli/CLAUDE.md`, and
       `docs/ARCHITECTURE.md` reflect `interrupted`, the resume flow,
       the post-`started` session-write rule, and the `TB_`-prefix env
       allowlist.
-- [ ] `run_env` JSONL never contains a key without a `TB_` prefix
+- [x] `run_env` JSONL never contains a key without a `TB_` prefix
       (asserted by TB-132 and TB-141).
 
 ## Related Tasks
@@ -138,3 +138,5 @@ TB-133 and TB-134 land):
 - 2026-05-14: Created. Spec finalized after 3 rounds of Codex
   adversarial review (1 BLOCKER closed in v2, 1 BLOCKER closed in v3,
   4 IMPORTANTs and several NITs closed in v3.1).
+- 2026-05-19: Done
+

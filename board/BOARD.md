@@ -6,7 +6,6 @@
 |----|-------|----------|--------|--------|
 | TB-177 | Auto task implementation | 0/3 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
-| TB-130 | Agent session resume + interrupted-run recovery | 11/12 | backlog | gui |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
 | TB-182 | Add special labes\tags\status for user attention | 0/3 | backlog | agent |
 | TB-194 | Code-review column | 0/6 | backlog | workflow |
@@ -23,6 +22,7 @@
 | TB-3 | M3: GUI mutations, DnD, and inline editor | 10/10 | gui |
 | TB-4 | M4: Agent assignment and manual runs from GUI | 10/10 | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
+| TB-130 | Agent session resume + interrupted-run recovery | 12/12 | gui |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 
@@ -50,8 +50,6 @@
 | TB-121 | tb doctor: surface unresolvable worktree state | feature | P1 | S | cli |
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-128 | Keep ”Done” column sorted by timestamp, not priority | improvement | P2 | M | gui |
-| TB-130 | Agent session resume + interrupted-run recovery | feature | P1 | XL | gui |
-| TB-142 | Docs sweep: ARCHITECTURE.md + CLAUDE.md + FEATURES.md for resume | improvement | P1 | S | docs |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-172 | Auto-groom | feature | P1 | L | gui |
 | TB-173 | GUI: persist auto-groom setting and toggle | feature | P1 | M | gui |

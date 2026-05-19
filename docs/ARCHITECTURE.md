@@ -101,7 +101,7 @@ One-sentence objective.
 - Metadata block: `**Field:** value` (bold key with colon inside) OR `**Field**: value`. Both forms supported; CLI writes the first form.
 - Only the first 15 lines are scanned for metadata (performance).
 - `Agent` and `AgentStatus` are new optional fields. Missing = unassigned.
-- Valid `AgentStatus` values: `queued`, `running`, `success`, `failed`, `cancelled`. `cancelled` is reserved for user-initiated cancellation; the daemon never writes it from a crash or timeout.
+- Valid `AgentStatus` values: `queued`, `running`, `success`, `failed`, `cancelled`, `interrupted`. `cancelled` is reserved for user-initiated cancellation; `interrupted` is reserved for recovery-initiated reconciliation when a captured session id makes the run resumable (TB-130). The daemon never writes `cancelled` from a crash or timeout, and convention reserves writes of `interrupted` to `RecoverStale` even though the validator accepts it from any path (same precedent — invariant lives in code+docs, not the validator).
 
 ## Folder-form tasks
 
@@ -320,20 +320,26 @@ Hybrid storage:
 | Folder-form run history | `<status>/<ID>/.agent-state.jsonl` | Same event stream, stored beside the task so it moves with the folder |
 | Folder-form run logs | `<status>/<ID>/.agent-logs/<run_id>.log` | Same full log, stored beside the task |
 
-JSONL event shapes (every event carries `task_id` so a log-trawler needs no cross-file index; agent-run events also carry `mode`, currently `implement` or `groom`):
+JSONL event shapes (every event carries `task_id` so a log-trawler needs no cross-file index; agent-run events also carry `mode`, one of `implement | groom | resume`):
 
 ```jsonl
 {"ts":"2026-05-13T10:00:00Z","run_id":"r_abc","task_id":"TB-1","event":"queued","agent":"claude","mode":"implement"}
 {"ts":"2026-05-13T10:00:05Z","run_id":"r_abc","task_id":"TB-1","event":"started","pid":12345,"agent":"claude","mode":"implement"}
+{"ts":"2026-05-13T10:00:05Z","run_id":"r_abc","task_id":"TB-1","event":"session","session_id":"11111111-2222-4333-8444-555555555555","pid":12345,"cwd":"/repo","run_env":{"TB_BOARD_PATH":"/repo/board"}}
 {"ts":"2026-05-13T10:00:10Z","run_id":"r_abc","task_id":"TB-1","event":"stdout","mode":"implement","line":"Reading task..."}
 {"ts":"2026-05-13T10:02:30Z","run_id":"r_abc","task_id":"TB-1","event":"finished","agent":"claude","mode":"implement","status":"success","exit_code":0}
 ```
 
-A run is **complete** when a `finished` event exists. A run with no `finished` event after a process restart is **stale** and is recovered: the daemon verifies the PID from `started` via `pidAlive(pid, expectedAgent)` — `os.FindProcess(pid).Signal(syscall.Signal(0))` (`ESRCH` → dead) plus a command-name cross-check (`ps -o comm=` / `ps -o args=`) that tolerates npm shebang wrappers (e.g. `node /usr/local/bin/claude`). If dead, the daemon writes a synthetic `finished` event with `status: failed`, `reason: "stale after restart"`, and sets `AgentStatus: failed` via `tb edit`. If alive, the daemon leaves the task alone — **M5 does not re-attach to live runs.**
+The `session` event (TB-130) lands **immediately after `started`** so the PID it carries is durable on disk before any session metadata. For Claude the id is daemon-pre-allocated via `--session-id <uuid>`; for Codex it's parsed out of `codex exec --json` stdout and the event lands when the translator's `OnSessionID` callback fires. **Security**: `run_env` is filtered to keys with a `TB_` prefix — credential vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) never reach disk.
 
-**Cancel carve-out**: recovery honors cancellation intent expressed in *either* the task's `.md` or the JSONL trail. If `AgentStatus` is already `cancelled` *or* the latest JSONL event for the latest `run_id` is `finished{status: cancelled}`, recovery reconciles to `cancelled` (writing `AgentStatus=cancelled` if the `.md` is out of sync) and never appends a `failed` line. This defends the M4 5-step cancel ordering (kill → JSONL → Wails → `tb edit`) against a `kill -9` of the GUI between the JSONL write and the `tb edit`.
+A run is **complete** when a `finished` event exists. A run with no `finished` event after a process restart is **stale** and is recovered: the daemon verifies the PID from `started` via `pidAlive(pid, expectedAgent)` — `os.FindProcess(pid).Signal(syscall.Signal(0))` (`ESRCH` → dead) plus a command-name cross-check (`ps -o comm=` / `ps -o args=`) that tolerates npm shebang wrappers (e.g. `node /usr/local/bin/claude`). If alive, the daemon leaves the task alone — **M5 does not re-attach to live runs.** If dead, the recovery branch splits two ways (TB-130):
 
-Groom runs use the same JSONL/storage lifecycle with `mode:"groom"`. The underlying agent runner still owns process execution; `GroomingDecorator` only replaces the prompt with `gui/internal/agent/prompts/groom.md`, so prompt selection stays in one layer rather than leaking mode checks into Claude/Codex runners or the daemon.
+- **`session` event captured** → synthetic `finished{status:interrupted, reason:"interrupted by daemon restart"}`, set `AgentStatus:interrupted`. The GUI surfaces a Resume button.
+- **No `session` event** → synthetic `finished{status:failed, reason:"stale after restart"}`, set `AgentStatus:failed`. Resume isn't possible without an id.
+
+**Cancel carve-out**: recovery honors cancellation intent expressed in *either* the task's `.md` or the JSONL trail. If `AgentStatus` is already `cancelled` *or* the latest JSONL event for the latest `run_id` is `finished{status: cancelled}`, recovery reconciles to `cancelled` (writing `AgentStatus=cancelled` if the `.md` is out of sync) and never appends a `failed`/`interrupted` line. This defends the M4 5-step cancel ordering (kill → JSONL → Wails → `tb edit`) against a `kill -9` of the GUI between the JSONL write and the `tb edit`, and ensures a user-cancelled task with a captured session id still becomes `cancelled`, never `interrupted`.
+
+Groom runs use the same JSONL/storage lifecycle with `mode:"groom"`. Resume runs use `mode:"resume"`. Both go through a decorator (`GroomingDecorator` / `ResumeDecorator` in `gui/internal/agent/runner.go`) that overrides the prompt before delegating to the underlying Claude/Codex runner; the daemon and runGoroutine stay mode-agnostic. Resume invokes `claude -r <uuid>` (same session id reused) or `codex exec --json resume <uuid> <prompt>` (a new id flows back through the translator's `OnSessionID` callback as a fresh `session` event — the new id is the resumable target for any future resume; the chain is traceable via each queued event's `resumed_from` + `resumed_from_run` fields).
 
 ## Daemon
 

@@ -192,6 +192,13 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 - App close cancels the daemon's root context (propagated as the parent of the runner ctx — see TB-54 ctx plumbing). Workers' in-flight runs observe ctx cancellation, the shared `finishCancelled(reason: "shutdown")` helper writes the JSONL `finished{cancelled}` line + Wails emit + `tb edit --agent-status cancelled`. `Daemon.Close()` waits up to 5s for workers to flush; whatever remains is reconciled by next-start recovery.
 - **Acceptance**: close GUI during a run; the task's agent-state JSONL has a coherent `finished` event (status either success/failed/cancelled, not orphaned).
 
+### F5.5 — Agent session resume (TB-130) ☑
+- Every run captures the agent CLI's `session_id` as a `session` JSONL event written immediately after `started` (PID is durable first). Claude pre-allocates the UUID and passes `--session-id <uuid>`; Codex emits its id mid-stream and the `codex exec --json` translator parses it via an `OnSessionID` callback.
+- Stale-recovery's dead-PID branch now splits: SessionID captured → `interrupted` (Resume button surfaces); no SessionID → existing `failed`. The cancelled carve-out still wins — a user-cancelled run with a SessionID stays `cancelled`, never `interrupted`.
+- Resume re-invokes the agent CLI with its native flag (`claude -r <uuid>` / `codex exec --json resume <uuid> <prompt>`), in the parent run's persisted cwd, with the parent's `TB_`-prefixed env replayed. The new run's `queued` event carries `resumed_from` + `resumed_from_run` so the UI shows a `↻ r_xxxx` chip linking back to the parent.
+- **Security**: only env keys prefixed `TB_` are persisted in JSONL `run_env`; credential vars never reach disk.
+- **Acceptance**: 12 sub-tasks (TB-131..TB-142). Fake-runner integration tests in `gui/app/agent_run_test.go` (TestResumeCycle_KillRecoverResume, TestResumeCycle_KillBeforeSessionStaysFailed) drive the full kill → interrupted → resume cycle without real Claude/Codex binaries.
+
 ---
 
 ## M6 — Groom flow
