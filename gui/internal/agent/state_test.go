@@ -442,3 +442,105 @@ func TestGenerateRunID_ShapeAndUniqueness(t *testing.T) {
 		seen[id] = struct{}{}
 	}
 }
+
+func TestLastGroomTriageHash_MissingFile(t *testing.T) {
+	board := newBoardDir(t)
+	writeFileFormTask(t, board, "backlog", "TB-1")
+	hash, ok, err := LastGroomTriageHash(board, "TB-1")
+	if err != nil {
+		t.Fatalf("missing file should not error: %v", err)
+	}
+	if ok || hash != "" {
+		t.Errorf("missing file: got (%q, %v), want (\"\", false)", hash, ok)
+	}
+}
+
+func TestLastGroomTriageHash_NoSuccessfulGroom(t *testing.T) {
+	board := newBoardDir(t)
+	writeFileFormTask(t, board, "backlog", "TB-1")
+
+	// Implement-mode run with hash carved out: should NOT be returned.
+	if err := AppendEvent(board, "TB-1", Event{
+		Event: EvFinished, RunID: "r_1", Agent: "claude",
+		Mode: "implement", Status: StatusSuccess, TriageHash: "implement-hash",
+	}); err != nil {
+		t.Fatalf("append implement: %v", err)
+	}
+	// Groom-mode failed: also ignored.
+	if err := AppendEvent(board, "TB-1", Event{
+		Event: EvFinished, RunID: "r_2", Agent: "claude",
+		Mode: "groom", Status: StatusFailed, TriageHash: "abc",
+	}); err != nil {
+		t.Fatalf("append groom-failed: %v", err)
+	}
+
+	hash, ok, err := LastGroomTriageHash(board, "TB-1")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if ok || hash != "" {
+		t.Errorf("no successful groom: got (%q, %v), want (\"\", false)", hash, ok)
+	}
+}
+
+func TestLastGroomTriageHash_LatestSuccessWins(t *testing.T) {
+	board := newBoardDir(t)
+	writeFileFormTask(t, board, "backlog", "TB-1")
+
+	for _, ev := range []Event{
+		{Event: EvFinished, RunID: "r_1", Mode: "groom", Status: StatusSuccess, TriageHash: "first"},
+		{Event: EvFinished, RunID: "r_2", Mode: "implement", Status: StatusSuccess, TriageHash: "noise"},
+		{Event: EvFinished, RunID: "r_3", Mode: "groom", Status: StatusSuccess, TriageHash: "second"},
+		// Cancelled later doesn't override the last success.
+		{Event: EvFinished, RunID: "r_4", Mode: "groom", Status: StatusCancelled, TriageHash: "ignored"},
+	} {
+		if err := AppendEvent(board, "TB-1", ev); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+
+	hash, ok, err := LastGroomTriageHash(board, "TB-1")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !ok || hash != "second" {
+		t.Errorf("latest-success-wins: got (%q, %v), want (\"second\", true)", hash, ok)
+	}
+}
+
+func TestLastGroomTriageHash_SkipsMalformedLines(t *testing.T) {
+	board := newBoardDir(t)
+	writeFileFormTask(t, board, "backlog", "TB-1")
+	if err := AppendEvent(board, "TB-1", Event{
+		Event: EvFinished, RunID: "r_1", Mode: "groom", Status: StatusSuccess, TriageHash: "good",
+	}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	// Append a malformed line directly to the file.
+	statePath := StatePath(board, "TB-1")
+	f, err := os.OpenFile(statePath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("open state: %v", err)
+	}
+	if _, err := f.Write([]byte("{not json\n")); err != nil {
+		t.Fatalf("write garbage: %v", err)
+	}
+	_ = f.Close()
+
+	hash, ok, err := LastGroomTriageHash(board, "TB-1")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !ok || hash != "good" {
+		t.Errorf("malformed line: got (%q, %v), want (\"good\", true)", hash, ok)
+	}
+}
+
+func TestLastGroomTriageHash_EmptyTaskID(t *testing.T) {
+	board := newBoardDir(t)
+	_, _, err := LastGroomTriageHash(board, "")
+	if err == nil {
+		t.Error("empty taskID: expected error, got nil")
+	}
+}

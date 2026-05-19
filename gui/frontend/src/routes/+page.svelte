@@ -64,6 +64,24 @@
   let filtered = $derived(applyFilter($board, $filter));
   let epics = $derived(observedEpics($board));
 
+  let autoGroomEnabled = $derived($preferencesStore.autoGroomEnabled);
+  let autoGroomNeedsDefaultAgent = $derived(
+    autoGroomEnabled && $preferencesStore.defaultAgent === 'none',
+  );
+  let autoGroomToggleBusy = $state(false);
+
+  async function toggleAutoGroom() {
+    if (autoGroomToggleBusy) return;
+    autoGroomToggleBusy = true;
+    try {
+      await preferencesStore.setAutoGroomEnabled(!autoGroomEnabled);
+    } catch {
+      // optimisticWrite already surfaces a toast; nothing to do here.
+    } finally {
+      autoGroomToggleBusy = false;
+    }
+  }
+
   onMount(async () => {
     document.documentElement.classList.toggle('platform-mac', System.IsMac());
     void preferencesStore.load().catch(() => {});
@@ -327,6 +345,22 @@
       {#if bootStatus === 'ready'}
         <button class="new" onclick={() => (createOpen = true)} title="Create task (n)">+ New</button>
       {/if}
+      <button
+        type="button"
+        class="auto-groom-toggle"
+        class:on={autoGroomEnabled}
+        class:needs-default={autoGroomNeedsDefaultAgent}
+        aria-pressed={autoGroomEnabled}
+        disabled={autoGroomToggleBusy}
+        title={autoGroomNeedsDefaultAgent
+          ? 'Set a default agent in Settings before automation can run.'
+          : autoGroomEnabled
+            ? 'Auto-groom is on. Click to disable.'
+            : 'Auto-groom is off. Click to enable.'}
+        onclick={toggleAutoGroom}>
+        <span class="dot" aria-hidden="true"></span>
+        Auto-groom: {autoGroomEnabled ? 'on' : 'off'}
+      </button>
       <button class="pick" onclick={() => (settingsOpen = true)}>Settings</button>
       <button class="pick" onclick={pickAndOpen}>Open board…</button>
     </div>
@@ -473,6 +507,49 @@
     font-weight: 600;
   }
   .new:hover { filter: brightness(1.1); }
+
+  .auto-groom-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--fg-dim);
+    border-radius: 999px;
+    padding: 4px 11px;
+    font-size: 11.5px;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .auto-groom-toggle:hover { background: rgba(255, 255, 255, 0.11); }
+  .auto-groom-toggle:disabled { opacity: 0.55; cursor: progress; }
+  .auto-groom-toggle .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25) inset;
+  }
+  .auto-groom-toggle.on {
+    background: rgba(74, 141, 248, 0.18);
+    border-color: rgba(74, 141, 248, 0.55);
+    color: var(--fg);
+  }
+  .auto-groom-toggle.on .dot {
+    background: var(--accent);
+    box-shadow: 0 0 0 2px rgba(74, 141, 248, 0.25);
+  }
+  .auto-groom-toggle.needs-default {
+    background: rgba(244, 191, 79, 0.13);
+    border-color: rgba(244, 191, 79, 0.55);
+    color: #f4bf4f;
+  }
+  .auto-groom-toggle.needs-default .dot {
+    background: #f4bf4f;
+    box-shadow: 0 0 0 2px rgba(244, 191, 79, 0.25);
+  }
 
   .empty {
     flex: 1;

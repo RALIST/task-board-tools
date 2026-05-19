@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 
 	tbapp "tools/tb-gui/app"
 	"tools/tb-gui/internal/daemon"
@@ -65,4 +66,51 @@ type teeShim struct {
 
 func (t teeShim) Emit(name string, data ...any) {
 	t.tee.Emit(name, data...)
+}
+
+// boardActivator is the composite that drives both the daemon and the
+// auto-groom coordinator from a single SettingsService.Activator slot
+// (TB-174). Activation is sequential: the daemon runs stale-recovery
+// and the startup queue scan first; only then does the coordinator
+// begin its scan loop so it sees a post-reconciled view.
+//
+// Implements:
+//   - app.BoardActivator (required by SettingsService).
+//   - app.PeriodicRecoveryController (forwarded to the daemon so the
+//     runtime preference toggle reaches the ticker).
+//   - app.AutoGroomController (forwarded to the coordinator so
+//     SetAutoGroomEnabled / SetDefaultAgent kick fresh scans).
+type boardActivator struct {
+	daemon    *daemon.Daemon
+	autoGroom *tbapp.AutoGroomCoordinator
+}
+
+func (a *boardActivator) Activate(ctx context.Context, boardDir string) error {
+	if err := a.daemon.Activate(ctx, boardDir); err != nil {
+		return err
+	}
+	return a.autoGroom.Activate(ctx, boardDir)
+}
+
+func (a *boardActivator) Deactivate() error {
+	// Stop the coordinator first so any in-flight settle timers don't
+	// fire a scan against a stale boardDir while the daemon is also
+	// tearing down. Errors are joined so callers see both — the
+	// coordinator's Deactivate is best-effort today, but joining keeps
+	// the contract honest if it gains a real error path.
+	coordErr := a.autoGroom.Deactivate()
+	daemonErr := a.daemon.Deactivate()
+	return errors.Join(coordErr, daemonErr)
+}
+
+func (a *boardActivator) SetPeriodicRecoveryEnabled(enabled bool) {
+	a.daemon.SetPeriodicRecoveryEnabled(enabled)
+}
+
+func (a *boardActivator) NotifyAutoGroomEnabled() {
+	a.autoGroom.NotifyAutoGroomEnabled()
+}
+
+func (a *boardActivator) NotifyDefaultAgentChanged() {
+	a.autoGroom.NotifyDefaultAgentChanged()
 }

@@ -210,6 +210,13 @@ type activeRun struct {
 	Cwd string
 	Env []string
 
+	// TriageHash is the durable dedupe fingerprint recorded on auto-groom
+	// runs (TB-174). It is sha256 hex of the sorted triage reasons that
+	// motivated the run. Manual groom runs from the drawer leave it empty;
+	// the queued/finished JSONL events skip the `triage_hash` key via
+	// omitempty so the on-disk format stays stable for non-auto runs.
+	TriageHash string
+
 	// Cancel cancels the runner's exec context. The runner converts that
 	// into a single SIGTERM and exits; CancelRun escalates to SIGKILL via
 	// Pgid if the process doesn't go quietly.

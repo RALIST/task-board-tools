@@ -189,6 +189,62 @@ func TestGetAutoGroomSettleMinutes_ReadTimeClampsOutOfRangeFile(t *testing.T) {
 	}
 }
 
+// TestGetAutoGroomSettleMinutes_PartialFileFallsBackToDefault covers the
+// upgrade path: a preferences.json written before this field existed has
+// no `auto_groom_settle_minutes` key. A naive `json.Unmarshal` would leave
+// the int at zero — which is a *legitimate* user opt-out value, so the
+// loader must distinguish "key absent" from "key=0". The second-pass
+// raw-map check in loadPreferences enforces this.
+func TestGetAutoGroomSettleMinutes_PartialFileFallsBackToDefault(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	// Only one unrelated key — `auto_groom_settle_minutes` is absent.
+	if err := os.WriteFile(path, []byte(`{"max_workers":2}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != AutoGroomSettleMinutesDefault {
+		t.Errorf("partial file (absent key): got %d, want %d (default)",
+			got, AutoGroomSettleMinutesDefault)
+	}
+	// Sanity: an explicit 0 in the file MUST still be honored as opt-out.
+	if err := os.WriteFile(path, []byte(`{"auto_groom_settle_minutes":0}`), 0o644); err != nil {
+		t.Fatalf("write explicit-0: %v", err)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != 0 {
+		t.Errorf("explicit 0 in file: got %d, want 0", got)
+	}
+}
+
+// TestGetAutoGroomEnabled_PartialFileReturnsFalse covers the same upgrade
+// path for the boolean — absent key and explicit false both correctly map
+// to the same off-by-default semantics, so no ambiguity exists, but the
+// test pins the contract.
+func TestGetAutoGroomEnabled_PartialFileReturnsFalse(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := os.WriteFile(path, []byte(`{"max_workers":2}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := s.GetAutoGroomEnabled(); got {
+		t.Errorf("partial file: got true, want false")
+	}
+}
+
+// TestGetAutoGroom_CorruptFileFallsBackToDefaults mirrors the existing
+// corrupt-file coverage for max_workers, ensuring the new fields don't
+// regress the established behavior (corrupt file = warn + use defaults).
+func TestGetAutoGroom_CorruptFileFallsBackToDefaults(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := os.WriteFile(path, []byte("not json"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := s.GetAutoGroomEnabled(); got != AutoGroomEnabledDefault {
+		t.Errorf("corrupt file: GetAutoGroomEnabled got %v, want %v", got, AutoGroomEnabledDefault)
+	}
+	if got := s.GetAutoGroomSettleMinutes(); got != AutoGroomSettleMinutesDefault {
+		t.Errorf("corrupt file: GetAutoGroomSettleMinutes got %d, want %d",
+			got, AutoGroomSettleMinutesDefault)
+	}
+}
+
 func TestSetPeriodicRecoveryEnabled_RoundTrip(t *testing.T) {
 	s, path := newSettingsForPrefs(t)
 	if err := s.SetPeriodicRecoveryEnabled(false); err != nil {

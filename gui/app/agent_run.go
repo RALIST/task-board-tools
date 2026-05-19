@@ -146,14 +146,26 @@ func (s *AgentService) setRunnerFactory(f runnerFactory) {
 // rollback semantics on failure (entry is removed if a setup step errors
 // out before the runner goroutine is spawned).
 func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) {
-	return s.startAgentRun(ctx, id, agent.ModeImplement)
+	return s.startAgentRun(ctx, id, agent.ModeImplement, "")
 }
 
 // GroomTask kicks off a new run for the given task in grooming mode. It
 // intentionally reuses the same lifecycle as RunAgent; only the queued mode
-// and runner decorator differ.
+// and runner decorator differ. Manual groom runs from the drawer record no
+// triage hash; use StartGroomWithTriageHash for auto-groom paths that need
+// the durable dedupe fingerprint persisted on the run's JSONL events.
 func (s *AgentService) GroomTask(ctx context.Context, id string) (string, error) {
-	return s.startAgentRun(ctx, id, agent.ModeGroom)
+	return s.startAgentRun(ctx, id, agent.ModeGroom, "")
+}
+
+// StartGroomWithTriageHash is the auto-groom entry point (TB-174): it
+// queues a `mode=groom` run AND attaches the provided triage hash to the
+// `queued`/`finished` JSONL events so a subsequent scan can dedupe an
+// unchanged task across daemon restarts. Empty hash falls back to the
+// manual GroomTask semantics; the AC mandates a real hash from the
+// coordinator, so callers should pre-compute it.
+func (s *AgentService) StartGroomWithTriageHash(ctx context.Context, id, triageHash string) (string, error) {
+	return s.startAgentRun(ctx, id, agent.ModeGroom, triageHash)
 }
 
 // ReviewTask kicks off a code-review run for the given task. Same lifecycle
@@ -162,7 +174,7 @@ func (s *AgentService) GroomTask(ctx context.Context, id string) (string, error)
 // via `tb review --findings`, and use `tb review --fail` when rework is
 // required. Review runs do NOT edit implementation files.
 func (s *AgentService) ReviewTask(ctx context.Context, id string) (string, error) {
-	return s.startAgentRun(ctx, id, agent.ModeReview)
+	return s.startAgentRun(ctx, id, agent.ModeReview, "")
 }
 
 // ResumeAgent continues the most recent interrupted agent session for
@@ -311,7 +323,7 @@ func envSliceFromMap(m map[string]string) []string {
 	return out
 }
 
-func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.Mode) (string, error) {
+func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.Mode, triageHash string) (string, error) {
 	if s.board == nil {
 		return "", ErrNoBoard
 	}
@@ -355,12 +367,13 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 	// before the runner goroutine starts.
 	runCtx, cancel := context.WithCancel(context.Background())
 	ar := &activeRun{
-		RunID:  runID,
-		TaskID: id,
-		Agent:  agentName,
-		Mode:   mode.String(),
-		Cancel: cancel,
-		Done:   make(chan struct{}),
+		RunID:      runID,
+		TaskID:     id,
+		Agent:      agentName,
+		Mode:       mode.String(),
+		Cancel:     cancel,
+		Done:       make(chan struct{}),
+		TriageHash: triageHash,
 	}
 
 	// Insert placeholder under s.mu only — the rest is I/O outside the
@@ -382,14 +395,17 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 		cancel()
 	}
 
-	// Step 1 — JSONL queued.
+	// Step 1 — JSONL queued. TriageHash is set only by the auto-groom
+	// coordinator path (TB-174); manual groom/implement/review runs leave
+	// it empty so the on-disk format stays stable via omitempty.
 	if err := agent.AppendEvent(boardDir, id, agent.Event{
-		TS:     now,
-		RunID:  runID,
-		TaskID: id,
-		Event:  agent.EvQueued,
-		Agent:  agentName,
-		Mode:   mode.String(),
+		TS:         now,
+		RunID:      runID,
+		TaskID:     id,
+		Event:      agent.EvQueued,
+		Agent:      agentName,
+		Mode:       mode.String(),
+		TriageHash: triageHash,
 	}); err != nil {
 		rollback()
 		return "", fmt.Errorf("%s: append queued: %w", runMethodName(mode), err)
@@ -543,6 +559,7 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 		SessionID:  resumeSessionID,
 		Cwd:        resumeCwd,
 		Env:        resumeEnv,
+		TriageHash: qr.TriageHash,
 	}
 
 	s.mu.Lock()
@@ -831,15 +848,16 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 	ar.finishOnce.Do(func() {
 		ts := time.Now().UTC().Format(time.RFC3339)
 		if err := agent.AppendEvent(boardDir, ar.TaskID, agent.Event{
-			TS:       ts,
-			RunID:    ar.RunID,
-			TaskID:   ar.TaskID,
-			Event:    agent.EvFinished,
-			Agent:    ar.Agent,
-			Mode:     ar.Mode,
-			Status:   status,
-			ExitCode: exitCode,
-			Reason:   reason,
+			TS:         ts,
+			RunID:      ar.RunID,
+			TaskID:     ar.TaskID,
+			Event:      agent.EvFinished,
+			Agent:      ar.Agent,
+			Mode:       ar.Mode,
+			Status:     status,
+			ExitCode:   exitCode,
+			Reason:     reason,
+			TriageHash: ar.TriageHash,
 		}); err != nil {
 			slog.Warn("agent: append finished failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
 		}

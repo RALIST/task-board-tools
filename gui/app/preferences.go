@@ -142,11 +142,18 @@ func (s *SettingsService) GetDefaultAgent() string {
 }
 
 // SetDefaultAgent persists the default agent selection after normalizing it
-// to the supported enum.
+// to the supported enum. Notifies the auto-groom coordinator (if wired) so
+// it can re-evaluate the no-default-agent gate immediately.
 func (s *SettingsService) SetDefaultAgent(agent string) error {
-	return s.updatePreferences(func(prefs *Preferences) {
+	if err := s.updatePreferences(func(prefs *Preferences) {
 		prefs.DefaultAgent = agent
-	})
+	}); err != nil {
+		return err
+	}
+	if controller, ok := s.activator.(AutoGroomController); ok {
+		controller.NotifyDefaultAgentChanged()
+	}
+	return nil
 }
 
 // GetCLIPath returns the persisted tb binary path override. Empty means the
@@ -198,11 +205,20 @@ func (s *SettingsService) GetAutoGroomEnabled() bool {
 	return prefs.AutoGroomEnabled
 }
 
-// SetAutoGroomEnabled persists the auto-groom on/off toggle.
+// SetAutoGroomEnabled persists the auto-groom on/off toggle. Notifies
+// the auto-groom coordinator (if wired) so a freshly flipped preference
+// triggers an immediate scan instead of waiting for the next watcher
+// event.
 func (s *SettingsService) SetAutoGroomEnabled(enabled bool) error {
-	return s.updatePreferences(func(prefs *Preferences) {
+	if err := s.updatePreferences(func(prefs *Preferences) {
 		prefs.AutoGroomEnabled = enabled
-	})
+	}); err != nil {
+		return err
+	}
+	if controller, ok := s.activator.(AutoGroomController); ok {
+		controller.NotifyAutoGroomEnabled()
+	}
+	return nil
 }
 
 // GetAutoGroomSettleMinutes returns the configured settle window before a
@@ -335,6 +351,17 @@ func (s *SettingsService) loadPreferences() (Preferences, error) {
 	var p Preferences
 	if err := json.Unmarshal(b, &p); err != nil {
 		return Preferences{}, err
+	}
+	// Second pass: for fields where the zero value is a legitimate user
+	// choice distinct from "use default", check key presence so an older
+	// preferences.json without the key falls back to the default rather
+	// than silently adopting the int zero. Currently only
+	// AutoGroomSettleMinutes (0 means "no delay", default is 5).
+	var raw map[string]json.RawMessage
+	if jsonErr := json.Unmarshal(b, &raw); jsonErr == nil {
+		if _, present := raw["auto_groom_settle_minutes"]; !present {
+			p.AutoGroomSettleMinutes = AutoGroomSettleMinutesDefault
+		}
 	}
 	return p, nil
 }

@@ -31,6 +31,7 @@ type queuedRun struct {
 	Mode           agent.Mode
 	ResumedFrom    string // parent session id, if mode == ModeResume
 	ResumedFromRun string // parent run id, if mode == ModeResume
+	TriageHash     string // auto-groom dedupe fingerprint, if mode == ModeGroom + auto-groom (TB-174)
 }
 
 // findQueuedRun scans the task's JSONL run history and returns the
@@ -59,6 +60,7 @@ func findQueuedRun(boardDir, taskID string) (queuedRun, error) {
 		mode           agent.Mode
 		resumedFrom    string
 		resumedFromRun string
+		triageHash     string
 	}
 	runs := map[string]*state{}
 	order := []string{}
@@ -92,6 +94,11 @@ func findQueuedRun(boardDir, taskID string) (queuedRun, error) {
 			if ev.ResumedFromRun != "" {
 				st.resumedFromRun = ev.ResumedFromRun
 			}
+			// auto-groom dedupe fingerprint (TB-174): preserved through
+			// daemon pickup so the finished event still carries it.
+			if ev.TriageHash != "" {
+				st.triageHash = ev.TriageHash
+			}
 		case agent.EvStarted:
 			st.hasStarted = true
 		case agent.EvFinished:
@@ -109,6 +116,7 @@ func findQueuedRun(boardDir, taskID string) (queuedRun, error) {
 				Mode:           st.mode,
 				ResumedFrom:    st.resumedFrom,
 				ResumedFromRun: st.resumedFromRun,
+				TriageHash:     st.triageHash,
 			}, nil
 		}
 	}

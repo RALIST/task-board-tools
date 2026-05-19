@@ -69,18 +69,36 @@ func main() {
 		DisablePeriodicRecovery: !settingsForPrefs.GetPeriodicRecoveryEnabled(),
 	})
 
-	// Watcher emits to both the Wails app and the daemon sink (TB-58).
+	// Auto-groom coordinator (TB-174). Activates parallel to the daemon
+	// via the composite activator below; its sink is tee'd into the
+	// watcher emitter alongside the daemon's sink so board:reloaded /
+	// task:updated:<id> events drive incremental scans.
+	autoGroom := tbapp.NewAutoGroomCoordinator(tbapp.AutoGroomCoordinatorOptions{
+		Board:    boardService,
+		Agent:    agentService,
+		Settings: nil, // wired below after settingsService is constructed
+		Emitter:  emitter,
+		Logger:   logger,
+	})
+
+	// Watcher emits to the Wails app, the daemon sink, the board sink, AND
+	// the auto-groom coordinator sink (TB-58 + TB-174). Right-associative
+	// fan-out keeps the existing TeeEmitter contract unchanged.
 	sink := daemon.NewEventSink(d, logger)
 	boardSink := tbapp.NewBoardWatcherSink(boardService)
-	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: boardSink}}
+	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: daemon.TeeEmitter{A: boardSink, B: autoGroom}}}
 	w := watcher.New(teeShim{tee: tee}, logger)
 
 	settingsService = tbapp.NewSettingsService(tbapp.SettingsOptions{
 		Logger:    logger,
 		Board:     boardService,
 		Watcher:   w,
-		Activator: d,
+		Activator: &boardActivator{daemon: d, autoGroom: autoGroom},
 	})
+	// Late-bind the SettingsService so the coordinator can read
+	// preferences (auto-groom enabled, default agent, settle minutes) on
+	// every scan.
+	autoGroom.SetSettings(settingsService)
 
 	// Per-agent quota usage — independent of any individual run, refreshed on
 	// a timer and on demand from the header widget (TB-107).
@@ -107,6 +125,7 @@ func main() {
 			application.NewService(settingsService),
 			application.NewService(agentService),
 			application.NewService(usageService),
+			application.NewService(autoGroom),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:      "com.taskboard.tbgui",
@@ -128,6 +147,16 @@ func main() {
 		},
 	})
 	appRef = app
+
+	// Auto-groom coordinator listens for terminal groom runs so it can
+	// re-check triage and promote successfully groomed tasks to `ready`
+	// via `tb ready` (TB-174). The payload shape mirrors what
+	// AgentService.recordTerminal emits.
+	app.Event.On("agent:run-finished", func(ev *application.CustomEvent) {
+		if payload, ok := ev.Data.(map[string]any); ok {
+			autoGroom.OnAgentRunFinished(payload)
+		}
+	})
 
 	shellController, err := shell.NewController(shell.Options{
 		App:      app,

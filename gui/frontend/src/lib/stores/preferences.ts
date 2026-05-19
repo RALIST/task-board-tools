@@ -25,6 +25,8 @@ export interface PreferencesState {
   defaultAgent: DefaultAgent;
   cliPath: string;
   periodicRecoveryEnabled: boolean;
+  autoGroomEnabled: boolean;
+  autoGroomSettleMinutes: number;
   loaded: boolean;
 }
 
@@ -34,6 +36,8 @@ const DEFAULT_STATE: PreferencesState = {
   defaultAgent: 'none',
   cliPath: '',
   periodicRecoveryEnabled: true,
+  autoGroomEnabled: false,
+  autoGroomSettleMinutes: 5,
   loaded: false,
 };
 
@@ -48,12 +52,22 @@ export async function loadPreferences(): Promise<void> {
 
   loadPromise = (async () => {
     try {
-      const [maxWorkers, agentTimeoutMinutes, rawDefaultAgent, cliPath, periodicRecoveryEnabled] = await Promise.all([
+      const [
+        maxWorkers,
+        agentTimeoutMinutes,
+        rawDefaultAgent,
+        cliPath,
+        periodicRecoveryEnabled,
+        autoGroomEnabled,
+        autoGroomSettleMinutes,
+      ] = await Promise.all([
         getMaxWorkers(),
         getAgentTimeoutMinutes(),
         getDefaultAgent(),
         getCLIPath(),
         getPeriodicRecoveryEnabled(),
+        getAutoGroomEnabled(),
+        getAutoGroomSettleMinutes(),
       ]);
 
       preferences.set({
@@ -67,6 +81,13 @@ export async function loadPreferences(): Promise<void> {
         defaultAgent: normalizeDefaultAgent(rawDefaultAgent),
         cliPath: cliPath ?? '',
         periodicRecoveryEnabled: periodicRecoveryEnabled !== false,
+        autoGroomEnabled: autoGroomEnabled === true,
+        autoGroomSettleMinutes: normalizeStoredInt(
+          autoGroomSettleMinutes,
+          0,
+          60,
+          DEFAULT_STATE.autoGroomSettleMinutes,
+        ),
         loaded: true,
       });
     } catch (err) {
@@ -108,6 +129,19 @@ export async function setPeriodicRecoveryEnabled(value: boolean): Promise<void> 
   );
 }
 
+export async function setAutoGroomEnabled(value: boolean): Promise<void> {
+  await optimisticWrite('autoGroomEnabled', value, 'auto-groom', () =>
+    apiSetAutoGroomEnabled(value),
+  );
+}
+
+export async function setAutoGroomSettleMinutes(value: number): Promise<void> {
+  const next = clampSettingInt(value, 0, 60, DEFAULT_STATE.autoGroomSettleMinutes);
+  await optimisticWrite('autoGroomSettleMinutes', next, 'auto-groom settle window', () =>
+    apiSetAutoGroomSettleMinutes(next),
+  );
+}
+
 export const preferencesStore = {
   subscribe: preferences.subscribe,
   load: loadPreferences,
@@ -116,6 +150,8 @@ export const preferencesStore = {
   setDefaultAgent,
   setCLIPath,
   setPeriodicRecoveryEnabled,
+  setAutoGroomEnabled,
+  setAutoGroomSettleMinutes,
 };
 
 export function _resetPreferencesStoreForTesting(): void {

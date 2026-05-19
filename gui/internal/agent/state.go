@@ -59,12 +59,18 @@ const (
 //
 // Schema (locked here; the documentation table in TB-47 cross-references):
 //
-//	queued   {ts, run_id, task_id, event:"queued",   agent, mode, resumed_from?, resumed_from_run?}
+//	queued   {ts, run_id, task_id, event:"queued",   agent, mode, resumed_from?, resumed_from_run?, triage_hash?}
 //	started  {ts, run_id, task_id, event:"started",  agent, mode, pid}
 //	session  {ts, run_id, task_id, event:"session",  session_id, pid, cwd, run_env}
 //	stdout   {ts, run_id, task_id, event:"stdout",   mode, line}
 //	stderr   {ts, run_id, task_id, event:"stderr",   mode, line}
-//	finished {ts, run_id, task_id, event:"finished", agent, mode, status, exit_code, reason?}
+//	finished {ts, run_id, task_id, event:"finished", agent, mode, status, exit_code, reason?, triage_hash?}
+//
+// TB-174: `triage_hash` is set only on `mode=groom` `queued` and `finished`
+// events emitted by the auto-groom coordinator. Manual groom runs from the
+// drawer omit it. The hash is a sha256 hex of the sorted, newline-joined
+// triage reasons that motivated the run — used to skip auto-groom of an
+// unchanged task across daemon restarts (durable dedupe).
 //
 // TB-130 added SessionID/ResumedFrom/ResumedFromRun/Cwd/RunEnv for the
 // resume flow. RunEnv is the on-disk allowlisted replay of the env vars
@@ -88,6 +94,7 @@ type Event struct {
 	ResumedFromRun string            `json:"resumed_from_run,omitempty"`
 	Cwd            string            `json:"cwd,omitempty"`
 	RunEnv         map[string]string `json:"run_env,omitempty"`
+	TriageHash     string            `json:"triage_hash,omitempty"`
 }
 
 // FilterTBEnv reduces a `KEY=VALUE` env slice (RunInput.Env shape) to a
@@ -322,6 +329,66 @@ func StatePath(boardDir, taskID string) string {
 		return paths.StatePath
 	}
 	return legacyStatePath(boardDir, taskID)
+}
+
+// LastGroomTriageHash returns the TriageHash recorded on the most-recent
+// successful (`mode=groom`, `status=success`) `finished` event for taskID.
+// Returns ok=false when no such event exists (missing file, never groomed
+// by auto-groom, or the latest groom finished without success). The hash
+// is the durable dedupe primitive consumed by the auto-groom coordinator.
+//
+// Missing files are NOT an error — first-time tasks return (\"\", false, nil).
+// JSON parse errors on individual lines are skipped (forward-compatible
+// with future event-schema additions); only I/O errors propagate.
+func LastGroomTriageHash(boardDir, taskID string) (string, bool, error) {
+	if taskID == "" {
+		return "", false, errors.New("LastGroomTriageHash: empty taskID")
+	}
+	if err := requireBoardDir(boardDir); err != nil {
+		return "", false, err
+	}
+	paths, err := resolveArtifactPaths(boardDir, taskID)
+	if err != nil {
+		return "", false, fmt.Errorf("LastGroomTriageHash: resolve paths: %w", err)
+	}
+	data, err := os.ReadFile(paths.StatePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("LastGroomTriageHash: read %s: %w", paths.StatePath, err)
+	}
+	// Walk forwards but keep the latest match — JSONL files are append-only,
+	// so the last successful groom hash wins. Skipping malformed lines keeps
+	// the dedupe alive even if a third party hand-edits the file.
+	var hash string
+	var found bool
+	for _, raw := range strings.Split(string(data), "\n") {
+		if raw == "" {
+			continue
+		}
+		var ev Event
+		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+			continue
+		}
+		if ev.Event != EvFinished {
+			continue
+		}
+		if ev.Mode != "groom" {
+			continue
+		}
+		if ev.Status != StatusSuccess {
+			continue
+		}
+		// Manual groom runs from the drawer write no TriageHash; only
+		// events with a real fingerprint count for auto-groom dedupe.
+		if ev.TriageHash == "" {
+			continue
+		}
+		hash = ev.TriageHash
+		found = true
+	}
+	return hash, found, nil
 }
 
 func resolveArtifactPaths(boardDir, taskID string) (ArtifactPaths, error) {

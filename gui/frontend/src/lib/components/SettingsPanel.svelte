@@ -32,6 +32,8 @@
   let defaultAgentInput = $state<DefaultAgent>('none');
   let cliPathInput = $state('');
   let periodicRecoveryInput = $state(true);
+  let autoGroomInput = $state(false);
+  let autoGroomSettleInput = $state('5');
   let saving = $state(false);
   let opened = $state(false);
   let seededLoaded = $state(false);
@@ -43,6 +45,8 @@
     defaultAgent: 'none',
     cliPath: '',
     periodicRecoveryEnabled: true,
+    autoGroomEnabled: false,
+    autoGroomSettleMinutes: 5,
   });
 
   let nextMaxWorkers = $derived(clampNumber(maxWorkersInput, 1, 4, baseline.maxWorkers));
@@ -50,12 +54,20 @@
     clampNumber(agentTimeoutInput, 1, 240, baseline.agentTimeoutMinutes),
   );
   let nextCLIPath = $derived(cliPathInput.trim());
+  let nextAutoGroomSettle = $derived(
+    clampNumber(autoGroomSettleInput, 0, 60, baseline.autoGroomSettleMinutes),
+  );
   let dirty = $derived(
     nextMaxWorkers !== baseline.maxWorkers ||
       nextAgentTimeout !== baseline.agentTimeoutMinutes ||
       defaultAgentInput !== baseline.defaultAgent ||
       nextCLIPath !== baseline.cliPath ||
-      periodicRecoveryInput !== baseline.periodicRecoveryEnabled,
+      periodicRecoveryInput !== baseline.periodicRecoveryEnabled ||
+      autoGroomInput !== baseline.autoGroomEnabled ||
+      nextAutoGroomSettle !== baseline.autoGroomSettleMinutes,
+  );
+  let autoGroomNeedsDefaultAgent = $derived(
+    autoGroomInput && defaultAgentInput === 'none',
   );
 
   $effect(() => {
@@ -116,6 +128,7 @@
     if (!dirty || saving) return;
     snapMaxWorkers();
     snapAgentTimeout();
+    snapAutoGroomSettle();
 
     const failures: string[] = [];
     saving = true;
@@ -155,6 +168,20 @@
           failures.push('periodic recovery');
         }
       }
+      if (autoGroomInput !== baseline.autoGroomEnabled) {
+        try {
+          await preferencesStore.setAutoGroomEnabled(autoGroomInput);
+        } catch {
+          failures.push('auto-groom');
+        }
+      }
+      if (nextAutoGroomSettle !== baseline.autoGroomSettleMinutes) {
+        try {
+          await preferencesStore.setAutoGroomSettleMinutes(nextAutoGroomSettle);
+        } catch {
+          failures.push('auto-groom settle window');
+        }
+      }
 
       const current = get(preferencesStore);
       baseline = toEditable(current);
@@ -191,6 +218,8 @@
     defaultAgentInput = baseline.defaultAgent;
     cliPathInput = baseline.cliPath;
     periodicRecoveryInput = baseline.periodicRecoveryEnabled;
+    autoGroomInput = baseline.autoGroomEnabled;
+    autoGroomSettleInput = String(baseline.autoGroomSettleMinutes);
   }
 
   function toEditable(prefs: PreferencesState): EditablePreferences {
@@ -200,6 +229,8 @@
       defaultAgent: prefs.defaultAgent,
       cliPath: prefs.cliPath,
       periodicRecoveryEnabled: prefs.periodicRecoveryEnabled,
+      autoGroomEnabled: prefs.autoGroomEnabled,
+      autoGroomSettleMinutes: prefs.autoGroomSettleMinutes,
     };
   }
 
@@ -209,6 +240,10 @@
 
   function snapAgentTimeout() {
     agentTimeoutInput = String(nextAgentTimeout);
+  }
+
+  function snapAutoGroomSettle() {
+    autoGroomSettleInput = String(nextAutoGroomSettle);
   }
 
   function clampNumber(raw: string, min: number, max: number, fallback: number): number {
@@ -322,6 +357,39 @@
             bind:checked={periodicRecoveryInput} />
           <small>Reconcile stale running agent rows while the app stays open.</small>
         </label>
+
+        <label class="field checkbox-field">
+          <span>Enable auto groom</span>
+          <input
+            type="checkbox"
+            bind:checked={autoGroomInput} />
+          <small>
+            When on, the GUI starts a grooming run for backlog tasks that need triage,
+            after a settle window. Requires a default agent.
+          </small>
+        </label>
+
+        <label class="field" class:disabled-field={!autoGroomInput}>
+          <span>Auto-groom settle window</span>
+          <input
+            type="number"
+            min="0"
+            max="60"
+            step="1"
+            disabled={!autoGroomInput}
+            bind:value={autoGroomSettleInput}
+            onblur={snapAutoGroomSettle} />
+          <small>
+            Minutes auto-groom waits after a task is created or edited so attachments and
+            follow-up notes can land. 0 = no delay.
+          </small>
+        </label>
+
+        {#if autoGroomNeedsDefaultAgent}
+          <p class="inline-warning" role="alert">
+            Set a default agent before automation can run.
+          </p>
+        {/if}
       </section>
 
       <footer>
@@ -426,6 +494,19 @@
   .checkbox-field input {
     width: auto;
     align-self: flex-start;
+  }
+  .disabled-field {
+    opacity: 0.55;
+  }
+  .inline-warning {
+    margin: -2px 0 0;
+    padding: 8px 10px;
+    border: 1px solid rgba(244, 191, 79, 0.45);
+    border-radius: 5px;
+    background: rgba(244, 191, 79, 0.08);
+    color: #f4bf4f;
+    font-size: 11.5px;
+    line-height: 1.4;
   }
   .path-row {
     display: grid;

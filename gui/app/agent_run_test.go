@@ -569,6 +569,90 @@ func TestGroomTask_HappyPath_Success(t *testing.T) {
 	}
 }
 
+// TestStartGroomWithTriageHash_PersistsHashOnQueuedAndFinished pins the
+// TB-174 contract: an auto-groom run records its triage_hash on both the
+// `queued` and `finished` JSONL events. LastGroomTriageHash uses the
+// finished event for cross-restart dedupe, while the queued event lets
+// the daemon's pickup path replay the hash through the activeRun.
+func TestStartGroomWithTriageHash_PersistsHashOnQueuedAndFinished(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"groomed"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbBoardForRun(t, "claude", stub)
+
+	const wantHash = "sha256-fake-fingerprint"
+	runID, err := svc.StartGroomWithTriageHash(context.Background(), "TB-1", wantHash)
+	if err != nil {
+		t.Fatalf("StartGroomWithTriageHash: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	events := readEvents(t, boardDir, "TB-1")
+	var sawQueuedHash, sawFinishedHash bool
+	for _, ev := range events {
+		if ev.RunID != runID {
+			continue
+		}
+		switch ev.Event {
+		case agent.EvQueued:
+			if ev.TriageHash != wantHash {
+				t.Fatalf("queued TriageHash: %q, want %q", ev.TriageHash, wantHash)
+			}
+			sawQueuedHash = true
+		case agent.EvFinished:
+			if ev.TriageHash != wantHash {
+				t.Fatalf("finished TriageHash: %q, want %q", ev.TriageHash, wantHash)
+			}
+			sawFinishedHash = true
+		}
+	}
+	if !sawQueuedHash || !sawFinishedHash {
+		t.Fatalf("missing TriageHash events: queued=%v finished=%v", sawQueuedHash, sawFinishedHash)
+	}
+
+	// Cross-check the durable helper.
+	gotHash, ok, err := agent.LastGroomTriageHash(boardDir, "TB-1")
+	if err != nil {
+		t.Fatalf("LastGroomTriageHash: %v", err)
+	}
+	if !ok || gotHash != wantHash {
+		t.Errorf("LastGroomTriageHash: got (%q, %v), want (%q, true)", gotHash, ok, wantHash)
+	}
+}
+
+// TestGroomTask_ManualOmitsTriageHash confirms the public GroomTask entry
+// point (drawer) does not record a hash, so manual runs don't pollute the
+// auto-groom dedupe state.
+func TestGroomTask_ManualOmitsTriageHash(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"manual groom"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbBoardForRun(t, "claude", stub)
+
+	runID, err := svc.GroomTask(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("GroomTask: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	for _, ev := range readEvents(t, boardDir, "TB-1") {
+		if ev.RunID != runID {
+			continue
+		}
+		if ev.TriageHash != "" {
+			t.Fatalf("manual groom event %s carried unexpected TriageHash %q", ev.Event, ev.TriageHash)
+		}
+	}
+
+	if _, ok, err := agent.LastGroomTriageHash(boardDir, "TB-1"); err != nil || ok {
+		t.Errorf("LastGroomTriageHash after manual groom: ok=%v err=%v, want (false, nil)", ok, err)
+	}
+}
+
 func TestReviewTask_HappyPath_Success(t *testing.T) {
 	stub := &stubRunner{
 		name:        "claude",

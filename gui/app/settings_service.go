@@ -105,6 +105,17 @@ type PeriodicRecoveryController interface {
 	SetPeriodicRecoveryEnabled(enabled bool)
 }
 
+// AutoGroomController is the optional runtime settings hook exposed by
+// the auto-groom coordinator (TB-174). SettingsService persists the
+// preference, then calls the matching Notify method so a freshly
+// flipped toggle (or a freshly chosen default agent) triggers an
+// immediate coordinator scan instead of waiting for the next watcher
+// event. Wired via the activator at construction time.
+type AutoGroomController interface {
+	NotifyAutoGroomEnabled()
+	NotifyDefaultAgentChanged()
+}
+
 // BoardOpenedHook fires once OpenBoard has committed the new board state
 // (BoardService rebound, watcher switched, daemon activated, board:opened
 // emitted). Production wires it to UsageService.RefreshAgentUsage so the
