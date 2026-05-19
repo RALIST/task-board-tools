@@ -374,6 +374,16 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 		return
 	}
 
+	// TB-130 Claude pre-allocation: generate a UUIDv4 BEFORE spawning so
+	// the agent CLI uses the same id we record in JSONL, even if the
+	// daemon crashes mid-run. Codex doesn't accept a pre-allocated id;
+	// its session capture goes through the OnSessionID callback wired by
+	// TB-136. ResumeAgent (TB-138) supplies SessionID itself, so a
+	// resume run keeps its parent's id.
+	if ar.Agent == AgentClaude && ar.SessionID == "" {
+		ar.SessionID = agent.GenerateSessionID()
+	}
+
 	// Open the per-run log file. The writer is the third fan-out of every
 	// agent line (alongside JSONL + Wails); if the log file fails to open,
 	// the run continues — the JSONL stream is the source of truth.
@@ -406,6 +416,7 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 		Prompt:      prompt,
 		ProjectRoot: projectRoot,
 		Env:         runEnv,
+		SessionID:   ar.SessionID,
 		// The started JSONL schema has no timeout field yet; the effective
 		// deadline is carried to the runner here.
 		Timeout: timeout,

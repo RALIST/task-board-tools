@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -277,8 +278,9 @@ func TestRunAgent_HappyPath_Success(t *testing.T) {
 	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
 
 	events := readEvents(t, boardDir, "TB-1")
-	// queued + started + 10 stdout + 2 stderr + finished = 15
-	if len(events) != 15 {
+	// queued + started + session + 10 stdout + 2 stderr + finished = 16
+	// (TB-130: session event lands after started for Claude pre-alloc.)
+	if len(events) != 16 {
 		t.Fatalf("event count: %d; events=%+v", len(events), events)
 	}
 	if events[0].Event != agent.EvQueued {
@@ -286,6 +288,9 @@ func TestRunAgent_HappyPath_Success(t *testing.T) {
 	}
 	if events[1].Event != agent.EvStarted {
 		t.Errorf("second event not started: %+v", events[1])
+	}
+	if events[2].Event != agent.EvSession || events[2].SessionID == "" {
+		t.Errorf("third event not session with id: %+v", events[2])
 	}
 	last := events[len(events)-1]
 	if last.Event != agent.EvFinished || last.Status != agent.StatusSuccess || last.ExitCode != 0 {
@@ -480,18 +485,82 @@ func TestGroomTask_HappyPath_Success(t *testing.T) {
 	}
 }
 
-// TestRunAgent_NoSessionEventWhenSessionIDUnset locks the TB-133 gate:
-// the post-`started` session-write hook fires only when ar.SessionID is
-// non-empty. Until TB-135 wires Claude pre-allocation (and TB-136 wires
-// the Codex --json callback), every run leaves SessionID empty and no
-// `session` JSONL event must appear.
-func TestRunAgent_NoSessionEventWhenSessionIDUnset(t *testing.T) {
+// TestRunAgent_ClaudePreAllocatesSessionID is the TB-135 contract: a
+// Claude run gets a UUIDv4 SessionID pre-allocated in runGoroutine,
+// passes it through RunInput.SessionID to the runner, and persists the
+// same id in the post-`started` session JSONL event.
+func TestRunAgent_ClaudePreAllocatesSessionID(t *testing.T) {
 	stub := &stubRunner{
 		name:        "claude",
-		stdoutLines: []string{"first"},
+		stdoutLines: []string{"hi"},
 		exitCode:    0,
 	}
 	svc, boardDir := realTbBoardForRun(t, "claude", stub)
+
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("RunAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	in := stub.input()
+	if in.SessionID == "" {
+		t.Fatalf("RunInput.SessionID empty — pre-alloc didn't reach runner")
+	}
+	if !agentSessionIDRegex().MatchString(in.SessionID) {
+		t.Fatalf("RunInput.SessionID %q is not a canonical UUIDv4", in.SessionID)
+	}
+
+	events := readEvents(t, boardDir, "TB-1")
+	var sessionEvent *agent.Event
+	for i := range events {
+		if events[i].Event == agent.EvSession {
+			sessionEvent = &events[i]
+			break
+		}
+	}
+	if sessionEvent == nil {
+		t.Fatalf("no session event in JSONL: %+v", events)
+	}
+	if sessionEvent.SessionID != in.SessionID {
+		t.Fatalf("session event id %q != RunInput.SessionID %q", sessionEvent.SessionID, in.SessionID)
+	}
+}
+
+// TestRunAgent_CodexDoesNotPreAllocateSessionID confirms only Claude
+// runs get a pre-allocated SessionID. Codex captures its id from the
+// --json stream callback (TB-136), not from a daemon-side pre-alloc.
+func TestRunAgent_CodexDoesNotPreAllocateSessionID(t *testing.T) {
+	stub := &stubRunner{
+		name:        "codex",
+		stdoutLines: []string{"hi"},
+		exitCode:    0,
+	}
+	svc, _ := realTbBoardForRun(t, "codex", stub)
+
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("RunAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	if got := stub.input().SessionID; got != "" {
+		t.Fatalf("Codex run got pre-allocated SessionID %q; should be empty", got)
+	}
+}
+
+// TestRunAgent_NoSessionEventWhenSessionIDUnset locks the TB-133 gate
+// via the Codex path, where SessionID stays empty until TB-136 wires
+// the --json OnSessionID callback. A Codex run with a stub runner that
+// never reports a session id must produce no EvSession JSONL event.
+//
+// The Claude positive case is covered by
+// TestRunAgent_ClaudePreAllocatesSessionID (TB-135).
+func TestRunAgent_NoSessionEventWhenSessionIDUnset(t *testing.T) {
+	stub := &stubRunner{
+		name:        "codex",
+		stdoutLines: []string{"first"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbBoardForRun(t, "codex", stub)
 
 	if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
 		t.Fatalf("RunAgent: %v", err)
@@ -803,3 +872,10 @@ func TestMapRunnerOutcome(t *testing.T) {
 
 // silence unused
 var _ io.Writer = (*lineSink)(nil)
+
+// agentSessionIDRegex returns the regex that locks the UUIDv4 shape we
+// hand to `claude --session-id`. The CLI rejects anything that doesn't
+// match this, so the test ensures GenerateSessionID stays compliant.
+func agentSessionIDRegex() *regexp.Regexp {
+	return regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+}

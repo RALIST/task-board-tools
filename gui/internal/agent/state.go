@@ -400,3 +400,32 @@ func GenerateRunID() string {
 	}
 	return "r_" + hex.EncodeToString(buf[:])
 }
+
+// GenerateSessionID returns a canonical UUIDv4 string sourced from
+// crypto/rand. `claude --session-id` requires a real UUID — anything
+// else is rejected silently, which is the worst possible failure mode
+// in a fake-runner test. We do NOT reuse GenerateRunID (32-bit hex, not
+// UUID-shaped) for this reason. See TB-130.
+func GenerateSessionID() string {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		// Same fallback rationale as GenerateRunID — stdlib documents
+		// rand.Read as infallible; if it fails we keep moving with a
+		// deterministic id (Claude will then reject it, exposing the
+		// outage immediately rather than silently disabling resume).
+		return "00000000-0000-4000-8000-000000000000"
+	}
+	// Version 4 (random) + variant 10x.
+	buf[6] = (buf[6] & 0x0f) | 0x40
+	buf[8] = (buf[8] & 0x3f) | 0x80
+	hex := func(b []byte) string {
+		const digits = "0123456789abcdef"
+		out := make([]byte, len(b)*2)
+		for i, v := range b {
+			out[i*2] = digits[v>>4]
+			out[i*2+1] = digits[v&0x0f]
+		}
+		return string(out)
+	}
+	return hex(buf[0:4]) + "-" + hex(buf[4:6]) + "-" + hex(buf[6:8]) + "-" + hex(buf[8:10]) + "-" + hex(buf[10:16])
+}

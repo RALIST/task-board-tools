@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -161,6 +162,26 @@ func TestFilterTBEnv_NoMatchingKeysReturnsNil(t *testing.T) {
 	got := FilterTBEnv([]string{"HOME=/home/u", "PATH=/usr/bin"})
 	if got != nil {
 		t.Fatalf("FilterTBEnv: expected nil for no matches, got %v", got)
+	}
+}
+
+// TestGenerateSessionID_CanonicalUUIDv4 locks the format claude expects.
+// `claude --session-id` is strict — a malformed UUID is rejected
+// silently, which would break resume in a way fake-runner tests can't
+// detect. The regex enforces version 4 (third group starts with `4`)
+// and the canonical variant (fourth group starts with [89ab]).
+func TestGenerateSessionID_CanonicalUUIDv4(t *testing.T) {
+	re := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	seen := make(map[string]bool, 64)
+	for i := 0; i < 64; i++ {
+		id := GenerateSessionID()
+		if !re.MatchString(id) {
+			t.Fatalf("GenerateSessionID returned non-canonical UUIDv4: %q", id)
+		}
+		if seen[id] {
+			t.Fatalf("GenerateSessionID returned duplicate %q in 64 calls — entropy is broken", id)
+		}
+		seen[id] = true
 	}
 }
 
