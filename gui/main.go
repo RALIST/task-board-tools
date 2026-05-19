@@ -81,24 +81,36 @@ func main() {
 		Logger:   logger,
 	})
 
-	// Watcher emits to the Wails app, the daemon sink, the board sink, AND
-	// the auto-groom coordinator sink (TB-58 + TB-174). Right-associative
-	// fan-out keeps the existing TeeEmitter contract unchanged.
+	// Auto-implement coordinator (TB-179). Parallel to AutoGroomCoordinator
+	// but scoped to the ready column and implement-mode runs. Watches the
+	// same watcher events.
+	autoImplement := tbapp.NewAutoImplementCoordinator(tbapp.AutoImplementCoordinatorOptions{
+		Board:    boardService,
+		Agent:    agentService,
+		Settings: nil, // wired below after settingsService is constructed
+		Emitter:  emitter,
+		Logger:   logger,
+	})
+
+	// Watcher emits to the Wails app, the daemon sink, the board sink, the
+	// auto-groom coordinator sink, and the auto-implement coordinator sink
+	// (TB-58 + TB-174 + TB-179). Right-associative fan-out keeps the
+	// existing TeeEmitter contract unchanged.
 	sink := daemon.NewEventSink(d, logger)
 	boardSink := tbapp.NewBoardWatcherSink(boardService)
-	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: daemon.TeeEmitter{A: boardSink, B: autoGroom}}}
+	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: daemon.TeeEmitter{A: boardSink, B: daemon.TeeEmitter{A: autoGroom, B: autoImplement}}}}
 	w := watcher.New(teeShim{tee: tee}, logger)
 
 	settingsService = tbapp.NewSettingsService(tbapp.SettingsOptions{
 		Logger:    logger,
 		Board:     boardService,
 		Watcher:   w,
-		Activator: &boardActivator{daemon: d, autoGroom: autoGroom},
+		Activator: &boardActivator{daemon: d, autoGroom: autoGroom, autoImplement: autoImplement},
 	})
-	// Late-bind the SettingsService so the coordinator can read
-	// preferences (auto-groom enabled, default agent, settle minutes) on
-	// every scan.
+	// Late-bind the SettingsService so both coordinators can read
+	// preferences on every scan.
 	autoGroom.SetSettings(settingsService)
+	autoImplement.SetSettings(settingsService)
 
 	// Per-agent quota usage — independent of any individual run, refreshed on
 	// a timer and on demand from the header widget (TB-107).
@@ -126,6 +138,7 @@ func main() {
 			application.NewService(agentService),
 			application.NewService(usageService),
 			application.NewService(autoGroom),
+			application.NewService(autoImplement),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:      "com.taskboard.tbgui",

@@ -68,39 +68,46 @@ func (t teeShim) Emit(name string, data ...any) {
 	t.tee.Emit(name, data...)
 }
 
-// boardActivator is the composite that drives both the daemon and the
-// auto-groom coordinator from a single SettingsService.Activator slot
-// (TB-174). Activation is sequential: the daemon runs stale-recovery
-// and the startup queue scan first; only then does the coordinator
-// begin its scan loop so it sees a post-reconciled view.
+// boardActivator is the composite that drives the daemon plus every
+// coordinator from a single SettingsService.Activator slot (TB-174 +
+// TB-179). Activation is sequential: the daemon runs stale-recovery
+// and the startup queue scan first; then the coordinators begin their
+// scan loops against a post-reconciled view.
 //
 // Implements:
 //   - app.BoardActivator (required by SettingsService).
 //   - app.PeriodicRecoveryController (forwarded to the daemon so the
 //     runtime preference toggle reaches the ticker).
-//   - app.AutoGroomController (forwarded to the coordinator so
-//     SetAutoGroomEnabled / SetDefaultAgent kick fresh scans).
+//   - app.AutoGroomController (forwarded to the auto-groom coordinator
+//     so SetAutoGroomEnabled / SetDefaultAgent kick fresh scans).
+//   - app.AutoImplementController (forwarded to the auto-implement
+//     coordinator so SetAutoImplementEnabled / SetAutoImplementQuery /
+//     SetDefaultAgent kick fresh scans).
 type boardActivator struct {
-	daemon    *daemon.Daemon
-	autoGroom *tbapp.AutoGroomCoordinator
+	daemon        *daemon.Daemon
+	autoGroom     *tbapp.AutoGroomCoordinator
+	autoImplement *tbapp.AutoImplementCoordinator
 }
 
 func (a *boardActivator) Activate(ctx context.Context, boardDir string) error {
 	if err := a.daemon.Activate(ctx, boardDir); err != nil {
 		return err
 	}
-	return a.autoGroom.Activate(ctx, boardDir)
+	if err := a.autoGroom.Activate(ctx, boardDir); err != nil {
+		return err
+	}
+	return a.autoImplement.Activate(ctx, boardDir)
 }
 
 func (a *boardActivator) Deactivate() error {
-	// Stop the coordinator first so any in-flight settle timers don't
-	// fire a scan against a stale boardDir while the daemon is also
-	// tearing down. Errors are joined so callers see both — the
-	// coordinator's Deactivate is best-effort today, but joining keeps
-	// the contract honest if it gains a real error path.
+	// Stop the coordinators first so any in-flight timers don't fire a
+	// scan against a stale boardDir while the daemon tears down. Errors
+	// are joined so callers see all failures — keeps the contract
+	// honest if any Deactivate gains a real error path.
+	implErr := a.autoImplement.Deactivate()
 	coordErr := a.autoGroom.Deactivate()
 	daemonErr := a.daemon.Deactivate()
-	return errors.Join(coordErr, daemonErr)
+	return errors.Join(implErr, coordErr, daemonErr)
 }
 
 func (a *boardActivator) SetPeriodicRecoveryEnabled(enabled bool) {
@@ -113,4 +120,13 @@ func (a *boardActivator) NotifyAutoGroomEnabled() {
 
 func (a *boardActivator) NotifyDefaultAgentChanged() {
 	a.autoGroom.NotifyDefaultAgentChanged()
+	a.autoImplement.NotifyDefaultAgentChanged()
+}
+
+func (a *boardActivator) NotifyAutoImplementEnabled() {
+	a.autoImplement.NotifyAutoImplementEnabled()
+}
+
+func (a *boardActivator) NotifyAutoImplementQueryChanged() {
+	a.autoImplement.NotifyAutoImplementQueryChanged()
 }

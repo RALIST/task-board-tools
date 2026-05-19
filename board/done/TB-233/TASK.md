@@ -7,6 +7,9 @@
 **Tags:** auto-implement,review-failed,epic-tb194
 **Agent:** claude
 **AgentStatus:** interrupted
+**ImplementedBy:** claude
+**ImplementStatus:** success
+**ReviewRef:** TB-233 ships as part of TB-179 commit
 **Branch:** —
 **Parent:** TB-177
 
@@ -41,6 +44,10 @@ When TB-179 ships the auto-implement candidate selector in the GUI daemon, break
 - [ ] Verification: `cd gui && go test ./...` passes.
 - [ ] If TB-179 has not been picked up yet when this task starts, either (a) implement the ordering rule and tests as part of TB-179 and close this task as merged-into-TB-179, or (b) leave a passing test fixture in the daemon test file that asserts the desired ordering against a small in-package helper, so the rule lands as soon as TB-179 wires the selector. Choose one and note it in the Log.
 
+## Review Target
+
+Merged into TB-179 candidate selector per AC's "if TB-179 has not been picked up yet, implement the ordering rule and tests as part of TB-179 and close this task as merged-into-TB-179". The sort comparator in gui/app/auto_implement.go ranks review-failed first within the same priority bucket, with three dedicated tests in auto_implement_test.go covering: TB-200 review-failed beats TB-100 plain at same priority; P1 plain beats P2 review-failed (priority bucket trumps tag); no-review-failed pool preserves id ascending order.
+
 ## Related Tasks
 
 - **TB-177** — Parent auto-implement epic.
@@ -60,3 +67,10 @@ When TB-179 ships the auto-implement candidate selector in the GUI daemon, break
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited agentstatus=interrupted
 - 2026-05-19: Edited — rewrote scope from "backlog tasks" to "ready tasks" to reflect M10 (TB-239) canonical kanban; `tb review --fail` now lands in `ready/` not `backlog/`.
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited implemented-by=claude, implement-status=success, reviewref=TB-233 ships as part of TB-179 commit
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Edited review-target
+- 2026-05-20: Done
+

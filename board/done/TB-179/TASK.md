@@ -5,6 +5,9 @@
 **Size:** M
 **Module:** gui
 **Tags:** auto-implement,daemon,agent
+**ImplementedBy:** claude
+**ImplementStatus:** success
+**ReviewRef:** TB-179+TB-233 ship in next commit
 **Branch:** —
 **Parent:** TB-177
 
@@ -28,6 +31,14 @@ Teach the GUI daemon to enqueue safe implementation-mode runs for committed `rea
 - Move the selected task to in-progress through the canonical board path before or at run start; respect existing daemon worker limits, active-run dedupe, cancellation, restart recovery, JSONL/log placement, and Wails run events.
 - Respect the epic ordering gate from TB-267 before applying the review-failed priority boost from TB-233.
 - Do not run groom mode and do not write task files directly from frontend code.
+
+## Review Target
+
+- gui/app/auto_implement.go (new): AutoImplementCoordinator parallel to AutoGroomCoordinator. ready-column candidate scan, query+triage+epic-order+active-run+blank-AgentStatus gates, TB-233 sort (priority desc, review-failed first within priority bucket, numeric id asc), canonical tb pull → RunAgent pipeline, diagnostic events on every failure path (pull-failed, run-failed, epic-order-skip, needs-default-agent, needs-query).
+- gui/app/auto_implement_test.go (new): 16 tests covering disabled, no-default emit, matching enqueues, query mismatch, backlog skipped, non-blank AgentStatus skipped, assigned-agent preserved, default-agent fallback, dedupe across rapid scans, epic-order blocked, review-failed first within priority, P1 plain beats P2 review-failed, no review-failed preserves id order, Activate kicks initial scan, Deactivate stops further work, WIP-blocked pull skips with diagnostic, RunAgent active-run path skipped, Status reflects state.
+- gui/adapters.go: boardActivator extended with autoImplement field; SetDefaultAgent notifies both coordinators; new NotifyAutoImplementEnabled / NotifyAutoImplementQueryChanged forwarding.
+- gui/main.go: constructs AutoImplementCoordinator, plumbs into TeeEmitter chain, late-binds settings, registers as Wails service.
+- gui/frontend/bindings/tools/tb-gui/app/autoimplementcoordinator.ts: regenerated bindings for Status().
 
 ## Related Tasks
 
@@ -65,3 +76,10 @@ Teach the GUI daemon to enqueue safe implementation-mode runs for committed `rea
 - 2026-05-19: Moved to code-review
 - 2026-05-19: Moved to done
 - 2026-05-19: Moved to backlog
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited implemented-by=claude, implement-status=success, reviewref=TB-179+TB-233 ship in next commit
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Edited review-target
+- 2026-05-20: Done
+

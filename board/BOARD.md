@@ -4,7 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-177 | Auto task implementation | 3/6 | backlog | gui |
+| TB-177 | Auto task implementation | 5/6 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-262 | Auto-review | 0/4 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
@@ -71,7 +71,6 @@
 | TB-122 | tb worktree clean: removal command | feature | P1 | S | cli |
 | TB-143 | Add semver to cli tool | feature | P2 | M | cli |
 | TB-177 | Auto task implementation | feature | P0 | L | gui |
-| TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |
 | TB-180 | GUI: show auto-implement controls and feedback | feature | P0 | S | gui |
 | TB-186 | Change parent task | feature | P2 | L | gui |
 | TB-187 | Quick add task to epic | improvement | P2 | M | gui/frontend |
@@ -80,7 +79,6 @@
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
-| TB-233 | Auto-implement priority: rank review-failed ready tasks first | improvement | P2 | S | gui |
 | TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P1 | S | gui |
 | TB-246 | Regenerate darwin/Assets.car on working Xcode env | tech-debt | P2 | S | gui |
 | TB-248 | Manual macOS verification of Task Board Tools branding | improvement | P2 | S | gui |
@@ -119,6 +117,7 @@
 | TB-237 | Save diffrent agent actions in diffrent fields | improvement | cli |
 | TB-236 | macOS titlebar double-click should zoom/restore window | bug | gui |
 | TB-235 | Require ReviewRef metadata before code-review moves | improvement | workflow |
+| TB-233 | Auto-implement priority: rank review-failed ready tasks first | improvement | gui |
 | TB-232 | tb-gui usage tap: chain to user's original statusline instead of replacing it | bug | gui |
 | TB-231 | Address TB-130 adversarial review findings | bug | gui |
 | TB-230 | CLI: avoid backups when init content is unchanged | bug | cli |
@@ -155,4 +154,3 @@
 | TB-197 | GUI: show code-review column and review fields | feature | gui |
 | TB-196 | CLI: add review target and notes commands | feature | cli |
 | TB-195 | CLI: add code-review status and submit flow | feature | cli |
-| TB-194 | Code-review column | feature | workflow |
