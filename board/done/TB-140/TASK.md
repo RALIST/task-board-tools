@@ -68,3 +68,6 @@ documented as a follow-up (§ 13).
 ## Log
 
 - 2026-05-14: Created
+- 2026-05-19: Started — moved to in-progress
+- 2026-05-19: Done
+

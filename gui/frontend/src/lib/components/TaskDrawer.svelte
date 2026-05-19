@@ -18,6 +18,7 @@
     pickAttachmentFiles,
     removeAttachments,
     renameTask,
+    resumeAgent,
     runAgent,
     type AgentName,
     type Attachment,
@@ -80,6 +81,7 @@
   let userClearedAgent = $state(false);
   let runStarting = $state(false);
   let groomStarting = $state(false);
+  let resumeStarting = $state(false);
   let groomReasons = $state<string[]>([]);
   let groomHighlight = $state(false);
   let groomHighlightTimer: ReturnType<typeof setTimeout> | null = null;
@@ -242,7 +244,12 @@
   // which lags by one tb edit).
   let selectedRun = $derived(runs.find((r) => r.runId === $selectedRunID) ?? null);
   let liveStatus = $derived(selectedRun?.status ?? '');
-  let runBusy = $derived(liveStatus === 'queued' || liveStatus === 'running' || runStarting || groomStarting);
+  // TB-130: task-level agentStatus is the source of truth for whether
+  // Resume is available — the selected run might be an older one the
+  // user is browsing while the latest interrupted run sits at the top.
+  let taskAgentStatus = $derived(detail?.metadata.agentStatus ?? '');
+  let runBusy = $derived(liveStatus === 'queued' || liveStatus === 'running' || runStarting || groomStarting || resumeStarting);
+  let canResume = $derived(taskAgentStatus === 'interrupted' && !runBusy);
   let groomEmphasized = $derived(groomReasons.length > 0 || groomHighlight);
   let persistedAgent = $derived((detail?.metadata.agent ?? '') as AgentName);
   // The dropdown falls back to the configured default agent only when the
@@ -354,6 +361,33 @@
       pushToast(`Run failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       runStarting = false;
+    }
+  }
+
+  async function onResumeClick() {
+    if (!detail) return;
+    const id = detail.metadata.id;
+    resumeStarting = true;
+    try {
+      const agentName = (detail.metadata.agent ?? '').toLowerCase() as AgentName;
+      const runId = await resumeAgent(id);
+      // Optimistic queued row — the JSONL queued event will carry
+      // resumed_from / resumed_from_run so the Wails event soon
+      // refreshes this row with the chip.
+      upsertRun({
+        runId,
+        taskId: id,
+        agent: agentName || 'claude',
+        mode: 'resume',
+        status: 'queued',
+        queuedAt: new Date().toISOString(),
+      });
+      selectedRunID.set(runId);
+      pushToast(`Resumed ${id}`, 'success');
+    } catch (e) {
+      pushToast(`Resume failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      resumeStarting = false;
     }
   }
 
@@ -1032,10 +1066,19 @@
                   class="primary compact"
                   type="button"
                   disabled={!displayedAgent || runBusy}
-                  title={!displayedAgent ? 'Select an agent first' : (liveStatus === 'running' ? 'Already running' : '')}
+                  title={!displayedAgent ? 'Select an agent first' : (liveStatus === 'running' ? 'Already running' : 'Start a fresh conversation')}
                   onclick={onRunClick}>
                   {runStarting ? 'Starting…' : 'Run'}
                 </button>
+                {#if canResume}
+                  <button
+                    class="primary compact resume"
+                    type="button"
+                    title="Continue the previous agent session"
+                    onclick={onResumeClick}>
+                    {resumeStarting ? 'Resuming…' : 'Resume'}
+                  </button>
+                {/if}
                 <button
                   class:emphasized={groomEmphasized && !runBusy}
                   class="secondary compact"
@@ -1065,6 +1108,13 @@
                         <span class="mode">{r.mode || 'implement'}</span>
                         <span class={`pill pill-${r.status || 'idle'}`}>{r.status || 'idle'}</span>
                         <span class="agent">{r.agent}</span>
+                        {#if r.resumedFromRun}
+                          <span
+                            class="chip resumed-from"
+                            title={`Resumed from run ${r.resumedFromRun}`}>
+                            ↻ {r.resumedFromRun}
+                          </span>
+                        {/if}
                       </button>
                     </li>
                   {/each}
@@ -1445,7 +1495,28 @@
   .pill-success { background: rgba(80, 200, 120, 0.18); color: #50c878; }
   .pill-failed { background: rgba(255, 90, 82, 0.18); color: var(--p0); }
   .pill-cancelled { background: rgba(110, 118, 134, 0.18); color: var(--p3); }
+  .pill-interrupted { background: rgba(245, 158, 11, 0.22); color: #f59e0b; }
   .pill-idle { background: rgba(110, 118, 134, 0.10); color: var(--fg-dim); }
+
+  .chip.resumed-from {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
+    letter-spacing: 0.02em;
+    text-transform: none;
+  }
+
+  .agent-buttons .resume {
+    background: rgba(245, 158, 11, 0.16);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.45);
+  }
+  .agent-buttons .resume:hover {
+    background: rgba(245, 158, 11, 0.24);
+  }
 
   .run-list {
     list-style: none;

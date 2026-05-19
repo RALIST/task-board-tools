@@ -167,14 +167,23 @@ export function registerAgentEventHandlers(
     on('agent:run-queued', (e) => {
       const p = pickPayload(e);
       if (!p?.run_id) return;
-      upsertRun({
+      const patch: Partial<Run> & { runId: string } = {
         runId: String(p.run_id),
         taskId: String(p.task_id ?? ''),
         agent: String(p.agent ?? ''),
         mode: normalizeMode(p.mode),
         status: 'queued',
         queuedAt: nowISO(),
-      });
+      };
+      // TB-130 resume linkage — only the resume path emits these so
+      // they stay undefined for regular RunAgent / GroomTask events.
+      if (typeof p.resumed_from === 'string' && p.resumed_from) {
+        patch.resumedFrom = p.resumed_from;
+      }
+      if (typeof p.resumed_from_run === 'string' && p.resumed_from_run) {
+        patch.resumedFromRun = p.resumed_from_run;
+      }
+      upsertRun(patch);
     }),
   );
 

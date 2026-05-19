@@ -28,6 +28,7 @@ import {
   GetRunLog,
   GroomTask,
   ListRuns,
+  ResumeAgent,
   RunAgent,
 } from '../../bindings/tools/tb-gui/app/agentservice';
 import {
@@ -180,6 +181,15 @@ export async function runAgent(id: string): Promise<string> {
 
 export async function groomTask(id: string): Promise<string> {
   return await GroomTask(id);
+}
+
+// resumeAgent continues an `interrupted` task's prior agent session
+// (TB-130). The Wails binding rejects with ErrCannotResume when
+// AgentStatus != "interrupted" and ErrNotResumable when the latest run
+// has no captured session id — surface those upstream as the toast
+// message via the standard error handling.
+export async function resumeAgent(id: string): Promise<string> {
+  return await ResumeAgent(id);
 }
 
 export async function cancelRun(id: string): Promise<void> {
