@@ -393,12 +393,19 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 
 	prompt := agent.RenderPrompt(agent.PromptImplement, promptVarsFromDetail(detail))
 	timeout := s.timeoutForRun()
+	// Capture cwd/env in locals so the OnStarted closure can reference
+	// them without observing the partially-constructed RunInput literal.
+	// TB-130 session-write hook reads these; future TB-138 resume runs
+	// will override projectRoot/runEnv before this point.
+	projectRoot := c.Cwd()
+	var runEnv []string
 
 	in := agent.RunInput{
 		TaskID:      ar.TaskID,
 		Mode:        agent.Mode(ar.Mode),
 		Prompt:      prompt,
-		ProjectRoot: c.Cwd(),
+		ProjectRoot: projectRoot,
+		Env:         runEnv,
 		// The started JSONL schema has no timeout field yet; the effective
 		// deadline is carried to the runner here.
 		Timeout: timeout,
@@ -445,6 +452,26 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 				PID:    pid,
 			}); err != nil {
 				slog.Warn("agent: append started failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
+			}
+			// TB-130: capture the agent-side session id immediately AFTER
+			// `started` so recovery can rely on PID durability before any
+			// session metadata appears on disk. Empty SessionID means
+			// session capture is not wired for this run (Claude pre-alloc
+			// lands in TB-135, Codex --json callback lands in TB-136); the
+			// gate keeps TB-133 a no-op until those wires light up.
+			if ar.SessionID != "" {
+				if err := agent.AppendEvent(boardDir, ar.TaskID, agent.Event{
+					TS:        time.Now().UTC().Format(time.RFC3339),
+					RunID:     ar.RunID,
+					TaskID:    ar.TaskID,
+					Event:     agent.EvSession,
+					SessionID: ar.SessionID,
+					PID:       pid,
+					Cwd:       projectRoot,
+					RunEnv:    agent.FilterTBEnv(runEnv),
+				}); err != nil {
+					slog.Warn("agent: append session failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
+				}
 			}
 			s.emit("agent:run-started", map[string]any{
 				"run_id":  ar.RunID,

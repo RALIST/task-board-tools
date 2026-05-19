@@ -171,6 +171,13 @@ type activeRun struct {
 	Pid  int
 	Pgid int
 
+	// SessionID is the agent-side conversation id (TB-130). Set by
+	// runGoroutine pre-allocate for Claude (TB-135) or filled in by the
+	// Codex --json OnSessionID callback (TB-136). Empty here means
+	// "session capture not wired for this run" — the post-`started`
+	// session-write hook in runGoroutine no-ops when this is empty.
+	SessionID string
+
 	// Cancel cancels the runner's exec context. The runner converts that
 	// into a single SIGTERM and exits; CancelRun escalates to SIGKILL via
 	// Pgid if the process doesn't go quietly.

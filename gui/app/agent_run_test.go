@@ -480,6 +480,32 @@ func TestGroomTask_HappyPath_Success(t *testing.T) {
 	}
 }
 
+// TestRunAgent_NoSessionEventWhenSessionIDUnset locks the TB-133 gate:
+// the post-`started` session-write hook fires only when ar.SessionID is
+// non-empty. Until TB-135 wires Claude pre-allocation (and TB-136 wires
+// the Codex --json callback), every run leaves SessionID empty and no
+// `session` JSONL event must appear.
+func TestRunAgent_NoSessionEventWhenSessionIDUnset(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"first"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbBoardForRun(t, "claude", stub)
+
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("RunAgent: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	events := readEvents(t, boardDir, "TB-1")
+	for _, ev := range events {
+		if ev.Event == agent.EvSession {
+			t.Fatalf("session event must not appear without SessionID; events=%+v", events)
+		}
+	}
+}
+
 func TestRunAgent_TimeoutProviderIsReadPerRun(t *testing.T) {
 	stub := &stubRunner{
 		name:     "claude",
