@@ -18,6 +18,10 @@ func TestConventionsTemplateStaysPolicyFocused(t *testing.T) {
 		"WIP",
 		"Related Tasks",
 		"AgentStatus",
+		"Every done task needs evidence",
+		"Implementation tasks should point to a commit or review artifact that includes the task ID",
+		"Spikes should link or attach the investigation result",
+		"Archive is only for closing work that should leave the active board",
 	} {
 		assertContains(t, content, want)
 	}

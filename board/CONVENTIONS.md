@@ -82,7 +82,9 @@ When decomposing an epic, connect children to the parent and keep sibling orderi
 
 If review passes, move the task to `done` with a concise completion note. If review fails, return it to `ready`, preserve the findings, and make the next required action obvious.
 
-Do not use `archive` as a shortcut for unfinished work. Archive is for work that should leave the active system, not for work that is merely inconvenient.
+Every done task needs evidence. No task should move to `done` without proof of done in the task log, review reference, attachments, or related repository history. Implementation tasks should point to a commit or review artifact that includes the task ID. Spikes should link or attach the investigation result, decision record, notes file, or follow-up task list.
+
+Do not use `archive` as a shortcut for unfinished work or as a substitute for evidence. Archive is only for closing work that should leave the active board: obsolete, superseded, duplicate, or intentionally dropped tasks.
 
 ### Agent lifecycle (AgentStatus)
 
