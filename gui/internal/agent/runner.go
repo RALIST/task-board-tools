@@ -168,6 +168,13 @@ var PromptImplement string
 //go:embed prompts/groom.md
 var PromptGroom string
 
+// PromptResume is the embedded short continuation prompt used when an
+// interrupted run is resumed (TB-130). No template variables in M1 —
+// the resumed conversation already carries the original task context.
+//
+//go:embed prompts/resume.md
+var PromptResume string
+
 // PromptVars are the values RenderPrompt substitutes into a template. The
 // set is intentionally tiny — adding a new placeholder requires editing the
 // templates AND this struct AND RenderPrompt, so reviewers always see the
@@ -209,5 +216,26 @@ func (r *groomingDecorator) Name() string {
 
 func (r *groomingDecorator) Run(ctx context.Context, in RunInput) (RunResult, error) {
 	in.Prompt = RenderPrompt(PromptGroom, r.vars)
+	return r.inner.Run(ctx, in)
+}
+
+type resumeDecorator struct {
+	inner Runner
+}
+
+// NewResumeDecorator returns a Runner that replaces the incoming prompt
+// with the fixed resume continuation prompt (PromptResume) before
+// delegating to inner. Mirror of GroomingDecorator — keeps prompt
+// rendering centralized in runnerForMode so runGoroutine stays
+// mode-agnostic.
+func NewResumeDecorator(inner Runner) Runner {
+	return &resumeDecorator{inner: inner}
+}
+
+func (r *resumeDecorator) Name() string { return r.inner.Name() }
+
+func (r *resumeDecorator) Run(ctx context.Context, in RunInput) (RunResult, error) {
+	in.Prompt = PromptResume
+	in.Mode = ModeResume
 	return r.inner.Run(ctx, in)
 }

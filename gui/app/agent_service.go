@@ -40,6 +40,17 @@ var ErrAlreadyRunning = errors.New("agent run already in progress")
 // returns this cleanly.
 var ErrNotRunning = errors.New("no agent run in progress")
 
+// ErrNotResumable is returned by ResumeAgent when the latest run for
+// the task has no captured session id (the run failed before TB-130's
+// post-`started` session-write hook fired, or the agent never reported
+// one).
+var ErrNotResumable = errors.New("task has no resumable session")
+
+// ErrCannotResume is returned by ResumeAgent when the task's
+// AgentStatus is not `interrupted`. M1 scope: resume from finished
+// runs is documented as a follow-up.
+var ErrCannotResume = errors.New("task is not in interrupted state")
+
 // Emitter is the contract AgentService needs to forward Wails events to the
 // frontend. *application.App.Event satisfies it in production; tests pass an
 // in-memory implementation. Defined narrowly here (Name + payload only) so
@@ -177,6 +188,15 @@ type activeRun struct {
 	// "session capture not wired for this run" — the post-`started`
 	// session-write hook in runGoroutine no-ops when this is empty.
 	SessionID string
+
+	// Cwd / Env carry the persisted execution context for a resume run
+	// (TB-138). Set by ResumeAgent from the parent run's session event;
+	// empty for fresh runs (runGoroutine falls back to the CLI client's
+	// cwd and the empty env). When TB-114's worktree mode is on, the
+	// parent's Cwd is the worktree path; with worktrees off it's the
+	// repo root.
+	Cwd string
+	Env []string
 
 	// Cancel cancels the runner's exec context. The runner converts that
 	// into a single SIGTERM and exits; CancelRun escalates to SIGKILL via

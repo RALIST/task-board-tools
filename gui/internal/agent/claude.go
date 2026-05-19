@@ -26,18 +26,29 @@ func (r *ClaudeRunner) Name() string { return "claude" }
 // See runExternal for the full lifecycle (process group, env whitelist,
 // output streaming, cancel/timeout handling).
 //
-// When RunInput.SessionID is non-empty (Claude pre-allocation per
-// TB-130), `--session-id <uuid>` is appended so the daemon's
-// pre-allocated id becomes Claude's actual conversation id. A
-// subsequent ResumeAgent run (TB-138) replaces this with `-r <uuid>`
-// against the same id.
+// SessionID handling per TB-130:
+//   - Mode == ModeResume + non-empty SessionID -> append `-r <uuid>`
+//     (Claude resumes the named session; no new id is allocated).
+//   - Any other mode + non-empty SessionID -> append `--session-id
+//     <uuid>` (daemon pre-allocation; Claude uses the caller-supplied
+//     id as the new session's id).
+//   - Empty SessionID -> no flag (resume is the only mode that strictly
+//     requires one; other modes degrade to "Claude picks an id" and
+//     session capture stays empty for the run).
+//
+// `-r` and `--session-id` are mutually exclusive — only one is ever
+// emitted per invocation.
 func (r *ClaudeRunner) Run(ctx context.Context, in RunInput) (RunResult, error) {
 	if in.Stdout != nil {
 		in.Stdout = newClaudeTranslator(in.Stdout)
 	}
 	args := []string{"-p", in.Prompt, "--output-format", "stream-json", "--verbose"}
 	if in.SessionID != "" {
-		args = append(args, "--session-id", in.SessionID)
+		if in.Mode == ModeResume {
+			args = append(args, "-r", in.SessionID)
+		} else {
+			args = append(args, "--session-id", in.SessionID)
+		}
 	}
 	res, _ := runExternal(ctx, in, "claude", args)
 	return res, res.Err

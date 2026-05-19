@@ -46,8 +46,11 @@ func (s *AgentService) runnerFor(name string) (agent.Runner, error) {
 }
 
 func runnerForMode(runner agent.Runner, mode agent.Mode, detail TaskDetail) agent.Runner {
-	if mode == agent.ModeGroom {
+	switch mode {
+	case agent.ModeGroom:
 		return agent.NewGroomingDecorator(runner, promptVarsFromDetail(detail))
+	case agent.ModeResume:
+		return agent.NewResumeDecorator(runner)
 	}
 	return runner
 }
@@ -61,8 +64,11 @@ func promptVarsFromDetail(detail TaskDetail) agent.PromptVars {
 }
 
 func runMethodName(mode agent.Mode) string {
-	if mode == agent.ModeGroom {
+	switch mode {
+	case agent.ModeGroom:
 		return "GroomTask"
+	case agent.ModeResume:
+		return "ResumeAgent"
 	}
 	return "RunAgent"
 }
@@ -101,6 +107,140 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 // and runner decorator differ.
 func (s *AgentService) GroomTask(ctx context.Context, id string) (string, error) {
 	return s.startAgentRun(ctx, id, agent.ModeGroom)
+}
+
+// ResumeAgent continues the most recent interrupted agent session for
+// the task (TB-130). Reads the persisted SessionID + cwd + env from the
+// parent run's JSONL session event, validates that the task is in
+// `interrupted` status (resume from finished runs is documented as a
+// follow-up, NOT M1 scope), then launches a new run via the same
+// runGoroutine pipeline used by RunAgent. Returns ErrNotResumable when
+// the latest run has no captured session id; ErrCannotResume when the
+// task's AgentStatus is not `interrupted`.
+//
+// The queued JSONL event for a resume run carries `resumed_from`
+// (parent session id) and `resumed_from_run` (parent RunID) so the
+// frontend's "resumed from r_xxxx" chip has a target. For Claude the
+// runner appends `-r <uuid>` so the agent CLI reuses the same session;
+// for Codex the runner uses `codex exec --json resume <uuid> <prompt>`
+// and a new id flows through the OnSessionID callback (TB-139).
+func (s *AgentService) ResumeAgent(ctx context.Context, id string) (string, error) {
+	if s.board == nil {
+		return "", ErrNoBoard
+	}
+	c := s.board.snapshot()
+	if c == nil {
+		return "", ErrNoBoard
+	}
+	boardDir, err := s.board.resolveBoardDir(ctx)
+	if err != nil {
+		return "", err
+	}
+	detail, err := s.board.GetTask(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if detail.Metadata.AgentStatus != "interrupted" {
+		return "", fmt.Errorf("%w: AgentStatus is %q (want \"interrupted\")",
+			ErrCannotResume, detail.Metadata.AgentStatus)
+	}
+	candidate, ok, err := resumableSessionID(boardDir, id)
+	if err != nil {
+		return "", fmt.Errorf("ResumeAgent: resumableSessionID: %w", err)
+	}
+	if !ok {
+		return "", ErrNotResumable
+	}
+
+	agentName := strings.ToLower(strings.TrimSpace(detail.Metadata.Agent))
+	if agentName == "" {
+		return "", ErrNoAgent
+	}
+	runner, err := s.runnerFor(agentName)
+	if err != nil {
+		return "", err
+	}
+	runner = runnerForMode(runner, agent.ModeResume, detail)
+
+	runID := agent.GenerateRunID()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	envSlice := envSliceFromMap(candidate.Env)
+	ar := &activeRun{
+		RunID:     runID,
+		TaskID:    id,
+		Agent:     agentName,
+		Mode:      agent.ModeResume.String(),
+		Cancel:    cancel,
+		Done:      make(chan struct{}),
+		SessionID: candidate.SessionID,
+		Cwd:       candidate.Cwd,
+		Env:       envSlice,
+	}
+
+	s.mu.Lock()
+	if _, busy := s.active[id]; busy {
+		s.mu.Unlock()
+		cancel()
+		return "", ErrAlreadyRunning
+	}
+	s.active[id] = ar
+	s.mu.Unlock()
+
+	rollback := func() {
+		s.mu.Lock()
+		delete(s.active, id)
+		s.mu.Unlock()
+		cancel()
+	}
+
+	// queued JSONL — carries the resume linkage so the UI chip + future
+	// recovery can trace the chain.
+	if err := agent.AppendEvent(boardDir, id, agent.Event{
+		TS:             now,
+		RunID:          runID,
+		TaskID:         id,
+		Event:          agent.EvQueued,
+		Agent:          agentName,
+		Mode:           agent.ModeResume.String(),
+		ResumedFrom:    candidate.SessionID,
+		ResumedFromRun: candidate.RunID,
+	}); err != nil {
+		rollback()
+		return "", fmt.Errorf("ResumeAgent: append queued: %w", err)
+	}
+
+	s.emit("agent:run-queued", map[string]any{
+		"run_id":           runID,
+		"task_id":          id,
+		"agent":            agentName,
+		"mode":             agent.ModeResume.String(),
+		"resumed_from":     candidate.SessionID,
+		"resumed_from_run": candidate.RunID,
+	})
+
+	if err := c.Edit(ctx, id, cli.EditInput{AgentStatus: "queued"}); err != nil {
+		rollback()
+		return "", fmt.Errorf("ResumeAgent: AgentStatus queued: %w", err)
+	}
+
+	go s.runGoroutine(runCtx, runner, c, ar, boardDir, detail)
+	return runID, nil
+}
+
+// envSliceFromMap converts a TB_-prefixed env map (as persisted in the
+// session JSONL event) into the KEY=VALUE slice RunInput.Env / exec.Cmd
+// Env expect.
+func envSliceFromMap(m map[string]string) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, k+"="+v)
+	}
+	return out
 }
 
 func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.Mode) (string, error) {
@@ -405,10 +545,18 @@ func (s *AgentService) runGoroutine(ctx context.Context, runner agent.Runner, c 
 	timeout := s.timeoutForRun()
 	// Capture cwd/env in locals so the OnStarted closure can reference
 	// them without observing the partially-constructed RunInput literal.
-	// TB-130 session-write hook reads these; future TB-138 resume runs
-	// will override projectRoot/runEnv before this point.
+	// TB-130 session-write hook reads these. ResumeAgent (TB-138)
+	// populates ar.Cwd / ar.Env from the parent run's session event so
+	// the resume launches in the original execution context — critical
+	// for Claude's cwd-keyed session lookup and for TB-114 worktrees.
 	projectRoot := c.Cwd()
+	if ar.Cwd != "" {
+		projectRoot = ar.Cwd
+	}
 	var runEnv []string
+	if len(ar.Env) > 0 {
+		runEnv = append(runEnv, ar.Env...)
+	}
 
 	in := agent.RunInput{
 		TaskID:      ar.TaskID,

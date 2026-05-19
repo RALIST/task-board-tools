@@ -346,6 +346,52 @@ echo ok
 	}
 }
 
+// TestClaudeRunner_ResumeUsesDashR locks the TB-138 argv: in
+// ModeResume + non-empty SessionID, the runner emits `-r <uuid>`
+// instead of `--session-id <uuid>`. The two flags are mutually
+// exclusive for Claude — passing both would be ambiguous.
+func TestClaudeRunner_ResumeUsesDashR(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "argv")
+	dir := makeStubScript(t, "claude", `
+printf '%s\n' "$@" > `+argFile+`
+echo ok
+`)
+	withPATH(t, dir)
+
+	var out bytes.Buffer
+	r := NewClaudeRunner()
+	uuid := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	_, err := r.Run(context.Background(), RunInput{
+		ProjectRoot: t.TempDir(),
+		Prompt:      "continue",
+		Mode:        ModeResume,
+		SessionID:   uuid,
+		Stdout:      &out,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, err := os.ReadFile(argFile)
+	if err != nil {
+		t.Fatalf("argv file: %v", err)
+	}
+	args := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	want := []string{"-p", "continue", "--output-format", "stream-json", "--verbose", "-r", uuid}
+	if len(args) != len(want) {
+		t.Fatalf("argv length: got %d want %d (%#v)", len(args), len(want), args)
+	}
+	for i, w := range want {
+		if args[i] != w {
+			t.Fatalf("argv[%d]: got %q want %q (full=%#v)", i, args[i], w, args)
+		}
+	}
+	for _, a := range args {
+		if a == "--session-id" {
+			t.Fatalf("--session-id must not appear in resume args (mutually exclusive with -r): %#v", args)
+		}
+	}
+}
+
 // TestClaudeRunner_AppendsSessionIDFlag is the TB-135 contract for the
 // Claude argv: when RunInput.SessionID is non-empty, `--session-id
 // <uuid>` is appended to the args; empty SessionID leaves args

@@ -931,6 +931,136 @@ func TestMapRunnerOutcome(t *testing.T) {
 	}
 }
 
+// --- TB-138: ResumeAgent tests ---
+
+// resumeFixture builds a board with a single interrupted task whose
+// JSONL already includes a session event. Returns the wired service, a
+// CLI client (for `tb show` post-conditions), the boardDir, and the
+// ResumeCandidate fields the caller will assert against.
+func resumeFixture(t *testing.T, agentName string, stub *stubRunner) (svc *AgentService, c *cli.Client, boardDir string, candidate ResumeCandidate) {
+	t.Helper()
+	svc, boardDir = realTbBoardForRun(t, agentName, stub)
+	c = svc.board.snapshot()
+
+	// Append synthetic queued/started/session/finished{interrupted}
+	// events so resumableSessionID has something to find.
+	candidate = ResumeCandidate{
+		SessionID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+		RunID:     "r_parent",
+		Cwd:       "/tmp/board/worktrees/TB-1",
+		Env:       map[string]string{"TB_BOARD_PATH": "/tmp/board"},
+	}
+	events := []agent.Event{
+		{TS: "2026-05-14T10:00:00Z", RunID: candidate.RunID, TaskID: "TB-1", Event: agent.EvQueued, Agent: agentName},
+		{TS: "2026-05-14T10:00:01Z", RunID: candidate.RunID, TaskID: "TB-1", Event: agent.EvStarted, Agent: agentName, PID: 4242},
+		{TS: "2026-05-14T10:00:02Z", RunID: candidate.RunID, TaskID: "TB-1", Event: agent.EvSession,
+			SessionID: candidate.SessionID,
+			PID:       4242,
+			Cwd:       candidate.Cwd,
+			RunEnv:    candidate.Env,
+		},
+		{TS: "2026-05-14T10:00:03Z", RunID: candidate.RunID, TaskID: "TB-1", Event: agent.EvFinished,
+			Status: agent.StatusInterrupted, ExitCode: -1, Reason: "interrupted by daemon restart"},
+	}
+	for _, ev := range events {
+		if err := agent.AppendEvent(boardDir, "TB-1", ev); err != nil {
+			t.Fatalf("AppendEvent: %v", err)
+		}
+	}
+	// Flip the task's AgentStatus to interrupted via the same CLI path
+	// recovery uses — also confirms the validator (TB-131) accepts the
+	// value.
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "interrupted"}); err != nil {
+		t.Fatalf("seed interrupted status: %v", err)
+	}
+	return svc, c, boardDir, candidate
+}
+
+func TestResumeAgent_RejectsWhenStatusNotInterrupted(t *testing.T) {
+	stub := &stubRunner{name: "claude", exitCode: 0}
+	svc, _ := realTbBoardForRun(t, "claude", stub)
+
+	_, err := svc.ResumeAgent(context.Background(), "TB-1")
+	if !errors.Is(err, ErrCannotResume) {
+		t.Fatalf("ResumeAgent: got %v, want ErrCannotResume", err)
+	}
+}
+
+func TestResumeAgent_RejectsWhenNoSession(t *testing.T) {
+	stub := &stubRunner{name: "claude", exitCode: 0}
+	svc, _ := realTbBoardForRun(t, "claude", stub)
+	c := svc.board.snapshot()
+
+	// Mark interrupted but with NO JSONL session line.
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "interrupted"}); err != nil {
+		t.Fatalf("seed interrupted: %v", err)
+	}
+	_, err := svc.ResumeAgent(context.Background(), "TB-1")
+	if !errors.Is(err, ErrNotResumable) {
+		t.Fatalf("ResumeAgent: got %v, want ErrNotResumable", err)
+	}
+}
+
+func TestResumeAgent_ClaudeHappyPath(t *testing.T) {
+	stub := &stubRunner{name: "claude", stdoutLines: []string{"resumed"}, exitCode: 0}
+	svc, _, boardDir, candidate := resumeFixture(t, "claude", stub)
+
+	runID, err := svc.ResumeAgent(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("ResumeAgent: %v", err)
+	}
+	if runID == candidate.RunID {
+		t.Fatalf("new run id equals parent (%s) — must be fresh", runID)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	in := stub.input()
+	if in.Mode != agent.ModeResume {
+		t.Errorf("RunInput.Mode = %q, want %q", in.Mode, agent.ModeResume)
+	}
+	if in.SessionID != candidate.SessionID {
+		t.Errorf("RunInput.SessionID = %q, want %q (parent's id)", in.SessionID, candidate.SessionID)
+	}
+	if in.ProjectRoot != candidate.Cwd {
+		t.Errorf("RunInput.ProjectRoot = %q, want persisted Cwd %q", in.ProjectRoot, candidate.Cwd)
+	}
+	if in.Prompt != agent.PromptResume {
+		t.Errorf("RunInput.Prompt did not match PromptResume:\ngot %q\nwant %q", in.Prompt, agent.PromptResume)
+	}
+	var sawTBBoardPath bool
+	for _, kv := range in.Env {
+		if kv == "TB_BOARD_PATH=/tmp/board" {
+			sawTBBoardPath = true
+			break
+		}
+	}
+	if !sawTBBoardPath {
+		t.Errorf("RunInput.Env missing TB_BOARD_PATH=/tmp/board; got %v", in.Env)
+	}
+
+	// queued JSONL must carry resumed_from + resumed_from_run.
+	events := readEvents(t, boardDir, "TB-1")
+	var queued *agent.Event
+	for i := range events {
+		if events[i].RunID == runID && events[i].Event == agent.EvQueued {
+			queued = &events[i]
+			break
+		}
+	}
+	if queued == nil {
+		t.Fatalf("no queued event for resumed run %s", runID)
+	}
+	if queued.ResumedFrom != candidate.SessionID {
+		t.Errorf("queued.ResumedFrom = %q, want %q", queued.ResumedFrom, candidate.SessionID)
+	}
+	if queued.ResumedFromRun != candidate.RunID {
+		t.Errorf("queued.ResumedFromRun = %q, want %q", queued.ResumedFromRun, candidate.RunID)
+	}
+	if queued.Mode != agent.ModeResume.String() {
+		t.Errorf("queued.Mode = %q, want %q", queued.Mode, agent.ModeResume)
+	}
+}
+
 // silence unused
 var _ io.Writer = (*lineSink)(nil)
 
