@@ -35,7 +35,7 @@ Read `@board/SKILL.md` for important rules about working with the board and task
 - validate task against codebase before imlementation: it can be stale or outdated. Just add a comment with your findings and close or move to done.
 - Verify your work against Acceptance Criteria in the task. 
 - If any criteria are not met, either update the task with what is missing or create new tasks for follow-up work.
-- always check related tasks and parent tasks for blocker - move task back to backlog if you find blockers that are not resolved with comment.
+- always check related tasks and parent tasks for blockers. If you find an unresolved blocker that prevents you from making safe progress, do NOT silently un-groom the task back to backlog. Use the `## User Attention handoff` below — `tb edit --user-attention -` with the blocker context, then `tb edit --agent-status needs-user`. The task stays in its current column (groomed work is still groomed) and the user clears it once unblocked.
 - If you need to ask for clarification, add a comment to the task and wait for a response. Do not make assumptions about unclear requirements.
 
 ## User Attention handoff
