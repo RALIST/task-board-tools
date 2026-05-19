@@ -38,7 +38,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-176 | Track PID of launched agents | P2 | gui | — |
+| — | — | — | — | — |
 
 ## Ready
 
@@ -150,5 +150,5 @@
 | TB-183 | CLI: add user-attention agent status and note section | feature | cli |
 | TB-182 | Add special labes\tags\status for user attention | feature | agent |
 | TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
+| TB-176 | Track PID of launched agents | bug | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
-| TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |

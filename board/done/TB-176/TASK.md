@@ -104,4 +104,5 @@ Start a long-running fake agent from the GUI, force-kill the GUI process so the 
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited review-target
 - 2026-05-19: Submitted to code-review
+- 2026-05-19: Moved to done
 
