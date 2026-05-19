@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Events, System } from '@wailsio/runtime';
+  import { Events, System, Window } from '@wailsio/runtime';
   import Board from '$lib/components/Board.svelte';
   import CreateTaskDialog from '$lib/components/CreateTaskDialog.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
@@ -262,6 +262,23 @@
     if (!(active instanceof HTMLElement)) return null;
     return active.closest<HTMLElement>('[data-task-id]')?.dataset.taskId ?? null;
   }
+
+  // Restores standard macOS titlebar double-click zoom for the JS-driven drag
+  // region (TB-236; paired with InvisibleTitleBarHeight: 0 in gui/main.go).
+  // The native title-bar/toolbar strip handles its own area; this covers the
+  // rest of the topbar where --wails-draggable: drag is in effect. Guarded so
+  // buttons and other interactive controls don't toggle the window, and so
+  // we don't unfullscreen the window by calling zoom from this path.
+  const TOPBAR_INTERACTIVE_SELECTOR =
+    'button, a, input, select, textarea, [role="button"], [contenteditable], [contenteditable="true"], [contenteditable="plaintext-only"]';
+  async function onTopbarDblClick(event: MouseEvent) {
+    if (!System.IsMac()) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(TOPBAR_INTERACTIVE_SELECTOR)) return;
+    if (await Window.IsFullscreen()) return;
+    void Window.Zoom();
+  }
 </script>
 
 <svelte:head>
@@ -269,7 +286,8 @@
 </svelte:head>
 
 <main class="shell">
-  <header class="topbar">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <header class="topbar" ondblclick={onTopbarDblClick}>
     <div class="title">
       <h1>tb-gui</h1>
       {#if projectRoot}
@@ -375,6 +393,12 @@
   :global(html.platform-mac) .topbar {
     min-height: var(--mac-titlebar-height);
     padding-left: var(--mac-traffic-light-safe-left);
+  }
+  /* Suppress text selection on the draggable topbar so a double-click reaches
+     the window-zoom handler instead of selecting the title word (TB-236). */
+  :global(html.platform-mac) .topbar .title {
+    user-select: none;
+    -webkit-user-select: none;
   }
   .actions {
     --wails-draggable: no-drag;

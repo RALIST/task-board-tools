@@ -145,7 +145,15 @@ func main() {
 		MinWidth: 720, MinHeight: 480,
 		EnableFileDrop: true,
 		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
+			// 0 (not the visible 50px topbar height) so Wails' native
+			// performWindowDragWithEvent: handler doesn't capture mouse-downs in
+			// the content-area drag region. The native title-bar/toolbar strip
+			// still handles drag in its own area (height depends on toolbar
+			// style / macOS version); below that the frontend's
+			// --wails-draggable: drag runtime drives the move. This restores
+			// standard macOS titlebar double-click zoom semantics (TB-236) —
+			// paired with onTopbarDblClick in routes/+page.svelte.
+			InvisibleTitleBarHeight: 0,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
