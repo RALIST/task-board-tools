@@ -4,6 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
+| TB-93 | Move from file-based to folder-based approach | 42/42 | code-review | cli |
 | TB-177 | Auto task implementation | 0/4 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
@@ -13,9 +14,8 @@
 
 | ID | Title | Progress | Module |
 |----|-------|----------|--------|
-| TB-93 | Move from file-based to folder-based approach | 42/42 | cli |
-| TB-1 | M1: CLI extensions for GUI integration | 8/8 | cli |
-| TB-2 | M2: Wails3 skeleton with read-only kanban GUI | 9/9 | gui |
+| TB-1 | M1: CLI extensions for GUI integration | 7/8 | cli |
+| TB-2 | M2: Wails3 skeleton with read-only kanban GUI | 8/9 | gui |
 | TB-3 | M3: GUI mutations, DnD, and inline editor | 10/10 | gui |
 | TB-4 | M4: Agent assignment and manual runs from GUI | 10/10 | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
@@ -30,13 +30,17 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-190 | Implement autosave instead of save with buttons | P2 | gui | — |
+| — | — | — | — | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-8 | Rename tb/ to cli/ and add go.work | P0 | cli | — |
+| TB-16 | Verify Wails3 alpha works on current Go toolchain | P0 | gui | — |
+| TB-90 | Board switching is not working | P0 |  | — |
+| TB-93 | Move from file-based to folder-based approach | P0 | cli | — |
+| TB-190 | Implement autosave instead of save with buttons | P2 | gui | — |
 
 ## Backlog
 
