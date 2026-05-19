@@ -110,13 +110,16 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ### F3.3 — Edit metadata from drawer ☑
 - Drawer fields (priority, type, size, module, tags) editable inline.
-- Save button → `tb edit <ID> …`.
-- **Acceptance**: change priority in GUI, file on disk has the new field and `BOARD.md` reflects it.
+- Autosave: a debounced background save (TB-190) fires through `tb edit <ID> …`; the Details section shows a per-section status chip (`Unsaved` / `Saving…` / `Saved` / `Save failed`) instead of an explicit Save button. Edits coalesce inside the debounce window; if a save is already in flight the next debounce queues a single resave once the inner call resolves.
+- A pending autosave is flushed (fire-and-forget) when the drawer is closed or the user switches tasks; failures surface via toast and inline status without dropping the user's draft.
+- The CLI clear-field limitation is preserved: blanking a non-empty Module/Tags field is surfaced as an info toast and the field snaps back to the on-disk value rather than silently no-op'ing.
+- **Acceptance**: change priority in GUI, file on disk has the new field and `BOARD.md` reflects it; no Save button is rendered next to Details; the autosave status chip reads `Saved` only after the watcher refresh reconciles disk and form values.
 
 ### F3.4 — Edit body (Goal / Acceptance / Context) ☑
 - Markdown editor (CodeMirror) for the body section (everything below metadata block).
-- Save → `BoardService.EditTaskBody` (direct write under `.board.lock`, rules in `ARCHITECTURE.md`).
-- **Acceptance**: edit Goal text, save; file on disk updated, header+metadata intact, log entry appended, `BOARD.md` regenerated.
+- Autosave (TB-190): body edits debounce and persist through `BoardService.EditTaskBody` (direct write under `.board.lock`, rules in `ARCHITECTURE.md`). The `Save body` button is gone — only `Edit` and `Discard` remain to enter or abandon edit mode. Cmd/Ctrl+S flushes the pending debounce instead of acting as the primary save.
+- Pending body saves flush on close and task switch; the close confirm "you have unsaved body edits" prompt is removed (autosave + flush make it redundant).
+- **Acceptance**: edit Goal text in the editor; without pressing any save button the file on disk is updated, header+metadata intact, log entry appended, `BOARD.md` regenerated.
 
 ### F3.5 — Filters ☑
 - `FilterBar` with: type, priority, module, tags (multi), parent epic, agent.

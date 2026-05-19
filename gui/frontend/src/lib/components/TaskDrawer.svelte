@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { Events } from '@wailsio/runtime';
@@ -62,12 +63,48 @@
   let formSize = $state('');
   let formModule = $state('');
   let formTags = $state('');
-  let saving = $state(false);
+
+  // Autosave state machine for metadata.
+  //
+  // - `userTouchedMetadata` flips on the first user keystroke after a load
+  //   or successful save and gates the watcher refresh from clobbering an
+  //   in-progress draft. We don't use `metadataDirty` for this because an
+  //   external CLI edit can make dirty true without user input — and in
+  //   that case we *do* want to absorb the new disk values.
+  // - `metaSaveTimer` is the debounce handle; cleared on every form change.
+  // - `metaSaving` is true while a CLI `tb edit` is in flight.
+  // - `metaPendingResave` coalesces edits that arrive during an in-flight
+  //   save: the finally-hook re-runs save once the inner call resolves.
+  // - `metaSaveError` carries the last failure for the inline retry chip;
+  //   cleared on next successful save or task switch.
+  // - `metaRecentlySaved` is a transient flag for the "Saved" indicator.
+  const AUTOSAVE_DEBOUNCE_MS = 600;
+  const SAVED_INDICATOR_MS = 1800;
+  let userTouchedMetadata = $state(false);
+  let metaSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let metaSaving = $state(false);
+  let metaPendingResave = false;
+  let metaSaveError = $state<string | null>(null);
+  let metaRecentlySaved = $state(false);
+  let metaSavedFadeTimer: ReturnType<typeof setTimeout> | null = null;
+  // Latched after a successful backend save; converted into
+  // `metaRecentlySaved` once metadataDirty drops back to false (which
+  // is when the watcher refresh has caught up). Per AC #4 we must
+  // not flash "Saved" before disk + watcher reconcile.
+  let metaPendingSavedIndicator = $state(false);
 
   // Editor state.
   let editMode = $state(false);
   let bodyDraft = $state(''); // current editor contents (full file, header included)
   let bodyDirty = $state(false);
+  // Body autosave mirrors the metadata state machine. See above.
+  let bodySaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let bodySaving = $state(false);
+  let bodyPendingResave = false;
+  let bodySaveError = $state<string | null>(null);
+  let bodyRecentlySaved = $state(false);
+  let bodySavedFadeTimer: ReturnType<typeof setTimeout> | null = null;
+  let bodyPendingSavedIndicator = $state(false);
 
   // Archive button two-step confirm.
   let archivePrompt = $state(false);
@@ -126,6 +163,26 @@
   $effect(() => {
     const id = taskId;
     userClearedAgent = false;
+    // Reset the autosave state machine for the new task. The actual flush
+    // of any pending save from the *previous* task happens in this effect's
+    // teardown function below — putting it inside the tracked body would
+    // make the effect subscribe to `detail` / `metadataDirty` / `bodyDirty`
+    // (read via the flush helpers) and loop indefinitely.
+    if (metaSaveTimer) { clearTimeout(metaSaveTimer); metaSaveTimer = null; }
+    if (metaSavedFadeTimer) { clearTimeout(metaSavedFadeTimer); metaSavedFadeTimer = null; }
+    if (bodySaveTimer) { clearTimeout(bodySaveTimer); bodySaveTimer = null; }
+    if (bodySavedFadeTimer) { clearTimeout(bodySavedFadeTimer); bodySavedFadeTimer = null; }
+    metaSaving = false;
+    metaPendingResave = false;
+    metaSaveError = null;
+    metaRecentlySaved = false;
+    metaPendingSavedIndicator = false;
+    userTouchedMetadata = false;
+    bodySaving = false;
+    bodyPendingResave = false;
+    bodySaveError = null;
+    bodyRecentlySaved = false;
+    bodyPendingSavedIndicator = false;
     // Disarm any in-flight remove confirmation from the previous task —
     // otherwise switching to a new task whose attachment shares a name with
     // the armed row would let a single click bypass the two-click confirm
@@ -159,12 +216,18 @@
           if (cancelled || taskId !== id) return;
           detail = d;
           loading = false;
-          // Reset form to the freshly-loaded values.
-          formPriority = d.metadata.priority ?? '';
-          formType = d.metadata.type ?? '';
-          formSize = d.metadata.size ?? '';
-          formModule = d.metadata.module ?? '';
-          formTags = (d.metadata.tags ?? []).join(', ');
+          // Reset form to the freshly-loaded values UNLESS the user is
+          // mid-edit (touched a field since the last save). Without this
+          // guard, the watcher's board:reloaded that follows our own
+          // autosave races user keystrokes and silently clobbers them.
+          // The flag clears on task switch and after a successful save.
+          if (!userTouchedMetadata) {
+            formPriority = d.metadata.priority ?? '';
+            formType = d.metadata.type ?? '';
+            formSize = d.metadata.size ?? '';
+            formModule = d.metadata.module ?? '';
+            formTags = (d.metadata.tags ?? []).join(', ');
+          }
           // Don't replace bodyDraft while the editor is open — preserve the
           // user's in-progress buffer. If they Discard, we'll snap it back
           // to d.body via the Discard handler.
@@ -236,6 +299,17 @@
     });
 
     return () => {
+      // Flush any pending autosave for the task we're leaving.
+      // Belt-and-suspenders: Svelte 5 teardowns don't auto-untrack, and
+      // the flush helpers read `detail`/`metadataDirty`/`bodyDirty`. An
+      // earlier version of this effect grew its dep set through these
+      // reads and OOM'd; wrap them in `untrack` so a future refactor
+      // can't reintroduce that loop. Fire-and-forget — toasts surface
+      // errors on the runaway save's promise.
+      untrack(() => {
+        flushPendingMetadataNow();
+        flushPendingBodyNow();
+      });
       cancelled = true;
       try { offTask(); } catch { /* ignore */ }
       try { offBoard(); } catch { /* ignore */ }
@@ -602,46 +676,160 @@
     return { payload, droppedClears };
   }
 
-  async function saveMetadata() {
-    if (!detail || !metadataDirty || saving) return;
-    saving = true;
+  // Form-watcher effect: every keystroke that makes the form diverge from
+  // disk schedules a single debounced save. Coalesces — the timer is reset
+  // on every change, so only the *last* edit before the idle window fires.
+  // Stays inert until `detail` is loaded (initial form reset triggers this
+  // effect but `metadataDirty` is false then).
+  $effect(() => {
+    // Track every form field as a reactive dep — this is the trigger we
+    // want; everything else (timer assignment, indicator reset, helper
+    // dispatch) runs through `untrack` so it doesn't widen the dep set.
+    void formPriority; void formType; void formSize; void formModule; void formTags;
+    if (!detail) return;
+    if (!metadataDirty) return;
+    untrack(() => {
+      userTouchedMetadata = true;
+      // Clear the "Saved" indicator the moment new edits start.
+      if (metaRecentlySaved) {
+        metaRecentlySaved = false;
+        if (metaSavedFadeTimer) { clearTimeout(metaSavedFadeTimer); metaSavedFadeTimer = null; }
+      }
+      if (metaSaveTimer) clearTimeout(metaSaveTimer);
+      metaSaveTimer = setTimeout(() => {
+        metaSaveTimer = null;
+        void runMetadataSave();
+      }, AUTOSAVE_DEBOUNCE_MS);
+    });
+  });
+
+  // Promote `metaPendingSavedIndicator` (latched after a successful save)
+  // into the visible "Saved" chip once the watcher refresh has caught up
+  // — i.e. metadataDirty is false and no save is in flight. Without this
+  // gate we'd flash "Saved" while detail.metadata still held the old
+  // pre-save values, lying about persistence. State writes go through
+  // `untrack` so the cleared latch doesn't itself re-trigger the effect.
+  $effect(() => {
+    if (metaPendingSavedIndicator && !metadataDirty && !metaSaving) {
+      untrack(() => {
+        metaPendingSavedIndicator = false;
+        metaRecentlySaved = true;
+        if (metaSavedFadeTimer) clearTimeout(metaSavedFadeTimer);
+        metaSavedFadeTimer = setTimeout(() => {
+          metaRecentlySaved = false;
+          metaSavedFadeTimer = null;
+        }, SAVED_INDICATOR_MS);
+      });
+    }
+  });
+
+  $effect(() => {
+    if (bodyPendingSavedIndicator && !bodyDirty && !bodySaving) {
+      untrack(() => {
+        bodyPendingSavedIndicator = false;
+        bodyRecentlySaved = true;
+        if (bodySavedFadeTimer) clearTimeout(bodySavedFadeTimer);
+        bodySavedFadeTimer = setTimeout(() => {
+          bodyRecentlySaved = false;
+          bodySavedFadeTimer = null;
+        }, SAVED_INDICATOR_MS);
+      });
+    }
+  });
+
+  async function runMetadataSave() {
+    if (!detail) return;
+    // Serialize: if a save is in flight, mark the queue and let the
+    // in-flight call's finally hook pick up the latest form values once
+    // it resolves. Avoids overlapping `tb edit` invocations — the CLI
+    // serializes via .board.lock anyway, but back-to-back calls each
+    // append a Log line, and we'd race the watcher refresh.
+    if (metaSaving) {
+      metaPendingResave = true;
+      return;
+    }
+    if (!metadataDirty) return;
     const id = detail.metadata.id;
     const { payload, droppedClears } = diffPayload();
 
     if (Object.keys(payload).length === 0) {
-      // The only diff was a field clear we can't represent — surface that
-      // rather than silently no-op'ing.
+      // The only diff was a field clear `tb edit` can't represent
+      // (empty string = "skip" in the CLI). Surface and snap back, so
+      // the drawer stops claiming a value the file doesn't carry.
       if (droppedClears.length > 0) {
         pushToast(`Clearing ${droppedClears.join(', ')} from the GUI isn't supported (CLI has no clear flag).`, 'info');
-        resetForm();
+        resetFormFromDetail();
+        userTouchedMetadata = false;
+        metaSaveError = null;
       }
-      saving = false;
       return;
     }
 
+    metaSaving = true;
+    metaSaveError = null;
     try {
       await editTask(id, payload);
+      // Clear user-touched FIRST so the watcher's board:reloaded that
+      // follows can refill the form from the freshly-saved detail.
+      userTouchedMetadata = false;
       if (droppedClears.length > 0) {
+        // Partial success: payload applied, but a blanked-out field
+        // couldn't be cleared. Reset that field back to disk value.
         pushToast(`Saved ${id}; ${droppedClears.join(', ')} couldn't be cleared from the GUI.`, 'info');
-        resetForm();
-      } else {
-        pushToast(`Saved ${id}`, 'success');
+        resetFormFromDetail();
       }
+      // Defer the "Saved" indicator until metadataDirty reconciles —
+      // an effect below promotes this flag once the watcher refresh
+      // makes form values equal detail.metadata again.
+      metaPendingSavedIndicator = true;
     } catch (e) {
-      pushToast(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
-      resetForm();
+      // Leave the form intact so the user can retry or correct.
+      // userTouchedMetadata stays true so the next watcher refresh
+      // can't overwrite the draft.
+      metaSaveError = e instanceof Error ? e.message : String(e);
+      pushToast(`Save failed: ${metaSaveError}`);
     } finally {
-      saving = false;
+      metaSaving = false;
+      // If edits arrived during the in-flight save, run again with the
+      // latest form values. Skipped on error so we don't hammer. Note:
+      // the resave's diff is computed against detail.metadata, which
+      // still lags the just-completed save until the watcher refresh
+      // catches up — so payload may redundantly re-include fields the
+      // first save already persisted. The CLI is idempotent under
+      // .board.lock so this is harmless, just a slightly fatter call.
+      if (metaPendingResave && !metaSaveError) {
+        metaPendingResave = false;
+        void runMetadataSave();
+      } else {
+        metaPendingResave = false;
+      }
     }
   }
 
-  function resetForm() {
+  // Fire any pending debounced save synchronously. Used on task switch
+  // and drawer close. Returns immediately — the in-flight call routes
+  // its result through pushToast as usual.
+  function flushPendingMetadataNow() {
+    if (metaSaveTimer) {
+      clearTimeout(metaSaveTimer);
+      metaSaveTimer = null;
+    }
+    if (!detail || !metadataDirty || metaSaving) return;
+    void runMetadataSave();
+  }
+
+  function resetFormFromDetail() {
     if (!detail) return;
     formPriority = detail.metadata.priority ?? '';
     formType = detail.metadata.type ?? '';
     formSize = detail.metadata.size ?? '';
     formModule = detail.metadata.module ?? '';
     formTags = (detail.metadata.tags ?? []).join(', ');
+  }
+
+  function onRetryMetadataSave() {
+    metaSaveError = null;
+    void runMetadataSave();
   }
 
   function startArchive() {
@@ -669,17 +857,77 @@
     }
   }
 
-  async function saveBody() {
+  // BodyEditor reports dirty status on every keystroke. We debounce
+  // through the body autosave timer and flush on close/task switch.
+  function onBodyDirtyChange(d: boolean) {
+    bodyDirty = d;
     if (!detail) return;
-    try {
-      await editTaskBody(detail.metadata.id, bodyDraft);
-      pushToast(`Body saved`, 'success');
-      bodyDirty = false;
-      editMode = false;
-      // detail will refresh via task:updated event
-    } catch (e) {
-      pushToast(`Body save failed: ${e instanceof Error ? e.message : String(e)}`);
+    if (d) {
+      if (bodyRecentlySaved) {
+        bodyRecentlySaved = false;
+        if (bodySavedFadeTimer) { clearTimeout(bodySavedFadeTimer); bodySavedFadeTimer = null; }
+      }
+      scheduleBodySave();
+    } else {
+      // User typed back to disk content — cancel any queued save.
+      if (bodySaveTimer) { clearTimeout(bodySaveTimer); bodySaveTimer = null; }
     }
+  }
+
+  function scheduleBodySave() {
+    if (bodySaveTimer) clearTimeout(bodySaveTimer);
+    bodySaveTimer = setTimeout(() => {
+      bodySaveTimer = null;
+      void runBodySave();
+    }, AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  async function runBodySave() {
+    if (!detail) return;
+    if (bodySaving) {
+      bodyPendingResave = true;
+      return;
+    }
+    if (!bodyDirty) return;
+    const id = detail.metadata.id;
+    const draft = bodyDraft;
+    bodySaving = true;
+    bodySaveError = null;
+    try {
+      await editTaskBody(id, draft);
+      // Optimistically clear dirty — onDirtyChange will reassert it if
+      // the user typed further during the save. The watcher refresh that
+      // follows will update detail.body; if `bodyDraft` still matches,
+      // dirty stays false. Defer the "Saved" indicator until that
+      // reconciliation happens (see the bodyPendingSavedIndicator effect).
+      bodyDirty = false;
+      bodyPendingSavedIndicator = true;
+    } catch (e) {
+      bodySaveError = e instanceof Error ? e.message : String(e);
+      pushToast(`Body save failed: ${bodySaveError}`);
+    } finally {
+      bodySaving = false;
+      if (bodyPendingResave && !bodySaveError) {
+        bodyPendingResave = false;
+        void runBodySave();
+      } else {
+        bodyPendingResave = false;
+      }
+    }
+  }
+
+  function flushPendingBodyNow() {
+    if (bodySaveTimer) {
+      clearTimeout(bodySaveTimer);
+      bodySaveTimer = null;
+    }
+    if (!detail || !bodyDirty || bodySaving) return;
+    void runBodySave();
+  }
+
+  function onRetryBodySave() {
+    bodySaveError = null;
+    void runBodySave();
   }
 
   async function enterEdit() {
@@ -701,8 +949,13 @@
 
   function discardBody() {
     if (!detail) return;
+    // Cancel any queued autosave so the just-restored disk content
+    // isn't immediately re-saved.
+    if (bodySaveTimer) { clearTimeout(bodySaveTimer); bodySaveTimer = null; }
+    bodyPendingResave = false;
     bodyDraft = detail.body;
     bodyDirty = false;
+    bodySaveError = null;
     editMode = false;
   }
 
@@ -878,16 +1131,21 @@
       ev.preventDefault();
       tryClose();
     } else if (editMode && (ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') {
+      // Cmd/Ctrl+S now flushes the pending autosave rather than acting
+      // as the primary save mechanism. Useful for power users who want
+      // to skip the debounce window before navigating away.
       ev.preventDefault();
-      void saveBody();
+      flushPendingBodyNow();
     }
   }
 
   function tryClose() {
-    if (editMode && bodyDirty) {
-      const ok = window.confirm('You have unsaved body edits. Discard them?');
-      if (!ok) return;
-    }
+    // With autosave, "unsaved" only means a pending debounce or
+    // in-flight save. The window.confirm dialog the explicit-save
+    // version showed is gone — flush synchronously and close. Errors
+    // surface via toast, so the user still sees them.
+    flushPendingMetadataNow();
+    flushPendingBodyNow();
     onClose?.();
   }
 
@@ -1030,8 +1288,33 @@
                 <h3>Description</h3>
                 <div class="toolbar-actions">
                   {#if editMode}
+                    <span
+                      class="autosave-status"
+                      role="status"
+                      aria-live="polite"
+                      data-state={bodySaveError
+                        ? 'error'
+                        : (bodySaving
+                          ? 'saving'
+                          : (bodyDirty
+                            ? 'pending'
+                            : (bodyRecentlySaved ? 'saved' : 'idle')))}>
+                      {#if bodySaveError}
+                        Save failed
+                      {:else if bodySaving}
+                        Saving…
+                      {:else if bodyDirty}
+                        Unsaved
+                      {:else if bodyRecentlySaved}
+                        Saved
+                      {:else}
+                        &nbsp;
+                      {/if}
+                    </span>
+                    {#if bodySaveError}
+                      <button class="ghost compact" type="button" onclick={onRetryBodySave}>Retry</button>
+                    {/if}
                     <button class="ghost compact" type="button" onclick={discardBody}>Discard</button>
-                    <button class="primary compact" type="button" onclick={saveBody} disabled={!bodyDirty}>Save body</button>
                   {:else}
                     <button class="ghost compact" type="button" onclick={enterEdit}>Edit</button>
                   {/if}
@@ -1041,7 +1324,7 @@
                 <BodyEditor
                   bind:value={bodyDraft}
                   originalBody={detail.body}
-                  onDirtyChange={(d) => bodyDirty = d}
+                  onDirtyChange={onBodyDirtyChange}
                 />
               {:else}
                 <article class="body markdown">
@@ -1101,13 +1384,34 @@
             <section class="rail-section details-section">
               <div class="section-head">
                 <h3>Details</h3>
-                <button
-                  class="primary compact"
-                  type="button"
-                  onclick={saveMetadata}
-                  disabled={!metadataDirty || saving}>
-                  {saving ? 'Saving…' : (metadataDirty ? 'Save' : 'Saved')}
-                </button>
+                <div class="autosave-cluster">
+                  <span
+                    class="autosave-status"
+                    role="status"
+                    aria-live="polite"
+                    data-state={metaSaveError
+                      ? 'error'
+                      : (metaSaving
+                        ? 'saving'
+                        : (metadataDirty
+                          ? 'pending'
+                          : (metaRecentlySaved ? 'saved' : 'idle')))}>
+                    {#if metaSaveError}
+                      Save failed
+                    {:else if metaSaving}
+                      Saving…
+                    {:else if metadataDirty}
+                      Unsaved
+                    {:else if metaRecentlySaved}
+                      Saved
+                    {:else}
+                      &nbsp;
+                    {/if}
+                  </span>
+                  {#if metaSaveError}
+                    <button class="ghost compact" type="button" onclick={onRetryMetadataSave}>Retry</button>
+                  {/if}
+                </div>
               </div>
 
               <dl class="readonly-meta">
@@ -1517,7 +1821,32 @@
     color: var(--fg-dim);
     font-weight: 600;
   }
-  .toolbar-actions { display: flex; gap: 6px; }
+  .toolbar-actions { display: flex; gap: 6px; align-items: center; }
+
+  .autosave-cluster {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .autosave-status {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    line-height: 1.4;
+    min-width: 56px;
+    text-align: center;
+    color: var(--fg-dim);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid transparent;
+  }
+  .autosave-status[data-state='pending'] { color: var(--p1); background: rgba(255, 184, 108, 0.12); }
+  .autosave-status[data-state='saving'] { color: var(--p2); background: rgba(74, 141, 248, 0.14); }
+  .autosave-status[data-state='saved'] { color: #50c878; background: rgba(80, 200, 120, 0.14); }
+  .autosave-status[data-state='error'] { color: var(--p0); background: rgba(255, 90, 82, 0.16); border-color: rgba(255, 90, 82, 0.36); }
+  .autosave-status[data-state='idle'] { visibility: hidden; }
   .rail-subhead {
     margin-top: 6px;
     font-size: 10px;

@@ -164,6 +164,13 @@ beforeEach(() => {
   apiMocks.openAttachment.mockReset();
   apiMocks.pickAttachmentFiles.mockReset();
   apiMocks.renameTask.mockReset();
+  apiMocks.editTask.mockReset();
+  apiMocks.editTaskBody.mockReset();
+  apiMocks.assignAgent.mockReset();
+  apiMocks.runAgent.mockReset();
+  apiMocks.cancelRun.mockReset();
+  apiMocks.groomTask.mockReset();
+  apiMocks.closeTask.mockReset();
 
   apiMocks.getTask.mockResolvedValue(makeDetail());
   apiMocks.listRuns.mockResolvedValue([]);
@@ -875,5 +882,335 @@ describe('TaskDrawer user-attention UI (TB-182)', () => {
     await flushMicrotasks();
 
     expect(apiMocks.editTask).toHaveBeenCalledWith('TB-99', { agentStatus: 'none' });
+  });
+});
+
+describe('TaskDrawer metadata autosave (TB-190)', () => {
+  // Matches AUTOSAVE_DEBOUNCE_MS in TaskDrawer.svelte. We can't import a
+  // const from the .svelte file without churn, so this is kept in sync by
+  // convention: any change there must be mirrored here.
+  const DEBOUNCE_MS = 600;
+
+  beforeEach(() => {
+    apiMocks.listAttachments.mockResolvedValue([]);
+  });
+
+  // Open the drawer under real timers (mount has internal async work that
+  // relies on setTimeout-based microtask flushing), then flip to fake
+  // timers so the autosave debounce becomes deterministic. Without this
+  // split, flushMicrotasks (which schedules via setTimeout) deadlocks.
+  async function openDrawer(detail = makeDetail({ id: 'TB-77', module: 'core', tags: ['t1'] })) {
+    apiMocks.getTask.mockResolvedValue(detail);
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: detail.metadata.id },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+    return detail;
+  }
+
+  async function drainMicrotasks(n = 4) {
+    for (let i = 0; i < n; i++) {
+      await Promise.resolve();
+    }
+    await tick();
+  }
+
+  function changeFormSelect(label: string, next: string) {
+    const fields = Array.from(document.querySelectorAll<HTMLElement>('.rail .field'));
+    const node = fields.find((el) => el.querySelector('.field-label')?.textContent?.trim() === label);
+    if (!node) throw new Error(`field "${label}" not found`);
+    const select = node.querySelector<HTMLSelectElement>('select');
+    if (!select) throw new Error(`select "${label}" not found`);
+    select.value = next;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return select;
+  }
+
+  function changeFormInput(label: string, next: string) {
+    const fields = Array.from(document.querySelectorAll<HTMLElement>('.rail .field'));
+    const node = fields.find((el) => el.querySelector('.field-label')?.textContent?.trim() === label);
+    if (!node) throw new Error(`field "${label}" not found`);
+    const input = node.querySelector<HTMLInputElement>('input');
+    if (!input) throw new Error(`input "${label}" not found`);
+    input.value = next;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return input;
+  }
+
+  function metaStatus(): string {
+    // The Details section is the first rail-section with .details-section.
+    const sec = document.querySelector<HTMLElement>('.details-section');
+    return sec?.querySelector<HTMLElement>('.autosave-status')?.getAttribute('data-state') ?? '';
+  }
+
+  it('removes the Details Save button — no <button> labeled Save exists in the Details section', async () => {
+    await openDrawer();
+    const sec = document.querySelector<HTMLElement>('.details-section');
+    expect(sec).not.toBeNull();
+    const saveBtn = Array.from(sec!.querySelectorAll<HTMLButtonElement>('button')).find(
+      (b) => b.textContent?.trim() === 'Save' || b.textContent?.trim() === 'Saved',
+    );
+    expect(saveBtn).toBeUndefined();
+    expect(sec!.querySelector('.autosave-status')).not.toBeNull();
+  });
+
+  it('debounces metadata edits and saves a single coalesced payload', async () => {
+    apiMocks.editTask.mockResolvedValue(undefined);
+    await openDrawer(makeDetail({ id: 'TB-77', priority: 'P2', module: 'core' }));
+
+    vi.useFakeTimers();
+    try {
+      changeFormSelect('Priority', 'P0');
+      await tick();
+      changeFormSelect('Priority', 'P1');
+      await tick();
+      // Multiple edits in a single debounce window must result in one CLI call.
+      expect(apiMocks.editTask).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(DEBOUNCE_MS - 1);
+      expect(apiMocks.editTask).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2);
+      await drainMicrotasks();
+      expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+      expect(apiMocks.editTask).toHaveBeenCalledWith('TB-77', { priority: 'P1' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves the user draft when board:reloaded fires mid-edit (form-reset guard)', async () => {
+    apiMocks.editTask.mockResolvedValue(undefined);
+    await openDrawer(makeDetail({ id: 'TB-77', module: 'core' }));
+
+    changeFormInput('Module', 'edited-but-not-yet-saved');
+    await tick();
+    expect(metaStatus()).toBe('pending');
+
+    // Watcher fires before debounce — fetchOnce must NOT clobber the draft.
+    // The next getTask resolves with the same disk content (no remote
+    // change), but the drawer should still preserve the in-progress draft.
+    apiMocks.getTask.mockResolvedValue(makeDetail({ id: 'TB-77', module: 'core' }));
+    emitRuntimeEvent('board:reloaded');
+    await drainMicrotasks();
+
+    const moduleInput = Array.from(document.querySelectorAll<HTMLElement>('.rail .field'))
+      .find((el) => el.querySelector('.field-label')?.textContent?.trim() === 'Module')
+      ?.querySelector<HTMLInputElement>('input');
+    expect(moduleInput?.value).toBe('edited-but-not-yet-saved');
+    // CLI call hasn't fired yet (still debouncing).
+    expect(apiMocks.editTask).not.toHaveBeenCalled();
+  });
+
+  it('promotes the Saved indicator only after the watcher refresh catches up', async () => {
+    apiMocks.editTask.mockResolvedValue(undefined);
+    await openDrawer(makeDetail({ id: 'TB-77', priority: 'P2' }));
+
+    vi.useFakeTimers();
+    try {
+      changeFormSelect('Priority', 'P0');
+      await tick();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 5);
+      await drainMicrotasks();
+      // Between save success and watcher refresh: detail.metadata still
+      // reads P2, form is P0 → metadataDirty true → status NOT 'saved' yet.
+      expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+      expect(metaStatus()).not.toBe('saved');
+
+      // Simulate watcher catching up: next getTask returns the new value.
+      apiMocks.getTask.mockResolvedValue(makeDetail({ id: 'TB-77', priority: 'P0' }));
+      emitRuntimeEvent('board:reloaded');
+      await drainMicrotasks();
+      expect(metaStatus()).toBe('saved');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows error state and keeps draft intact when editTask rejects', async () => {
+    apiMocks.editTask.mockRejectedValue(new Error('boom'));
+    await openDrawer(makeDetail({ id: 'TB-77', priority: 'P2' }));
+
+    vi.useFakeTimers();
+    try {
+      changeFormSelect('Priority', 'P0');
+      await tick();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 5);
+      await drainMicrotasks();
+
+      expect(apiMocks.editTask).toHaveBeenCalled();
+      expect(metaStatus()).toBe('error');
+      const sec = document.querySelector<HTMLElement>('.details-section');
+      const prioritySelect = Array.from(sec!.querySelectorAll<HTMLSelectElement>('select'))[0];
+      expect(prioritySelect.value).toBe('P0');
+      const retry = Array.from(sec!.querySelectorAll<HTMLButtonElement>('button')).find(
+        (b) => b.textContent?.trim() === 'Retry',
+      );
+      expect(retry).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes a pending save when the drawer unmounts (close/task switch)', async () => {
+    apiMocks.editTask.mockResolvedValue(undefined);
+    await openDrawer(makeDetail({ id: 'TB-77', priority: 'P2' }));
+
+    changeFormSelect('Priority', 'P1');
+    await tick();
+    // No timer advance — debounce is still pending; the teardown flush
+    // should fire it synchronously.
+    expect(apiMocks.editTask).not.toHaveBeenCalled();
+
+    await unmount(component!);
+    component = null;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+    expect(apiMocks.editTask).toHaveBeenCalledWith('TB-77', { priority: 'P1' });
+  });
+
+  it('flushes a pending save when the user clicks the × close button', async () => {
+    apiMocks.editTask.mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    apiMocks.getTask.mockResolvedValue(makeDetail({ id: 'TB-77', priority: 'P2' }));
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-77', onClose },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    changeFormSelect('Priority', 'P1');
+    await tick();
+    expect(apiMocks.editTask).not.toHaveBeenCalled();
+
+    // tryClose() runs the flush before invoking onClose.
+    const closeBtn = document.querySelector<HTMLButtonElement>('.surface-head .close');
+    expect(closeBtn).not.toBeNull();
+    closeBtn!.click();
+    await tick();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+    expect(apiMocks.editTask).toHaveBeenCalledWith('TB-77', { priority: 'P1' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces edits arriving during an in-flight save and resaves once with the latest payload', async () => {
+    // Hold the first save in flight by deferring resolution.
+    let resolveFirst!: () => void;
+    apiMocks.editTask.mockImplementationOnce(
+      () => new Promise<void>((res) => { resolveFirst = res; }),
+    );
+    apiMocks.editTask.mockResolvedValueOnce(undefined);
+    await openDrawer(makeDetail({ id: 'TB-77', priority: 'P2', size: 'M' }));
+
+    vi.useFakeTimers();
+    try {
+      changeFormSelect('Priority', 'P0');
+      await tick();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 5);
+      await drainMicrotasks();
+      // First save kicked off, still in flight.
+      expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+      expect(apiMocks.editTask).toHaveBeenLastCalledWith('TB-77', { priority: 'P0' });
+
+      // User keeps editing while the save is in flight.
+      changeFormSelect('Size', 'L');
+      await tick();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 5);
+      await drainMicrotasks();
+      // Debounce-triggered save sees metaSaving=true and queues a resave.
+      expect(apiMocks.editTask).toHaveBeenCalledTimes(1);
+
+      // First save resolves — finally hook re-fires with the latest
+      // form state. The resave's payload is diffed against the still-
+      // stale `detail.metadata` (no watcher refresh in this test), so
+      // it re-includes priority on top of the new size edit. That's
+      // correct: the CLI is idempotent under `.board.lock`, so resending
+      // an already-saved field has no functional cost. The contract here
+      // is "exactly one resave after coalesce", not minimum payload size.
+      resolveFirst();
+      await drainMicrotasks();
+      await drainMicrotasks();
+      expect(apiMocks.editTask).toHaveBeenCalledTimes(2);
+      expect(apiMocks.editTask).toHaveBeenLastCalledWith(
+        'TB-77',
+        expect.objectContaining({ size: 'L' }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not call editTask for an unsupported clear-field and snaps the draft back to disk', async () => {
+    await openDrawer(makeDetail({ id: 'TB-77', module: 'core' }));
+
+    vi.useFakeTimers();
+    try {
+      changeFormInput('Module', '');
+      await tick();
+      vi.advanceTimersByTime(DEBOUNCE_MS + 5);
+      await drainMicrotasks();
+
+      expect(apiMocks.editTask).not.toHaveBeenCalled();
+      const moduleInput = Array.from(document.querySelectorAll<HTMLElement>('.rail .field'))
+        .find((el) => el.querySelector('.field-label')?.textContent?.trim() === 'Module')
+        ?.querySelector<HTMLInputElement>('input');
+      // Per AC #6: drawer must NOT show a value that wasn't persisted.
+      expect(moduleInput?.value).toBe('core');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('TaskDrawer body autosave (TB-190)', () => {
+  beforeEach(() => {
+    apiMocks.listAttachments.mockResolvedValue([]);
+  });
+
+  // The BodyEditor.svelte default export is mocked above; the autosave
+  // logic lives entirely in TaskDrawer so we don't need the editor for
+  // these assertions — we just need to confirm the "Save body" button is
+  // gone in edit mode (autosave replaces it).
+  it('Edit mode renders no Save body button, only Discard and an autosave status', async () => {
+    apiMocks.getTask.mockResolvedValue({
+      ...makeDetail({ id: 'TB-77' }),
+      body: '# TB-77: Title\n\n## Goal\n\nold goal\n',
+    });
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-77' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    // Click the Description "Edit" toggle to enter edit mode. enterEdit()
+    // awaits getTask, so flush microtasks before checking the toolbar.
+    const bodySec = document.querySelector<HTMLElement>('.body-section');
+    expect(bodySec).not.toBeNull();
+    const editBtn = Array.from(bodySec!.querySelectorAll<HTMLButtonElement>('button')).find(
+      (b) => b.textContent?.trim() === 'Edit',
+    );
+    expect(editBtn).toBeDefined();
+    editBtn!.click();
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const buttons = Array.from(bodySec!.querySelectorAll<HTMLButtonElement>('button')).map(
+      (b) => b.textContent?.trim(),
+    );
+    expect(buttons).not.toContain('Save body');
+    expect(buttons).toContain('Discard');
+    expect(bodySec!.querySelector('.autosave-status')).not.toBeNull();
   });
 });

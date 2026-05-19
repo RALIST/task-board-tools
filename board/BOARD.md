@@ -30,7 +30,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-190 | Implement autosave instead of save with buttons | P2 | gui | — |
 
 ## Code Review
 
@@ -70,7 +70,6 @@
 | TB-187 | Quick add task to epic | improvement | P2 | M | gui/frontend |
 | TB-188 | Quick jump to child ticket | improvement | P2 | S | gui |
 | TB-189 | Quick jump to parent task | improvement | P2 | S | gui/frontend |
-| TB-190 | Implement autosave instead of save with buttons | improvement | P2 | M | gui |
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
