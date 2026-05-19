@@ -4,8 +4,7 @@
 
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
-| TB-93 | Move from file-based to folder-based approach | 42/42 | code-review | cli |
-| TB-177 | Auto task implementation | 0/4 | backlog | gui |
+| TB-177 | Auto task implementation | 2/4 | backlog | gui |
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-172 | Auto-groom | 0/3 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
@@ -14,8 +13,9 @@
 
 | ID | Title | Progress | Module |
 |----|-------|----------|--------|
-| TB-1 | M1: CLI extensions for GUI integration | 7/8 | cli |
-| TB-2 | M2: Wails3 skeleton with read-only kanban GUI | 8/9 | gui |
+| TB-93 | Move from file-based to folder-based approach | 42/42 | cli |
+| TB-1 | M1: CLI extensions for GUI integration | 8/8 | cli |
+| TB-2 | M2: Wails3 skeleton with read-only kanban GUI | 9/9 | gui |
 | TB-3 | M3: GUI mutations, DnD, and inline editor | 10/10 | gui |
 | TB-4 | M4: Agent assignment and manual runs from GUI | 10/10 | gui |
 | TB-5 | M5: Agent daemon with autopickup and crash recovery | 10/10 | gui |
@@ -36,11 +36,7 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-8 | Rename tb/ to cli/ and add go.work | P0 | cli | — |
-| TB-16 | Verify Wails3 alpha works on current Go toolchain | P0 | gui | — |
-| TB-90 | Board switching is not working | P0 |  | — |
-| TB-93 | Move from file-based to folder-based approach | P0 | cli | — |
-| TB-190 | Implement autosave instead of save with buttons | P2 | gui | — |
+| — | — | — | — | — |
 
 ## Backlog
 
@@ -67,8 +63,6 @@
 | TB-175 | GUI: surface auto-groom feedback and manual fallback | feature | P1 | S | gui |
 | TB-176 | Track PID of launched agents | bug | P2 | M | gui |
 | TB-177 | Auto task implementation | feature | P0 | L | gui |
-| TB-178 | GUI: persist auto-implement settings and query | feature | P0 | M | gui |
-| TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | P0 | M | gui |
 | TB-180 | GUI: show auto-implement controls and feedback | feature | P0 | S | gui |
 | TB-186 | Change parent task | feature | P2 | L | gui |
 | TB-187 | Quick add task to epic | improvement | P2 | M | gui/frontend |
@@ -121,11 +115,14 @@
 | TB-196 | CLI: add review target and notes commands | feature | cli |
 | TB-195 | CLI: add code-review status and submit flow | feature | cli |
 | TB-194 | Code-review column | feature | workflow |
+| TB-190 | Implement autosave instead of save with buttons | improvement | gui |
 | TB-185 | GUI: surface user-attention state and automation guard | feature | gui |
 | TB-184 | Docs: define user-attention handoff protocol | improvement | docs |
 | TB-183 | CLI: add user-attention agent status and note section | feature | cli |
 | TB-182 | Add special labes\tags\status for user attention | feature | agent |
 | TB-181 | Persist draft task/prevent close unsaved form | bug | gui |
+| TB-179 | GUI: enqueue auto-implement candidates from daemon | feature | gui |
+| TB-178 | GUI: persist auto-implement settings and query | feature | gui |
 | TB-171 | TB-93/REVIEW: re-run Codex cross-cutting architectural review (previous run stalled) | spike | gui |
 | TB-170 | TB-93/GUI: resolveArtifactPaths hot path - 8 stats per agent log line, cache layout | improvement | gui |
 | TB-169 | TB-93/GUI: attachment size display polish - IEC unit labels and exact-byte tooltip | tech-debt | gui |
@@ -135,6 +132,3 @@
 | TB-165 | TB-93/GUI: empty-state hint should say 'drag onto this drawer' not 'onto the task' | improvement | gui |
 | TB-164 | TB-93/GUI: surface drag-and-drop in-flight state via attach:dropping/attach:dropped events | improvement | gui |
 | TB-163 | TB-93/GUI: add error-path tests for removeAttachments and openAttachment in api.test.ts | tech-debt | gui |
-| TB-162 | TB-93/GUI: api.ts listAttachments re-mapping strips the Attachment binding type | improvement | gui |
-| TB-161 | TB-93/GUI: OpenAttachment surfaces opaque error when attachments/ dir is missing | improvement | gui |
-| TB-160 | TB-93/GUI: TestRecoverStale_DurableCancelledTaskIgnored tests the wrong code path | bug | gui |

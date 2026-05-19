@@ -72,4 +72,10 @@ Ship an opt-in auto-implement feature: when enabled, the GUI daemon selects groo
 - 2026-05-15: Edited size=L, module=gui, tags=auto-implement,agent,daemon,settings,filtering,epic, goal
 - 2026-05-15: Edited acceptance
 - 2026-05-15: Edited agentstatus=success
+- 2026-05-19: Moved to in-progress
+- 2026-05-19: Moved to backlog
+- 2026-05-19: Moved to in-progress
+- 2026-05-19: Moved to backlog
+- 2026-05-19: Moved to in-progress
+- 2026-05-19: Moved to backlog
 

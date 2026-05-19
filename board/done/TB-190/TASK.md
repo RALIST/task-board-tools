@@ -4,7 +4,7 @@
 **Priority:** P2
 **Size:** M
 **Agent:** claude
-**AgentStatus:** running
+**AgentStatus:** interrupted
 **Module:** gui
 **Tags:** gui,frontend,autosave,drawer
 **Branch:** —
@@ -66,4 +66,6 @@ Constraints and non-goals:
 - 2026-05-19: Implemented metadata + body autosave in `gui/frontend/src/lib/components/TaskDrawer.svelte`. Replaced the Details Save and `Save body` buttons with a per-section autosave status chip (`Unsaved` / `Saving…` / `Saved` / `Save failed`) plus an inline Retry on failure. The 600 ms debounce coalesces edits; an in-flight save serializes a follow-up via a `pendingResave` flag; the saved chip only promotes after the watcher refresh catches up (per AC #4). A `userTouchedMetadata` flag gates `fetchOnce` from clobbering an in-progress draft on `board:reloaded` / `task:updated`. Body autosave hooks the BodyEditor's `onDirtyChange`. Pending saves flush on task switch and on the × close button (the prior `window.confirm` "unsaved body edits" dialog was removed — UX behavior change with autosave). Cmd/Ctrl+S now flushes the pending body autosave rather than acting as primary save. Reactive-loop traps were hit during initial wiring; both the saved-indicator promotion effects and the form-watcher effect now route writes through `untrack`, and the cleanup uses `untrack` defensively so future refactors can't reintroduce the loop. Added 9 vitest cases (debounce/coalesce, form-reset guard, saved-after-watcher gating, error+Retry, unmount flush, close-button flush, in-flight resave, unsupported clear, "no Save body in edit mode") and reset more api mocks in `beforeEach`. `cd gui/frontend && npm test` → 177/177; `npm run check` clean. Docs: F3.3 / F3.4 in `docs/FEATURES.md` updated to describe autosave behavior. AC #6 read pragmatically — the field snaps back after the debounce, not mid-keystroke. AC #8 (manual GUI smoke) not run by the agent and is left unchecked for the user to verify in the desktop app.
 - 2026-05-19: Submitted to code-review
 - 2026-05-19: Code-review (fullstack-code-reviewer) flagged a task-switch contamination bug — if the user switched tasks while a save was in flight, the resolving promise could flash "Saved" on the new task or clobber its draft via `userTouchedMetadata = false`. Fixed by capturing the task id at call site in `runMetadataSave` / `runBodySave` and bailing before state writes when `detail.metadata.id !== id`. Added a regression test that defers a save, switches tasks, then resolves and asserts no spurious "Saved" chip on the new task. `npm test` → 178/178; `npm run check` clean.
+- 2026-05-19: Moved to done
+- 2026-05-19: Edited agentstatus=interrupted
 

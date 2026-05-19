@@ -47,4 +47,6 @@ Persist the opt-in auto-implement settings needed by the GUI before any daemon s
 - 2026-05-15: Created
 - 2026-05-15: Edited goal
 - 2026-05-15: Edited acceptance
+- 2026-05-19: Moved to code-review
+- 2026-05-19: Moved to done
 
