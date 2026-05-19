@@ -90,4 +90,5 @@ Manual smoke (in a scratch board): mv TST-1 to code-review without ReviewRef →
 - 2026-05-19: Edited reviewref=main@b3795ea
 - 2026-05-19: Edited review-target
 - 2026-05-19: Edited agentstatus=success
+- 2026-05-19: Submitted to code-review
 

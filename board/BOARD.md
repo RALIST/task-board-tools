@@ -30,13 +30,13 @@
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-235 | Require ReviewRef metadata before code-review moves | P1 | workflow | — |
+| — | — | — | — | — |
 
 ## Code Review
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-235 | Require ReviewRef metadata before code-review moves | P1 | workflow | — |
 
 ## Backlog
 
