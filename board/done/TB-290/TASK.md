@@ -4,14 +4,16 @@
 **Priority:** P2
 **Size:** S
 **Agent:** codex
-**AgentStatus:** running
 **Module:** cli
 **Tags:** edit,body-sections,quick-win
 **GroomedBy:** codex
 **GroomStatus:** success
-**ReviewRef:** 3ebef31
+**ReviewRef:** local:Newton-duplicate-section-review
 **ImplementedBy:** codex
 **ImplementStatus:** success
+**ReviewedBy:** codex
+**ReviewStatus:** success
+**AgentStatus:** success
 **Branch:** —
 
 ## Goal
@@ -46,9 +48,13 @@ Allow `tb edit` to replace or insert the `## Context` and `## Constraints` secti
 
 ## Review Target
 
-commit: 3ebef31
-verification: cd cli && go test -count=1 ./...; cd cli && go build -o tb .
-notes: managed --context/--constraints support added to tb edit; subagent review attempts stalled, so this is submitted to code-review rather than marked done.
+scope: CLI managed Context and Constraints section editing after failed review
+files: cli/edit.go, cli/edit_test.go
+verification: cd cli && go test -count=1 ./...; cd cli && go build -o tb .; subagent review Newton returned SHIP with no CRITICAL or MAJOR issues.
+
+## Review Findings
+
+SHIP. Previous blocking finding is resolved: `tb edit --context` and `--constraints` now coalesce duplicate structural Context/Constraints sections while preserving fenced literal headings, unrelated sections, and log history. No CRITICAL or MAJOR issues found in re-review.
 
 ## Related Tasks
 
@@ -93,4 +99,24 @@ notes: managed --context/--constraints support added to tb edit; subagent review
 - 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success
 - 2026-05-20: Edited agentstatus=queued
 - 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Failed code review — moved to ready with review-failed marker
+- 2026-05-20: Edited agentstatus=none, reviewed-by=codex, review-status=success
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=lost, implemented-by=codex, implement-status=lost
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=lost, implemented-by=codex, implement-status=lost
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited review-target
+- 2026-05-20: Edited review-findings
+- 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewed-by=codex, review-status=success, reviewref=local:Newton-duplicate-section-review
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Done
+- 2026-05-20: Edited tags=edit,body-sections,quick-win
 

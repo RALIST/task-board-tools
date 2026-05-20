@@ -290,12 +290,15 @@ func (s *AgentService) resumeAgent(ctx context.Context, id, initiator string) (s
 		TaskID:     id,
 		Agent:      agentName,
 		Mode:       agent.ModeResume.String(),
+		BoardDir:   boardDir,
+		Client:     c,
 		ParentMode: parentMode.String(),
 		Cancel:     cancel,
 		Done:       make(chan struct{}),
 		SessionID:  candidate.SessionID,
 		Cwd:        candidate.Cwd,
 		Env:        envSlice,
+		Initiator:  initiator,
 	}
 
 	s.mu.Lock()
@@ -426,9 +429,12 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 		TaskID:     id,
 		Agent:      agentName,
 		Mode:       mode.String(),
+		BoardDir:   boardDir,
+		Client:     c,
 		Cancel:     cancel,
 		Done:       make(chan struct{}),
 		TriageHash: triageHash,
+		Initiator:  initiator,
 	}
 
 	// Insert placeholder under s.mu only — the rest is I/O outside the
@@ -612,6 +618,8 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 		TaskID:     id,
 		Agent:      agentName,
 		Mode:       qr.Mode.String(),
+		BoardDir:   boardDir,
+		Client:     c,
 		ParentMode: parentMode.String(),
 		Cancel:     cancel,
 		Done:       make(chan struct{}),
@@ -619,6 +627,7 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 		Cwd:        resumeCwd,
 		Env:        resumeEnv,
 		TriageHash: qr.TriageHash,
+		Initiator:  qr.Initiator,
 	}
 
 	s.mu.Lock()
@@ -641,9 +650,10 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 	go func() {
 		select {
 		case <-ctx.Done():
+			reason := daemonCancelReason(ctx)
 			ar.markCancelled()
-			if err := killActiveRun(ar, boardDir, "shutdown"); err != nil {
-				slog.Warn("agent: shutdown cancel signal failed", "task", id, "run", ar.RunID, "err", err)
+			if err := killActiveRun(ar, boardDir, reason); err != nil {
+				slog.Warn("agent: daemon cancel signal failed", "task", id, "run", ar.RunID, "reason", reason, "err", err)
 			}
 		case <-ctxCancelled:
 		}
@@ -659,7 +669,7 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 	if ar.wasCancelled() {
 		// CancelRun may also be racing finishCancelled. The helper is
 		// idempotent via ar.finishOnce.
-		_ = s.finishCancelled(c, ar, boardDir, "shutdown")
+		_ = s.finishCancelled(c, ar, boardDir, daemonCancelReason(ctx))
 		return "cancelled", nil
 	}
 
@@ -669,6 +679,25 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 		return "", err
 	}
 	return final.Metadata.AgentStatus, nil
+}
+
+func daemonCancelReason(ctx context.Context) string {
+	cause := context.Cause(ctx)
+	if cause == nil || errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		return "shutdown"
+	}
+	return cause.Error()
+}
+
+func taskDetailFromClient(ctx context.Context, c *cli.Client, id string) (TaskDetail, error) {
+	if c == nil {
+		return TaskDetail{}, ErrNoBoard
+	}
+	var detail TaskDetail
+	if err := c.RunJSON(ctx, &detail, "show", id, "--json"); err != nil {
+		return TaskDetail{}, err
+	}
+	return detail, nil
 }
 
 // HasActiveRun reports whether AgentService is tracking an in-flight run
@@ -941,6 +970,7 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 			"exit_code": exitCode,
 			"reason":    reason,
 			"mode":      ar.Mode,
+			"board_dir": boardDir,
 		})
 
 		// Preserve an agent-set `needs-user` over the exit-mapped status.
@@ -954,8 +984,8 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 		writeAgentStatus := true
 		writePerMode := true
 		clearAgentStatus := false
-		if (status == agent.StatusSuccess || status == agent.StatusFailed) && s.board != nil {
-			if latest, err := s.board.GetTask(context.Background(), ar.TaskID); err == nil {
+		if status == agent.StatusSuccess || status == agent.StatusFailed {
+			if latest, err := taskDetailFromClient(context.Background(), c, ar.TaskID); err == nil {
 				switch {
 				case latest.Metadata.AgentStatus == "needs-user":
 					writeAgentStatus = false

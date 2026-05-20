@@ -45,6 +45,11 @@ const queueBufferDefault = 256
 // runs that become stale while the GUI process stays alive.
 const periodicRecoveryIntervalDefault = 60 * time.Second
 
+const (
+	cancelReasonBoardSwitch = "board switch"
+	cancelReasonShutdown    = "shutdown"
+)
+
 // AgentTask is the minimum surface from a Board task the daemon needs
 // to decide whether to enqueue. Defined here (not imported from
 // gui/app.Task) so tests can build fake board snapshots without pulling
@@ -60,8 +65,9 @@ type AgentTask struct {
 // glue (an adapter in gui/main.go) wraps BoardService.LoadBoard +
 // GetTask.
 type Board interface {
-	// ListActive returns every task in the active buckets (backlog +
-	// in-progress + done). Used by both startup scan and recovery.
+	// ListActive returns every task in the active buckets (backlog,
+	// ready, in-progress, code-review, and done). Used by startup
+	// scan, recovery, and reconciliation.
 	ListActive(ctx context.Context) ([]AgentTask, error)
 	// GetTask returns the latest metadata for a single task. Used by
 	// watcher events that only know the ID.
@@ -92,6 +98,19 @@ type Recovery interface {
 	RecoverStale(ctx context.Context, boardDir string) error
 }
 
+// Reconciler is optional deterministic housekeeping for staged autonomous
+// transitions. It runs around the existing queue hooks; it is not a scheduler
+// and does not enqueue work itself.
+type Reconciler interface {
+	ReconcileActive(ctx context.Context) error
+	ReconcileTask(ctx context.Context, id string) error
+}
+
+type queuedTask struct {
+	id         string
+	generation uint64
+}
+
 // UntrackedRecovery is implemented by recovery services that can skip
 // task/run pairs already owned by this daemon instance's AgentService.active
 // map. The periodic tick uses this narrower path so it never races a live
@@ -107,6 +126,7 @@ type Options struct {
 	Board      Board
 	Agent      Agent
 	Recovery   Recovery
+	Reconciler Reconciler
 	Logger     *slog.Logger
 	MaxWorkers int
 	// QueueBuffer overrides the work-channel capacity. Zero = default.
@@ -125,9 +145,10 @@ type Daemon struct {
 	board      Board
 	agent      Agent
 	recovery   Recovery
+	reconciler Reconciler
 	logger     *slog.Logger
 	maxWorkers int
-	queue      chan string
+	queue      chan queuedTask
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 	workersWG  sync.WaitGroup
@@ -146,9 +167,12 @@ type Daemon struct {
 
 	// boardMu guards boardDir + activated. Switched on Activate /
 	// cleared on Deactivate.
-	boardMu   sync.Mutex
-	boardDir  string
-	activated bool
+	boardMu          sync.Mutex
+	boardDir         string
+	activated        bool
+	generation       uint64
+	activationCtx    context.Context
+	activationCancel context.CancelCauseFunc
 }
 
 // ErrNotActivated is returned by Enqueue (and other state-dependent
@@ -183,9 +207,10 @@ func New(opts Options) *Daemon {
 		board:                    opts.Board,
 		agent:                    opts.Agent,
 		recovery:                 opts.Recovery,
+		reconciler:               opts.Reconciler,
 		logger:                   logger,
 		maxWorkers:               mw,
-		queue:                    make(chan string, qb),
+		queue:                    make(chan queuedTask, qb),
 		rootCtx:                  ctx,
 		rootCancel:               cancel,
 		active:                   make(map[string]struct{}),
@@ -266,13 +291,18 @@ func (d *Daemon) Activate(ctx context.Context, boardDir string) error {
 	if boardDir == "" {
 		return errors.New("daemon: empty boardDir")
 	}
+	activationCtx, activationCancel := context.WithCancelCause(d.rootCtx)
 	d.boardMu.Lock()
 	if d.activated {
 		d.boardMu.Unlock()
+		activationCancel(nil)
 		return errors.New("daemon: already activated; call Deactivate first")
 	}
+	d.generation++
 	d.boardDir = boardDir
 	d.activated = true
+	d.activationCtx = activationCtx
+	d.activationCancel = activationCancel
 	d.boardMu.Unlock()
 
 	// Stale-running recovery FIRST so the subsequent scan reads a
@@ -280,6 +310,12 @@ func (d *Daemon) Activate(ctx context.Context, boardDir string) error {
 	if d.recovery != nil {
 		if err := d.recovery.RecoverStale(ctx, boardDir); err != nil {
 			d.logger.Warn("daemon: stale recovery failed; continuing", "err", err)
+		}
+	}
+
+	if d.reconciler != nil {
+		if err := d.reconciler.ReconcileActive(ctx); err != nil {
+			d.logger.Warn("daemon: reconciliation failed; continuing", "err", err)
 		}
 	}
 
@@ -293,11 +329,15 @@ func (d *Daemon) Activate(ctx context.Context, boardDir string) error {
 	return nil
 }
 
-// Deactivate drains the active set and resets boardDir. Called when
-// the user switches boards (or before Close). It does NOT cancel the
-// root context — Close does that. Workers stay parked until Close or
-// a new Activate.
+// Deactivate cancels work owned by the currently-open board and resets
+// boardDir. Called when the user switches boards. Workers remain alive for a
+// later Activate, but in-flight work receives a "board switch" cancellation
+// cause and queued old-board items are drained before the switch completes.
 func (d *Daemon) Deactivate() error {
+	return d.deactivate(cancelReasonBoardSwitch)
+}
+
+func (d *Daemon) deactivate(reason string) error {
 	d.stopPeriodicRecovery()
 
 	d.boardMu.Lock()
@@ -305,16 +345,41 @@ func (d *Daemon) Deactivate() error {
 		d.boardMu.Unlock()
 		return nil
 	}
+	cancel := d.activationCancel
 	d.activated = false
 	d.boardDir = ""
+	d.activationCtx = nil
+	d.activationCancel = nil
 	d.boardMu.Unlock()
 
-	// Drop in-memory enqueue state — any in-flight worker run will
-	// reach its own terminal status and release naturally.
+	if cancel != nil {
+		cancel(errors.New(reason))
+	}
+	if !d.waitActiveEmpty(shutdownGrace) {
+		d.logger.Warn("daemon: deactivate grace expired; some work still active")
+		return errShutdownGraceExpired
+	}
+
 	d.activeMu.Lock()
 	d.active = make(map[string]struct{})
 	d.activeMu.Unlock()
 	return nil
+}
+
+func (d *Daemon) waitActiveEmpty(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		d.activeMu.Lock()
+		active := len(d.active)
+		d.activeMu.Unlock()
+		if active == 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (d *Daemon) startPeriodicRecovery(boardDir string) {
@@ -396,7 +461,7 @@ func (d *Daemon) periodicRecoveryLoop(ctx context.Context, boardDir string, inte
 func (d *Daemon) Close() error {
 	var err error
 	d.closeOnce.Do(func() {
-		_ = d.Deactivate()
+		err = errors.Join(err, d.deactivate(cancelReasonShutdown))
 		d.rootCancel()
 
 		done := make(chan struct{})
@@ -411,7 +476,7 @@ func (d *Daemon) Close() error {
 			d.logger.Warn("daemon: shutdown grace expired; some workers still active")
 			// Workers are blocked on RunQueuedAgentSync; they will
 			// eventually exit but we don't block the caller.
-			err = errShutdownGraceExpired
+			err = errors.Join(err, errShutdownGraceExpired)
 		}
 	})
 	return err
@@ -428,7 +493,8 @@ var errShutdownGraceExpired = errors.New("daemon: shutdown grace expired")
 // Returns ErrNotActivated if called before Activate. Returns true when
 // the call resulted in a new enqueue.
 func (d *Daemon) Enqueue(taskID string) (bool, error) {
-	if !d.isActivated() {
+	generation, activationCtx, ok := d.activationState()
+	if !ok {
 		return false, ErrNotActivated
 	}
 	taskID = strings.TrimSpace(taskID)
@@ -439,8 +505,11 @@ func (d *Daemon) Enqueue(taskID string) (bool, error) {
 		return false, nil
 	}
 	select {
-	case d.queue <- taskID:
+	case d.queue <- queuedTask{id: taskID, generation: generation}:
 		return true, nil
+	case <-activationCtx.Done():
+		d.release(taskID)
+		return false, ErrNotActivated
 	case <-d.rootCtx.Done():
 		d.release(taskID)
 		return false, d.rootCtx.Err()
@@ -493,6 +562,30 @@ func (d *Daemon) isActivated() bool {
 	return d.activated
 }
 
+func (d *Daemon) activationState() (uint64, context.Context, bool) {
+	d.boardMu.Lock()
+	defer d.boardMu.Unlock()
+	if !d.activated || d.activationCtx == nil {
+		return 0, nil, false
+	}
+	return d.generation, d.activationCtx, true
+}
+
+func (d *Daemon) activationContextFor(generation uint64) (context.Context, bool) {
+	d.boardMu.Lock()
+	defer d.boardMu.Unlock()
+	if !d.activated || d.generation != generation || d.activationCtx == nil {
+		return nil, false
+	}
+	return d.activationCtx, true
+}
+
+func (d *Daemon) isCurrentGeneration(generation uint64) bool {
+	d.boardMu.Lock()
+	defer d.boardMu.Unlock()
+	return d.activated && d.generation == generation
+}
+
 // worker runs a worker goroutine: pull a task ID off the queue, call
 // the executor, release the slot, repeat. Exits when the root ctx is
 // done (Close calls rootCancel). The queue channel is intentionally
@@ -505,24 +598,44 @@ func (d *Daemon) worker(idx int) {
 		case <-d.rootCtx.Done():
 			logger.Debug("daemon: worker exited (ctx cancelled)")
 			return
-		case id := <-d.queue:
-			d.runOne(logger, id)
+		case task := <-d.queue:
+			d.runOne(logger, task)
 		}
 	}
 }
 
-func (d *Daemon) runOne(logger *slog.Logger, taskID string) {
+func (d *Daemon) runOne(logger *slog.Logger, task queuedTask) {
+	taskID := task.id
 	defer d.release(taskID)
+	runCtx, ok := d.activationContextFor(task.generation)
+	if !ok {
+		logger.Debug("daemon: dropping stale queued task", "task", taskID)
+		return
+	}
 	if d.agent == nil {
 		logger.Warn("daemon: no agent service; dropping", "task", taskID)
 		return
 	}
-	status, err := d.agent.RunQueuedAgentSync(d.rootCtx, taskID)
+	if d.reconciler != nil {
+		if err := d.reconciler.ReconcileTask(runCtx, taskID); err != nil {
+			logger.Warn("daemon: pre-run reconciliation failed; continuing", "task", taskID, "err", err)
+		}
+	}
+	status, err := d.agent.RunQueuedAgentSync(runCtx, taskID)
 	if err != nil {
 		logger.Warn("daemon: run failed", "task", taskID, "err", err)
 		return
 	}
 	logger.Info("daemon: run finished", "task", taskID, "status", status)
+	if !d.isCurrentGeneration(task.generation) {
+		logger.Debug("daemon: skipping stale post-run reconciliation", "task", taskID)
+		return
+	}
+	if d.reconciler != nil {
+		if err := d.reconciler.ReconcileTask(context.Background(), taskID); err != nil {
+			logger.Warn("daemon: post-run reconciliation failed", "task", taskID, "err", err)
+		}
+	}
 }
 
 // scanQueued enumerates the active board and enqueues every task whose
@@ -632,4 +745,27 @@ func (d *Daemon) RescanActive(ctx context.Context) (int, error) {
 		}
 	}
 	return enqueued, nil
+}
+
+// ReconcileActive runs the optional reconciliation hook for callers that need
+// deterministic board repair before scanning for queued work.
+func (d *Daemon) ReconcileActive(ctx context.Context) error {
+	if !d.isActivated() {
+		return ErrNotActivated
+	}
+	if d.reconciler == nil {
+		return nil
+	}
+	return d.reconciler.ReconcileActive(ctx)
+}
+
+// ReconcileTask runs the optional per-task reconciliation hook.
+func (d *Daemon) ReconcileTask(ctx context.Context, id string) error {
+	if !d.isActivated() {
+		return ErrNotActivated
+	}
+	if d.reconciler == nil {
+		return nil
+	}
+	return d.reconciler.ReconcileTask(ctx, id)
 }

@@ -267,6 +267,17 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 			return fmt.Errorf("watcher.Switch: %w", err)
 		}
 	}
+
+	// Drain the previous board before rebinding BoardService. watcher.Switch
+	// is the last fallible pre-commit step; keeping BoardService on the old
+	// client until after this drain prevents watcher-triggered daemon work from
+	// targeting the candidate board during switch teardown.
+	if s.activator != nil {
+		if err := s.activator.Deactivate(); err != nil {
+			s.logger.Warn("daemon: deactivate before reactivate", "err", err)
+		}
+	}
+
 	if s.board != nil {
 		s.board.setClient(client)
 		// EditTaskBody needs the absolute board dir for flock + atomic write.
@@ -277,12 +288,8 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 
 	// Daemon activation runs AFTER BoardService + watcher are pointed at
 	// the new board so the recovery + scan it triggers reads consistent
-	// state. Deactivate first to drain any prior activation (board
-	// switch); failures are logged but don't block the open.
+	// state.
 	if s.activator != nil {
-		if err := s.activator.Deactivate(); err != nil {
-			s.logger.Warn("daemon: deactivate before reactivate", "err", err)
-		}
 		if err := s.activator.Activate(ctx, info.BoardDir); err != nil {
 			s.logger.Warn("daemon: activation failed; board still open", "err", err)
 		}

@@ -21,8 +21,8 @@ func (a *boardAdapter) ListActive(ctx context.Context) ([]daemon.AgentTask, erro
 	if err != nil {
 		return nil, err
 	}
-	out := make([]daemon.AgentTask, 0, len(snap.Backlog)+len(snap.InProgress)+len(snap.Done))
-	for _, bucket := range [][]tbapp.Task{snap.Backlog, snap.InProgress, snap.Done} {
+	out := make([]daemon.AgentTask, 0, len(snap.Backlog)+len(snap.Ready)+len(snap.InProgress)+len(snap.CodeReview)+len(snap.Done))
+	for _, bucket := range [][]tbapp.Task{snap.Backlog, snap.Ready, snap.InProgress, snap.CodeReview, snap.Done} {
 		for _, t := range bucket {
 			out = append(out, daemon.AgentTask{
 				ID:          t.ID,
@@ -85,6 +85,7 @@ func (t teeShim) Emit(name string, data ...any) {
 //     SetDefaultAgent kick fresh scans).
 type boardActivator struct {
 	daemon        *daemon.Daemon
+	agent         *tbapp.AgentService
 	autoGroom     *tbapp.AutoGroomCoordinator
 	autoImplement *tbapp.AutoImplementCoordinator
 }
@@ -106,8 +107,12 @@ func (a *boardActivator) Deactivate() error {
 	// honest if any Deactivate gains a real error path.
 	implErr := a.autoImplement.Deactivate()
 	coordErr := a.autoGroom.Deactivate()
+	var agentErr error
+	if a.agent != nil {
+		agentErr = a.agent.CancelRunsForCurrentBoard(context.Background(), "board switch")
+	}
 	daemonErr := a.daemon.Deactivate()
-	return errors.Join(implErr, coordErr, daemonErr)
+	return errors.Join(implErr, coordErr, agentErr, daemonErr)
 }
 
 func (a *boardActivator) SetPeriodicRecoveryEnabled(enabled bool) {

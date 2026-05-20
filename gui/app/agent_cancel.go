@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"syscall"
 	"time"
 
 	"tools/tb-gui/internal/agent"
+	"tools/tb-gui/internal/cli"
 )
 
 // cancelGracePeriod is how long CancelRun waits after SIGTERM before
@@ -54,6 +56,12 @@ func (s *AgentService) CancelRun(ctx context.Context, id string) error {
 	if !ok {
 		return ErrNotRunning
 	}
+	if ar.Client != nil {
+		c = ar.Client
+	}
+	if ar.BoardDir != "" {
+		boardDir = ar.BoardDir
+	}
 
 	if !ar.verifyPIDIdentity() {
 		return fmt.Errorf("%w: task %s run %s", ErrRunIdentityMismatch, id, ar.RunID)
@@ -79,6 +87,62 @@ func (s *AgentService) CancelRun(ctx context.Context, id string) error {
 		return fmt.Errorf("CancelRun: %w", err)
 	}
 	return nil
+}
+
+// CancelRunsForCurrentBoard terminalizes active runs that were started on the
+// currently-open board. Board switching calls this before rebinding BoardService
+// so old-board automation and manual runs cannot leak into the next board.
+func (s *AgentService) CancelRunsForCurrentBoard(ctx context.Context, reason string) error {
+	if s.board == nil {
+		return nil
+	}
+	c := s.board.snapshot()
+	if c == nil {
+		return nil
+	}
+	boardDir, err := s.board.resolveBoardDir(ctx)
+	if err != nil {
+		if errors.Is(err, ErrNoBoard) {
+			return nil
+		}
+		return err
+	}
+	return s.cancelRunsForBoard(c, boardDir, reason)
+}
+
+func (s *AgentService) cancelRunsForBoard(defaultClient *cli.Client, boardDir, reason string) error {
+	s.mu.Lock()
+	runs := make([]*activeRun, 0, len(s.active))
+	for _, ar := range s.active {
+		if ar.BoardDir == boardDir {
+			runs = append(runs, ar)
+		}
+	}
+	s.mu.Unlock()
+
+	var joined error
+	for _, ar := range runs {
+		client := ar.Client
+		if client == nil {
+			client = defaultClient
+		}
+		if client == nil {
+			joined = errors.Join(joined, ErrNoBoard)
+			continue
+		}
+		if !ar.verifyPIDIdentity() {
+			joined = errors.Join(joined, fmt.Errorf("%w: task %s run %s", ErrRunIdentityMismatch, ar.TaskID, ar.RunID))
+			continue
+		}
+		ar.markCancelled()
+		if err := killActiveRun(ar, boardDir, reason); err != nil {
+			slog.Warn("agent: board-scoped cancel signal failed", "task", ar.TaskID, "run", ar.RunID, "reason", reason, "err", err)
+		}
+		if err := s.finishCancelled(client, ar, boardDir, reason); err != nil {
+			joined = errors.Join(joined, err)
+		}
+	}
+	return joined
 }
 
 // killActiveRun delivers SIGTERM and (after a grace period) SIGKILL to

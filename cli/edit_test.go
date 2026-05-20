@@ -591,6 +591,110 @@ func TestEditContextAndConstraintsSections(t *testing.T) {
 		assertContains(t, content, "## Constraints\n\nInserted constraints from stdin.\n\n## Acceptance Criteria")
 		assertSectionsInOrder(t, content, []string{"## Goal", "## Context", "## Constraints", "## Acceptance Criteria", "## Log"})
 	})
+
+	t.Run("coalesces duplicate context and constraints sections", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		initial := strings.Join([]string{
+			"# TB-1: Duplicate Sections",
+			"",
+			"**Type:** improvement",
+			"**Priority:** P2",
+			"**Size:** S",
+			"**Module:** cli",
+			"**Branch:** -",
+			"",
+			"## Goal",
+			"",
+			"Clean up duplicated managed sections.",
+			"",
+			"## Context",
+			"",
+			"Original context should be replaced.",
+			"",
+			"## Constraints",
+			"",
+			"Original constraints should be replaced.",
+			"",
+			"## Context",
+			"",
+			"Duplicate context still blocking grooming cleanup.",
+			"",
+			"## Constraints",
+			"",
+			"Duplicate constraints still blocking grooming cleanup.",
+			"",
+			"```md",
+			"## Context",
+			"literal fenced heading should not become a third task section",
+			"```",
+			"",
+			"## Acceptance Criteria",
+			"",
+			"- [ ] Preserve acceptance.",
+			"",
+			"## Related Tasks",
+			"",
+			"- **TB-285** — motivating blocked cleanup",
+			"",
+			"## Log",
+			"",
+			"- 2026-05-20: Created",
+			"- 2026-05-20: Previous history",
+			"",
+		}, "\n")
+		writeFileForTest(t, taskPath, initial)
+		constraintsPath := filepath.Join(t.TempDir(), "constraints.md")
+		writeFileForTest(t, constraintsPath, strings.Join([]string{
+			"## Constraints",
+			"",
+			"- Fresh constraint from file.",
+			"- Literal inline text `## Constraints` remains content.",
+			"",
+			"```md",
+			"## Context",
+			"literal fenced heading remains content",
+			"```",
+			"",
+		}, "\n"))
+
+		stdin := strings.Join([]string{
+			"",
+			"## Context",
+			"",
+			"Fresh context from stdin.",
+			"",
+			"> ## Constraints",
+			"> quoted heading remains body content",
+			"",
+		}, "\n")
+		withStdin(t, stdin, func() {
+			captureStdout(t, func() {
+				cmdEdit([]string{"TB-1", "--context", "-", "--constraints", constraintsPath})
+			})
+		})
+
+		content := readFileForTest(t, taskPath)
+		assertContains(t, content, "## Context\n\nFresh context from stdin.")
+		assertContains(t, content, "> ## Constraints\n> quoted heading remains body content")
+		assertContains(t, content, "## Constraints\n\n- Fresh constraint from file.")
+		assertContains(t, content, "```md\n## Context\nliteral fenced heading remains content\n```")
+		assertContains(t, content, "- [ ] Preserve acceptance.")
+		assertContains(t, content, "## Related Tasks\n\n- **TB-285**")
+		assertContains(t, content, "- 2026-05-20: Previous history")
+		assertContains(t, content, ": Edited context, constraints")
+		assertNotContains(t, content, "Original context should be replaced.")
+		assertNotContains(t, content, "Original constraints should be replaced.")
+		assertNotContains(t, content, "Duplicate context still blocking grooming cleanup.")
+		assertNotContains(t, content, "Duplicate constraints still blocking grooming cleanup.")
+		if got := countStructuralHeading(content, "## Context"); got != 1 {
+			t.Fatalf("structural Context heading count = %d, want 1:\n%s", got, content)
+		}
+		if got := countStructuralHeading(content, "## Constraints"); got != 1 {
+			t.Fatalf("structural Constraints heading count = %d, want 1:\n%s", got, content)
+		}
+		assertSectionsInOrder(t, content, []string{"## Goal", "## Context", "## Constraints", "## Acceptance Criteria", "## Related Tasks", "## Log"})
+	})
 }
 
 func TestEditTitleRename(t *testing.T) {
@@ -1138,6 +1242,26 @@ func metadataHeader(content string) string {
 		return content[:idx]
 	}
 	return content
+}
+
+func countStructuralHeading(content, heading string) int {
+	count := 0
+	offset := 0
+	inFence := false
+	for offset <= len(content) {
+		lineEnd, nextOffset := markdownLineBounds(content, offset)
+		line := strings.TrimSpace(strings.TrimSuffix(content[offset:lineEnd], "\r"))
+		if isMarkdownFence(line) {
+			inFence = !inFence
+		} else if !inFence && line == heading {
+			count++
+		}
+		if nextOffset > len(content) {
+			break
+		}
+		offset = nextOffset
+	}
+	return count
 }
 
 func newCommandTestBoard(t *testing.T) string {

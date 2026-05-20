@@ -185,6 +185,12 @@ type activeRun struct {
 	Agent  string
 	Mode   string
 
+	// BoardDir and Client capture the board that owned the run at start.
+	// Board switches rebind BoardService to a different client, so terminal
+	// cancellation for an old-board run must not look these up again.
+	BoardDir string
+	Client   *cli.Client
+
 	// ParentMode is the originating action's mode when Mode == ModeResume
 	// (TB-237): the per-mode pair we update at terminal mirrors the action
 	// the resume is continuing, not "resume" itself. Empty for fresh runs.
@@ -218,6 +224,10 @@ type activeRun struct {
 	// the queued/finished JSONL events skip the `triage_hash` key via
 	// omitempty so the on-disk format stays stable for non-auto runs.
 	TriageHash string
+
+	// Initiator records the automation owner stamped into JSONL queued events.
+	// Empty means a user/manual run.
+	Initiator string
 
 	// Cancel cancels the runner's exec context. The runner converts that
 	// into a single SIGTERM and exits; CancelRun escalates to SIGKILL via

@@ -101,6 +101,9 @@ func (s *EventSink) handle(ctx context.Context, name string) {
 		if id == "" {
 			return
 		}
+		if err := s.d.ReconcileTask(ctx, id); err != nil {
+			s.logger.Debug("daemon: task reconciliation failed", "task", id, "err", err)
+		}
 		if _, err := s.d.EnqueueIfReady(ctx, id); err != nil {
 			s.logger.Debug("daemon: enqueue-if-ready failed", "task", id, "err", err)
 		}
@@ -108,6 +111,9 @@ func (s *EventSink) handle(ctx context.Context, name string) {
 		// Atomic-rename CLI edits route through this event. Re-scan
 		// the active board and enqueue any newly-queued tasks. The
 		// active-set dedup makes repeated scans cheap.
+		if err := s.d.ReconcileActive(ctx); err != nil {
+			s.logger.Debug("daemon: active reconciliation failed", "err", err)
+		}
 		if n, err := s.d.RescanActive(ctx); err != nil {
 			s.logger.Debug("daemon: rescan failed", "err", err)
 		} else if n > 0 {

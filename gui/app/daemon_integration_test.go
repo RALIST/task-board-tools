@@ -25,7 +25,7 @@ func (a *boardAdapter) ListActive(ctx context.Context) ([]daemon.AgentTask, erro
 		return nil, err
 	}
 	out := []daemon.AgentTask{}
-	for _, bucket := range [][]Task{snap.Backlog, snap.InProgress, snap.Done} {
+	for _, bucket := range [][]Task{snap.Backlog, snap.Ready, snap.InProgress, snap.CodeReview, snap.Done} {
 		for _, t := range bucket {
 			out = append(out, daemon.AgentTask{
 				ID:          t.ID,
@@ -433,5 +433,131 @@ func TestDaemonShutdown_FlushesCancelledJSONL(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
 		t.Fatalf("AgentStatus not cancelled:\n%s", out)
+	}
+}
+
+func TestDaemonBoardSwitch_FlushesCancelledJSONL(t *testing.T) {
+	runner := &shutdownRunner{started: make(chan struct{})}
+	d, _, boardDir, c := daemonIntegrationFixture(t, runner)
+	t.Cleanup(func() { _ = d.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := d.Activate(ctx, boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if err := c.Edit(ctx, "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("edit queued: %v", err)
+	}
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:     time.Now().UTC().Format(time.RFC3339),
+		RunID:  "r_switch0001",
+		TaskID: "TB-1",
+		Event:  agent.EvQueued,
+		Agent:  "claude",
+		Mode:   "implement",
+	}); err != nil {
+		t.Fatalf("append queued: %v", err)
+	}
+	if ok, err := d.Enqueue("TB-1"); err != nil || !ok {
+		t.Fatalf("enqueue: ok=%v err=%v", ok, err)
+	}
+	select {
+	case <-runner.started:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("runner never started")
+	}
+
+	if err := d.Deactivate(); err != nil {
+		t.Fatalf("Deactivate: %v", err)
+	}
+
+	events := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if len(events) == 0 {
+		t.Fatalf("no JSONL events")
+	}
+	last := events[len(events)-1]
+	if last.Event != agent.EvFinished {
+		t.Errorf("last event not finished: %+v", last)
+	}
+	if last.Status != agent.StatusCancelled {
+		t.Errorf("last status: %s, want cancelled", last.Status)
+	}
+	if last.Reason != "board switch" {
+		t.Errorf("last reason: %q, want board switch", last.Reason)
+	}
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
+		t.Fatalf("AgentStatus not cancelled:\n%s", out)
+	}
+}
+
+func TestAgentServiceBoardSwitchCancelsAutomationStartedRuns(t *testing.T) {
+	tests := []struct {
+		name  string
+		start func(*AgentService) (string, error)
+		mode  agent.Mode
+	}{
+		{
+			name: "auto-groom",
+			start: func(s *AgentService) (string, error) {
+				return s.StartGroomWithTriageHashAs(context.Background(), "TB-1", "triage-hash", agent.InitiatorAutoGroom)
+			},
+			mode: agent.ModeGroom,
+		},
+		{
+			name: "auto-implement",
+			start: func(s *AgentService) (string, error) {
+				return s.RunAgentAs(context.Background(), "TB-1", agent.InitiatorAutoImplement)
+			},
+			mode: agent.ModeImplement,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &shutdownRunner{started: make(chan struct{})}
+			_, svc, boardDir, c := daemonIntegrationFixture(t, runner)
+			runID, err := tt.start(svc)
+			if err != nil {
+				t.Fatalf("start automation run: %v", err)
+			}
+			select {
+			case <-runner.started:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("runner never started")
+			}
+
+			if err := svc.CancelRunsForCurrentBoard(context.Background(), "board switch"); err != nil {
+				t.Fatalf("CancelRunsForCurrentBoard: %v", err)
+			}
+
+			events := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+			last := events[len(events)-1]
+			if last.Event != agent.EvFinished {
+				t.Fatalf("last event = %+v, want finished", last)
+			}
+			if last.RunID != runID {
+				t.Fatalf("last run = %q, want %q", last.RunID, runID)
+			}
+			if last.Mode != tt.mode.String() {
+				t.Fatalf("last mode = %q, want %q", last.Mode, tt.mode.String())
+			}
+			if last.Status != agent.StatusCancelled {
+				t.Fatalf("last status = %s, want cancelled", last.Status)
+			}
+			if last.Reason != "board switch" {
+				t.Fatalf("last reason = %q, want board switch", last.Reason)
+			}
+			out, err := c.Run(context.Background(), "show", "TB-1")
+			if err != nil {
+				t.Fatalf("tb show: %v", err)
+			}
+			if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
+				t.Fatalf("AgentStatus not cancelled:\n%s", out)
+			}
+		})
 	}
 }

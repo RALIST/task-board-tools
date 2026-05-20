@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -152,6 +153,54 @@ func (r *fakeRecovery) RecoverStale(ctx context.Context, boardDir string) error 
 	return r.err
 }
 
+type fakeReconciler struct {
+	mu         sync.Mutex
+	active     int
+	taskCalls  []string
+	activeHook func()
+	taskHook   func(string)
+}
+
+func (r *fakeReconciler) ReconcileActive(ctx context.Context) error {
+	r.mu.Lock()
+	r.active++
+	hook := r.activeHook
+	r.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return nil
+}
+
+func (r *fakeReconciler) ReconcileTask(ctx context.Context, id string) error {
+	r.mu.Lock()
+	r.taskCalls = append(r.taskCalls, id)
+	hook := r.taskHook
+	r.mu.Unlock()
+	if hook != nil {
+		hook(id)
+	}
+	return nil
+}
+
+func (r *fakeReconciler) activeCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.active
+}
+
+func (r *fakeReconciler) taskCount(id string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, got := range r.taskCalls {
+		if got == id {
+			n++
+		}
+	}
+	return n
+}
+
 type fakeUntrackedRecovery struct {
 	fakeRecovery
 	untrackedCalls atomic.Int32
@@ -195,6 +244,78 @@ func TestDaemon_SetPeriodicRecoveryEnabledTogglesActiveTicker(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 	if got := rec.untrackedCalls.Load(); got != afterDisable {
 		t.Fatalf("periodic recovery kept running after disable: before=%d after=%d", afterDisable, got)
+	}
+}
+
+func TestDaemon_ActivateRunsReconciliationBeforeStartupScan(t *testing.T) {
+	b := newFakeBoard(AgentTask{ID: "TB-1", Agent: "claude", AgentStatus: "queued"})
+	a := &fakeAgent{}
+	rec := &fakeReconciler{
+		activeHook: func() {
+			b.set(AgentTask{ID: "TB-1", Agent: "claude", AgentStatus: "running"})
+		},
+	}
+	d := New(Options{Board: b, Agent: a, Reconciler: rec, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := rec.activeCount(); got != 1 {
+		t.Fatalf("reconcile active calls = %d, want 1", got)
+	}
+	if got := a.callCount(); got != 0 {
+		t.Fatalf("startup scan ran before reconciliation effect; agent calls = %d, want 0", got)
+	}
+}
+
+func TestDaemon_RunOneReconcilesBeforeAndAfterTerminalRun(t *testing.T) {
+	a := &fakeAgent{}
+	rec := &fakeReconciler{}
+	d := New(Options{Board: newFakeBoard(), Agent: a, Reconciler: rec, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	generation, _, ok := d.activationState()
+	if !ok {
+		t.Fatalf("activation state missing")
+	}
+	d.runOne(slog.Default(), queuedTask{id: "TB-2", generation: generation})
+
+	if got := a.callCount(); got != 1 {
+		t.Fatalf("agent calls = %d, want 1", got)
+	}
+	if got := rec.taskCount("TB-2"); got != 2 {
+		t.Fatalf("task reconciliation calls = %d, want pre-run and post-run", got)
+	}
+}
+
+func TestEventSinkBoardReloadReconcilesBeforeRescan(t *testing.T) {
+	b := newFakeBoard()
+	a := &fakeAgent{}
+	rec := &fakeReconciler{
+		activeHook: func() {
+			b.set(AgentTask{ID: "TB-3", Agent: "claude", AgentStatus: "running"})
+		},
+	}
+	d := New(Options{Board: b, Agent: a, Reconciler: rec, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+
+	b.set(AgentTask{ID: "TB-3", Agent: "claude", AgentStatus: "queued"})
+	sink := NewEventSink(d, nil)
+	sink.handle(context.Background(), "board:reloaded")
+	time.Sleep(50 * time.Millisecond)
+
+	if got := rec.activeCount(); got < 2 {
+		t.Fatalf("reconcile active calls = %d, want activation + board reload", got)
+	}
+	if got := a.callCount(); got != 0 {
+		t.Fatalf("rescan should observe reconciled non-queued task; agent calls = %d, want 0", got)
 	}
 }
 
@@ -411,6 +532,117 @@ func TestDaemon_Close_CancelsCtxAndDrains(t *testing.T) {
 	close(gate)
 }
 
+func TestDaemon_DeactivateCancelsActiveRunWithBoardSwitchCause(t *testing.T) {
+	started := make(chan struct{})
+	cancelled := make(chan error, 1)
+	var once sync.Once
+	a := &fakeAgent{
+		onRun: func(ctx context.Context, id string) (string, error) {
+			once.Do(func() { close(started) })
+			<-ctx.Done()
+			cancelled <- context.Cause(ctx)
+			return "cancelled", ctx.Err()
+		},
+	}
+	d := New(Options{Board: newFakeBoard(), Agent: a, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Activate(context.Background(), "/tmp/fake-a"); err != nil {
+		t.Fatalf("Activate A: %v", err)
+	}
+	if ok, err := d.Enqueue("TB-7"); err != nil || !ok {
+		t.Fatalf("enqueue: ok=%v err=%v", ok, err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatalf("run never started")
+	}
+
+	if err := d.Deactivate(); err != nil {
+		t.Fatalf("Deactivate: %v", err)
+	}
+
+	select {
+	case cause := <-cancelled:
+		if cause == nil || cause.Error() != "board switch" {
+			t.Fatalf("cancel cause = %v, want board switch", cause)
+		}
+	default:
+		t.Fatalf("active run did not observe board-switch cancellation")
+	}
+	if d.IsActive("TB-7") {
+		t.Fatalf("active flag should be cleared after Deactivate")
+	}
+	if err := d.Activate(context.Background(), "/tmp/fake-b"); err != nil {
+		t.Fatalf("Activate B after Deactivate: %v", err)
+	}
+}
+
+func TestDaemon_DeactivateDropsQueuedOldBoardWork(t *testing.T) {
+	started := make(chan string, 4)
+	releaseFirst := make(chan struct{})
+	a := &fakeAgent{
+		onRun: func(ctx context.Context, id string) (string, error) {
+			started <- id
+			if id == "TB-1" {
+				select {
+				case <-releaseFirst:
+					return "success", nil
+				case <-ctx.Done():
+					return "cancelled", ctx.Err()
+				}
+			}
+			return "success", nil
+		},
+	}
+	d := New(Options{Board: newFakeBoard(), Agent: a, MaxWorkers: 1})
+	t.Cleanup(func() {
+		close(releaseFirst)
+		_ = d.Close()
+	})
+	if err := d.Activate(context.Background(), "/tmp/fake-a"); err != nil {
+		t.Fatalf("Activate A: %v", err)
+	}
+	if ok, err := d.Enqueue("TB-1"); err != nil || !ok {
+		t.Fatalf("enqueue TB-1: ok=%v err=%v", ok, err)
+	}
+	if ok, err := d.Enqueue("TB-2"); err != nil || !ok {
+		t.Fatalf("enqueue TB-2: ok=%v err=%v", ok, err)
+	}
+	select {
+	case got := <-started:
+		if got != "TB-1" {
+			t.Fatalf("first run = %s, want TB-1", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("first run never started")
+	}
+
+	if err := d.Deactivate(); err != nil {
+		t.Fatalf("Deactivate: %v", err)
+	}
+	if err := d.Activate(context.Background(), "/tmp/fake-b"); err != nil {
+		t.Fatalf("Activate B: %v", err)
+	}
+
+	select {
+	case got := <-started:
+		t.Fatalf("queued old-board task ran after board switch: %s", got)
+	case <-time.After(75 * time.Millisecond):
+	}
+	if ok, err := d.Enqueue("TB-3"); err != nil || !ok {
+		t.Fatalf("enqueue TB-3 after switch: ok=%v err=%v", ok, err)
+	}
+	select {
+	case got := <-started:
+		if got != "TB-3" {
+			t.Fatalf("new-board run = %s, want TB-3", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("new-board run never started")
+	}
+}
+
 // TestDaemon_Close_RacesEnqueueWithoutPanic exercises the
 // Close-during-Enqueue scenario the reviewer flagged: many Enqueue
 // callers fire while Close drives rootCancel + grace timeout. The
@@ -461,16 +693,14 @@ func TestDaemon_Close_RacesEnqueueWithoutPanic(t *testing.T) {
 }
 
 func TestDaemon_DeactivateClearsActiveSet(t *testing.T) {
-	gate := make(chan struct{})
 	a := &fakeAgent{
 		onRun: func(ctx context.Context, id string) (string, error) {
-			<-gate
-			return "success", nil
+			<-ctx.Done()
+			return "cancelled", ctx.Err()
 		},
 	}
 	d := New(Options{Board: newFakeBoard(), Agent: a, MaxWorkers: 1})
 	t.Cleanup(func() {
-		close(gate)
 		_ = d.Close()
 	})
 	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {

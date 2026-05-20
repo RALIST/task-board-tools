@@ -478,6 +478,12 @@ func stripLeadingBodyHeading(body, label string) string {
 }
 
 func upsertTaskSection(content, heading, body string) string {
+	if shouldCoalesceTaskSection(heading) {
+		if ranges := findMarkdownSections(content, heading); len(ranges) > 0 {
+			return replaceAndRemoveDuplicateSections(content, ranges, markdownSectionBlock(heading, body))
+		}
+	}
+
 	if r, ok := findMarkdownSection(content, heading); ok {
 		return content[:r.start] + markdownSectionBlock(heading, body) + content[r.end:]
 	}
@@ -527,6 +533,24 @@ func upsertTaskSection(content, heading, body string) string {
 	return appendMarkdownSection(content, markdownSectionBlock(heading, body))
 }
 
+func shouldCoalesceTaskSection(heading string) bool {
+	return heading == "## Context" || heading == "## Constraints"
+}
+
+func replaceAndRemoveDuplicateSections(content string, ranges []markdownSectionRange, block string) string {
+	var b strings.Builder
+	b.Grow(len(content) + len(block))
+	b.WriteString(content[:ranges[0].start])
+	b.WriteString(block)
+	cursor := ranges[0].end
+	for _, r := range ranges[1:] {
+		b.WriteString(content[cursor:r.start])
+		cursor = r.end
+	}
+	b.WriteString(content[cursor:])
+	return b.String()
+}
+
 type markdownSectionRange struct {
 	start int
 	end   int
@@ -548,6 +572,15 @@ var taskMarkdownHeadings = map[string]bool{
 }
 
 func findMarkdownSection(content, heading string) (markdownSectionRange, bool) {
+	ranges := findMarkdownSections(content, heading)
+	if len(ranges) == 0 {
+		return markdownSectionRange{}, false
+	}
+	return ranges[0], true
+}
+
+func findMarkdownSections(content, heading string) []markdownSectionRange {
+	var ranges []markdownSectionRange
 	offset := 0
 	inFence := false
 	for offset <= len(content) {
@@ -560,14 +593,14 @@ func findMarkdownSection(content, heading string) (markdownSectionRange, bool) {
 			if nextHeading == -1 {
 				nextHeading = len(content)
 			}
-			return markdownSectionRange{start: offset, end: nextHeading}, true
+			ranges = append(ranges, markdownSectionRange{start: offset, end: nextHeading})
 		}
 		if nextOffset > len(content) {
 			break
 		}
 		offset = nextOffset
 	}
-	return markdownSectionRange{}, false
+	return ranges
 }
 
 func findFirstMarkdownHeading(content string, headings []string) (int, bool) {

@@ -60,10 +60,12 @@ func main() {
 	settingsForPrefs := tbapp.NewSettingsService(tbapp.SettingsOptions{Logger: logger})
 	maxWorkers := settingsForPrefs.GetMaxWorkers()
 	recovery := tbapp.NewRecoveryService(boardService, agentService, daemon.PidAliveForRecovery, logger)
+	stageReconciler := tbapp.NewStageReconciler(boardService, logger)
 	d := daemon.New(daemon.Options{
 		Board:                   &boardAdapter{b: boardService},
 		Agent:                   &agentAdapter{s: agentService},
 		Recovery:                recovery,
+		Reconciler:              stageReconciler,
 		Logger:                  logger,
 		MaxWorkers:              maxWorkers,
 		DisablePeriodicRecovery: !settingsForPrefs.GetPeriodicRecoveryEnabled(),
@@ -106,7 +108,7 @@ func main() {
 		Logger:    logger,
 		Board:     boardService,
 		Watcher:   w,
-		Activator: &boardActivator{daemon: d, autoGroom: autoGroom, autoImplement: autoImplement},
+		Activator: &boardActivator{daemon: d, agent: agentService, autoGroom: autoGroom, autoImplement: autoImplement},
 	})
 	// Late-bind the SettingsService so both coordinators can read
 	// preferences on every scan.
@@ -169,6 +171,7 @@ func main() {
 	app.Event.On("agent:run-finished", func(ev *application.CustomEvent) {
 		if payload, ok := ev.Data.(map[string]any); ok {
 			autoGroom.OnAgentRunFinished(payload)
+			stageReconciler.OnAgentRunFinished(payload)
 		}
 	})
 

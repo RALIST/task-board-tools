@@ -7,8 +7,11 @@
 **Tags:** automation,daemon,housekeeping,kanban
 **Agent:** codex
 **ImplementedBy:** codex
-**ImplementStatus:** failed
-**AgentStatus:** running
+**ImplementStatus:** success
+**AgentStatus:** success
+**ReviewedBy:** codex
+**ReviewStatus:** success
+**ReviewRef:** local:Helmholtz-stage-reconciler-review
 **Branch:** —
 
 ## Goal
@@ -43,6 +46,16 @@ Add soft deterministic reconciliation for the staged autonomous flow so daemon-o
 - [ ] Reconciliation clears no state except where a sibling task explicitly defines it (TB-268 owns retry-blocking AgentStatus cleanup).
 - [ ] Tests cover each repair path, each skip path, WIP-limit behavior for ready/in-progress/code-review, WIP-blocked backoff/no-hot-loop behavior, and `needs-user`/`cancelled`/`interrupted`/`lost` preservation.
 - [ ] Verification includes `cd gui && go test ./...`.
+
+## Review Target
+
+scope: GUI daemon staged-autonomy reconciliation
+files: gui/app/stage_reconciler.go, gui/app/stage_reconciler_test.go, gui/internal/daemon/daemon.go, gui/internal/daemon/watcher_sink.go, gui/adapters.go, gui/main.go, docs/FEATURES.md, docs/IMPLEMENTATION.md
+verification: cd gui && go test ./...; subagent review Helmholtz returned SHIP with no CRITICAL or MAJOR issues.
+
+## Review Findings
+
+SHIP. No CRITICAL or MAJOR issues found in final review. Stage reconciliation is deterministic housekeeping only: it repairs objective auto-groom, auto-implement, and review-failed transitions through managed board operations; preserves needs-user/cancelled/interrupted/lost states; and records durable skip/backoff for missing ReviewRef and WIP-blocked repairs.
 
 ## Related Tasks
 
@@ -80,3 +93,20 @@ Add soft deterministic reconciliation for the staged autonomous flow so daemon-o
 - 2026-05-20: Pulled into in-progress
 - 2026-05-20: Edited agentstatus=queued
 - 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited review-target
+- 2026-05-20: Edited review-findings
+- 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewed-by=codex, review-status=success, reviewref=local:Helmholtz-stage-reconciler-review
+- 2026-05-20: Submitted to code-review
+- 2026-05-20: Done

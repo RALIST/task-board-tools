@@ -470,6 +470,46 @@ func TestAutoGroomCoordinator_OnAgentRunFinishedPromotesWhenClean(t *testing.T) 
 	t.Fatalf("task did not promote to ready; current status=%q", t2.Metadata.Status)
 }
 
+func TestAutoGroomCoordinator_OnAgentRunFinishedIgnoresStaleBoard(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	if err := f.settings.SetAutoGroomEnabled(true); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if err := f.settings.SetDefaultAgent("claude"); err != nil {
+		t.Fatalf("default agent: %v", err)
+	}
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatal("no board client")
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{
+		Priority: "P1",
+		Module:   "core",
+	}); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	f.board.clearTriageCache()
+
+	f.coord.OnAgentRunFinished(map[string]any{
+		"mode":      agent.ModeGroom.String(),
+		"status":    string(agent.StatusSuccess),
+		"task_id":   "TB-1",
+		"board_dir": filepath.Join(f.root, "other-board"),
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	task, err := f.board.GetTask(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Metadata.Status != "backlog" {
+		t.Fatalf("stale-board terminal event promoted task to %q", task.Metadata.Status)
+	}
+}
+
 func TestAutoGroomCoordinator_OnAgentRunFinishedGuardedSkipWhenStillTriaged(t *testing.T) {
 	f := newAutoGroomFixture(t, "claude")
 	if err := f.settings.SetAutoGroomEnabled(true); err != nil {

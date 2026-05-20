@@ -32,6 +32,7 @@ type queuedRun struct {
 	ResumedFrom    string // parent session id, if mode == ModeResume
 	ResumedFromRun string // parent run id, if mode == ModeResume
 	TriageHash     string // auto-groom dedupe fingerprint, if mode == ModeGroom + auto-groom (TB-174)
+	Initiator      string // automation owner, if a coordinator started the run
 }
 
 // findQueuedRun scans the task's JSONL run history and returns the
@@ -61,6 +62,7 @@ func findQueuedRun(boardDir, taskID string) (queuedRun, error) {
 		resumedFrom    string
 		resumedFromRun string
 		triageHash     string
+		initiator      string
 	}
 	runs := map[string]*state{}
 	order := []string{}
@@ -85,6 +87,7 @@ func findQueuedRun(boardDir, taskID string) (queuedRun, error) {
 		case agent.EvQueued:
 			st.hasQueued = true
 			st.mode = parseRunMode(ev.Mode)
+			st.initiator = ev.Initiator
 			// resume linkage lives on the queued event (TB-138). Capture
 			// it here so a daemon replay after a crash between AppendEvent
 			// and goroutine spawn can rehydrate the parent session.
@@ -117,6 +120,7 @@ func findQueuedRun(boardDir, taskID string) (queuedRun, error) {
 				ResumedFrom:    st.resumedFrom,
 				ResumedFromRun: st.resumedFromRun,
 				TriageHash:     st.triageHash,
+				Initiator:      st.initiator,
 			}, nil
 		}
 	}

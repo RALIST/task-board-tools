@@ -20,9 +20,13 @@ type fakeSwitcher struct {
 	mu     sync.Mutex
 	called []string
 	err    error
+	hook   func(boardDir string)
 }
 
 func (f *fakeSwitcher) Switch(boardDir string) error {
+	if f.hook != nil {
+		f.hook(boardDir)
+	}
 	f.mu.Lock()
 	f.called = append(f.called, boardDir)
 	f.mu.Unlock()
@@ -419,6 +423,128 @@ func TestOpenBoard_WatcherFailureDoesNotCommit(t *testing.T) {
 	}
 	if board.snapshot() != nil {
 		t.Error("BoardService client must not be set on watcher failure")
+	}
+}
+
+func TestOpenBoard_WatcherFailureAfterExistingBoardDoesNotDeactivate(t *testing.T) {
+	rootA := fixtureBoard(t, "TA")
+	rootB := fixtureBoard(t, "TB")
+	stub := stubTbBinary(t)
+	recents := filepath.Join(t.TempDir(), "recent.json")
+
+	sw := &fakeSwitcher{}
+	board := NewBoardService()
+	activator := &fakeOpenBoardActivator{}
+	svc := NewSettingsService(SettingsOptions{
+		Board:       board,
+		Watcher:     sw,
+		CLIPath:     stub,
+		RecentsPath: recents,
+		Activator:   activator,
+	})
+	if err := svc.OpenBoard(context.Background(), rootA); err != nil {
+		t.Fatalf("OpenBoard A: %v", err)
+	}
+	activator.mu.Lock()
+	activator.calls = nil
+	activator.mu.Unlock()
+	sw.err = errors.New("watcher boom")
+
+	err := svc.OpenBoard(context.Background(), rootB)
+	if err == nil || !errors.Is(err, sw.err) {
+		t.Fatalf("want wrapped watcher err, got %v", err)
+	}
+	if got := svc.GetProjectRoot(); got != rootA {
+		t.Fatalf("failed switch changed project root: got %q want %q", got, rootA)
+	}
+	if calls := activator.callsSnapshot(); len(calls) != 0 {
+		t.Fatalf("failed watcher switch deactivated/reactivated current board: %v", calls)
+	}
+	if board.snapshot() == nil {
+		t.Fatalf("existing BoardService client was cleared")
+	}
+}
+
+type fakeOpenBoardActivator struct {
+	mu             sync.Mutex
+	calls          []string
+	deactivateHook func()
+}
+
+func (f *fakeOpenBoardActivator) Activate(ctx context.Context, boardDir string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "activate:"+boardDir)
+	return nil
+}
+
+func (f *fakeOpenBoardActivator) Deactivate() error {
+	if f.deactivateHook != nil {
+		f.deactivateHook()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "deactivate")
+	return nil
+}
+
+func (f *fakeOpenBoardActivator) SetPeriodicRecoveryEnabled(enabled bool) {}
+
+func (f *fakeOpenBoardActivator) callsSnapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
+}
+
+func TestOpenBoard_DeactivatesBeforeRebindingBoardClient(t *testing.T) {
+	rootA := fixtureBoard(t, "TA")
+	rootB := fixtureBoard(t, "TB")
+	stub := stubTbBinary(t)
+	recents := filepath.Join(t.TempDir(), "recent.json")
+
+	board := NewBoardService()
+	activator := &fakeOpenBoardActivator{}
+	sw := &fakeSwitcher{}
+	svc := NewSettingsService(SettingsOptions{
+		Board:       board,
+		Watcher:     sw,
+		CLIPath:     stub,
+		RecentsPath: recents,
+		Activator:   activator,
+	})
+
+	if err := svc.OpenBoard(context.Background(), rootA); err != nil {
+		t.Fatalf("OpenBoard A: %v", err)
+	}
+	activator.mu.Lock()
+	activator.calls = nil
+	activator.mu.Unlock()
+	switchSeenBeforeDeactivate := false
+	sw.hook = func(boardDir string) {
+		calls := activator.callsSnapshot()
+		switchSeenBeforeDeactivate = len(calls) == 0
+		if board.snapshot() == nil {
+			t.Errorf("existing board client disappeared before watcher switch")
+		}
+	}
+	deactivateSawOldClient := false
+	activator.deactivateHook = func() {
+		if got := svc.GetProjectRoot(); got != rootA {
+			t.Errorf("deactivate saw project root %q, want old root %q", got, rootA)
+		}
+		if c := board.snapshot(); c != nil && c.Cwd() == rootA {
+			deactivateSawOldClient = true
+		}
+	}
+
+	if err := svc.OpenBoard(context.Background(), rootB); err != nil {
+		t.Fatalf("OpenBoard B: %v", err)
+	}
+	if !switchSeenBeforeDeactivate {
+		t.Fatalf("watcher did not switch before deactivation; calls=%v", activator.callsSnapshot())
+	}
+	if !deactivateSawOldClient {
+		t.Fatalf("deactivate did not run while BoardService still pointed at old root")
 	}
 }
 

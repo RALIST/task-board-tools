@@ -238,16 +238,26 @@ func (c *AutoGroomCoordinator) OnAgentRunFinished(payload map[string]any) {
 	mode, _ := payload["mode"].(string)
 	status, _ := payload["status"].(string)
 	taskID, _ := payload["task_id"].(string)
+	boardDir, _ := payload["board_dir"].(string)
 	if mode != agent.ModeGroom.String() || status != string(agent.StatusSuccess) {
 		return
 	}
 	if taskID == "" {
 		return
 	}
+	if boardDir != "" && !c.isCurrentBoard(boardDir) {
+		return
+	}
 	// Use a fresh background context — the originating run already
 	// terminated; promoting must not hang on the request that triggered
 	// the event.
 	go c.tryPromote(context.Background(), taskID)
+}
+
+func (c *AutoGroomCoordinator) isCurrentBoard(boardDir string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.activated && c.boardDir == boardDir
 }
 
 func (c *AutoGroomCoordinator) tryPromote(ctx context.Context, taskID string) {

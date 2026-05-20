@@ -203,7 +203,7 @@ Marker legend:
 **Cross-stage rules**:
 - ☑ TB-267: auto-implement enforces numeric child ordering within an epic. A later same-parent child is skipped while any lower-ID child is not done/closed, and diagnostics identify the blocker.
 - ☑ TB-268: review-failed handoff clears retry-blocking generic `AgentStatus` while preserving per-mode review attribution and JSONL history.
-- ☐ TB-266: daemon reconciliation is soft/deterministic housekeeping only. It may repair objective missed transitions through managed CLI operations, but it must not infer pass/fail from prose, hot-loop on WIP blockers, or override `needs-user`, `cancelled`, `interrupted`, or `lost`.
+- ☑ TB-266: daemon reconciliation is soft/deterministic housekeeping only. It may repair objective missed transitions through managed CLI operations, but it must not infer pass/fail from prose, hot-loop on WIP blockers, or override `needs-user`, `cancelled`, `interrupted`, or `lost`.
 - ☐ TB-270: prompt cleanup owns the known contradictions in `groom.md`, `implement.md`, and `review.md`; daemon tasks should not paper over prompt drift.
 
 **Acceptance**: the product docs and board guidance describe `auto-groom: backlog -> ready`, `auto-implement: ready -> in-progress -> code-review`, and `auto-review: code-review -> done|ready`; each stage is independently toggleable; failed review returns to `ready` with `review-failed` and a cleared generic scheduling cursor; auto-implement never picks a later epic child while an earlier same-parent child is unfinished; daemon reconciliation is documented as deterministic repair, not semantic guessing.
