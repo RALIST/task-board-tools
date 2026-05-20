@@ -161,4 +161,30 @@ describe('FilterBar layout', () => {
     await tick();
     expect(get(filter).types).toEqual(['bug', 'spike']);
   });
+
+  it('resets local chip state when the filter store changes externally after a toggle', async () => {
+    const snap = snapshot([
+      task('TB-1', { type: 'bug' }),
+      task('TB-2', { type: 'feature' }),
+    ]);
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
+    await tick();
+
+    triggerByLabel('Type').click();
+    await tick();
+    const bugOption = [...document.querySelectorAll<HTMLButtonElement>('.fd-option')].find(
+      (b) => b.textContent?.trim() === 'bug',
+    );
+    bugOption?.click();
+    await tick();
+    expect(get(filter).types).toEqual(['bug']);
+    expect(document.querySelector('.af-chip')?.textContent).toContain('bug');
+
+    filter.set({ ...initialFilter });
+    await tick();
+
+    expect(get(filter).types).toEqual([]);
+    expect(document.querySelector('.af-chip')).toBeNull();
+    expect(triggerByLabel('Type').textContent?.replace(/\s+/g, ' ').trim()).toBe('Type');
+  });
 });

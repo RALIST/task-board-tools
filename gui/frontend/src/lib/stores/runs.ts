@@ -42,9 +42,6 @@ const runs = writable<RunMap>(new Map());
  * "Past runs" list highlighting. */
 export const selectedRunID = writable<string | null>(null);
 
-/** Subscribe to the raw runs map. Most consumers should use runsByTask. */
-export const runsStore = { subscribe: runs.subscribe };
-
 /** Merge a freshly-fetched run list for a task into the store.
  *
  * The list comes from `AgentService.ListRuns` (i.e. the JSONL snapshot on

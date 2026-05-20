@@ -3,7 +3,7 @@
 //   1. loadBoard() — full refetch (called on mount and on `board:reloaded`).
 //   2. patchTask(task) — surgical update from `task:updated:<id>` events.
 
-import { writable, derived, get } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { BoardSnapshot, StatusMode, Task } from '../api';
 import { loadBoard, getTask } from '../api';
 
@@ -144,10 +144,6 @@ export function optimisticMove(
 export function revert(snap: BoardSnapshot): void {
   board.set(snap);
 }
-
-export const totalTaskCount = derived(board, ($b) =>
-  $b.backlog.length + ($b.ready?.length ?? 0) + $b.inProgress.length + ($b.codeReview?.length ?? 0) + $b.done.length,
-);
 
 function stringifyError(err: unknown): string {
   if (err instanceof Error) return err.message;
