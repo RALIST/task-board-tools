@@ -86,7 +86,8 @@ Usage:
   tb init [path] [--board-path=board] [--prefix=PR] [--refresh-docs]     Initialize or reconcile a board
   tb board [--json]                                                      Print board status (or JSON snapshot)
   tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
-  tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID] [-n N]
+  tb ls [-t tag[,tag...]] [-s size[,size...]] [-m module[,module...]] [-T type[,type...]] [-p priority[,priority...]]
+        [--parent ID[,ID...]] [--agent claude|codex|none[,...]] [--search term] [-n N]
         [--status backlog|ready|in-progress|code-review|done|archive|active|all] [--json]
   tb mv <ID> <status>                                                    Move task (status: backlog|ready|in-progress|code-review|done|archive)
   tb ready <ID>                                                          Promote a backlog task to ready (canonical kanban commitment column)

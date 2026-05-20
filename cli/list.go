@@ -17,20 +17,37 @@ type listItem struct {
 	doneCompletionOK bool
 }
 
+// listFilters holds the multi-value filter selections parsed from `tb ls`
+// flags. Each slice is OR-within: a task matches the field when any value
+// matches. Across fields, listFilters.match requires every populated field
+// to match (AND-across). Empty slices skip that filter entirely.
+type listFilters struct {
+	tags       []string
+	sizes      []string
+	modules    []string
+	types      []string
+	priorities []string
+	parents    []string
+	agents     []string
+	search     string
+}
+
 func cmdList(args []string) {
 	fs := flag.NewFlagSet("ls", flag.ExitOnError)
-	tagsFilter := fs.String("t", "", "filter by tag (exact match per tag)")
-	sizeFilter := fs.String("s", "", "filter by size (exact match)")
-	moduleFilter := fs.String("m", "", "filter by module (substring match)")
-	typeFilter := fs.String("T", "", "filter by type (exact match)")
-	priorityFilter := fs.String("p", "", "filter by priority (exact match)")
-	parentFilter := fs.String("parent", "", "filter by parent epic ID")
+	tagsFilter := fs.String("t", "", "filter by tag (comma-separated, matches any; exact case-insensitive tag-name match)")
+	sizeFilter := fs.String("s", "", "filter by size (comma-separated, matches any; case-insensitive equality)")
+	moduleFilter := fs.String("m", "", "filter by module (comma-separated, matches any; case-insensitive substring match)")
+	typeFilter := fs.String("T", "", "filter by type (comma-separated, matches any; case-insensitive equality)")
+	priorityFilter := fs.String("p", "", "filter by priority (comma-separated, matches any; case-insensitive equality)")
+	parentFilter := fs.String("parent", "", "filter by parent epic ID (comma-separated, matches any; normalized + case-insensitive equality)")
+	agentFilter := fs.String("agent", "", "filter by agent: claude, codex, none (comma-separated, matches any; 'none' matches unassigned)")
+	searchFilter := fs.String("search", "", "free-text search; case-insensitive substring match against id and title")
 	statusFilter := fs.String("status", "backlog", "status filter: backlog|ready|in-progress|code-review|done|archive|active|all")
 	limit := fs.Int("n", 0, "limit results to N tasks (default: no limit)")
 	jsonOut := fs.Bool("json", false, "emit JSON array (empty selection → []) to stdout")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb ls [-t tags] [-s size] [-m module] [-T type] [-p priority] [--parent ID] [--status backlog|ready|in-progress|code-review|done|archive|active|all] [-n N] [--json]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb ls [-t tag[,tag...]] [-s size[,size...]] [-m module[,module...]] [-T type[,type...]] [-p priority[,priority...]] [--parent ID[,ID...]] [--agent claude|codex|none[,...]] [--search term] [--status backlog|ready|in-progress|code-review|done|archive|active|all] [-n N] [--json]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -38,13 +55,13 @@ func cmdList(args []string) {
 		os.Exit(1)
 	}
 
-	boardDir := cfg.BoardDir
-
-	// Normalize parent filter.
-	normalizedParent := ""
-	if *parentFilter != "" {
-		normalizedParent = normalizeTaskID(*parentFilter)
+	filters, err := buildListFilters(*tagsFilter, *sizeFilter, *moduleFilter, *typeFilter, *priorityFilter, *parentFilter, *agentFilter, *searchFilter)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
+
+	boardDir := cfg.BoardDir
 
 	dirs, err := resolveStatusFilter(*statusFilter)
 	if err != nil {
@@ -65,7 +82,7 @@ func cmdList(args []string) {
 			warnSkippingTask(ref.Path, err)
 			continue
 		}
-		if matchesFilters(t, *tagsFilter, *sizeFilter, *moduleFilter, *typeFilter, *priorityFilter, normalizedParent) {
+		if filters.match(t) {
 			items = append(items, newListItem(t, ref.Path))
 		}
 	}
@@ -245,27 +262,154 @@ func listPriorityLess(left, right Task) bool {
 	return numericID(left.ID) < numericID(right.ID)
 }
 
-// matchesFilters returns true if the task passes all active filters.
-func matchesFilters(t Task, tags, size, module, taskType, priority, parent string) bool {
-	if tags != "" && !hasTag(t.Tags, tags) {
+// splitCSVFilter splits a comma-separated filter value, trims whitespace
+// around each segment, and drops empty segments. Returns nil for the empty
+// or all-whitespace input so callers can treat "no filter on this field" as
+// the same as the flag being unset.
+func splitCSVFilter(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// buildListFilters parses the raw flag strings into a listFilters value and
+// validates the --agent flag against the supported agent set
+// (`tb edit -a` valid agents plus the `none` sentinel for unassigned tasks).
+// Unknown --agent values produce an error; all other filters keep the
+// historical no-match behavior for unknown values so single-value callers
+// remain byte-identical.
+func buildListFilters(tags, sizes, modules, types, priorities, parents, agents, search string) (listFilters, error) {
+	f := listFilters{
+		tags:       splitCSVFilter(tags),
+		sizes:      splitCSVFilter(sizes),
+		modules:    splitCSVFilter(modules),
+		types:      splitCSVFilter(types),
+		priorities: splitCSVFilter(priorities),
+		search:     strings.TrimSpace(search),
+	}
+
+	for _, p := range splitCSVFilter(parents) {
+		f.parents = append(f.parents, normalizeTaskID(p))
+	}
+
+	agentValues := splitCSVFilter(agents)
+	if len(agentValues) > 0 {
+		f.agents = make([]string, 0, len(agentValues))
+		for _, raw := range agentValues {
+			canonical := strings.ToLower(raw)
+			if canonical != "none" && !validAgents[canonical] {
+				return listFilters{}, fmt.Errorf("invalid agent %q — use: claude, codex, none", raw)
+			}
+			f.agents = append(f.agents, canonical)
+		}
+	}
+
+	return f, nil
+}
+
+// match returns true if the task passes all populated filters. A nil/empty
+// slice for a field skips that filter.
+func (f listFilters) match(t Task) bool {
+	if len(f.tags) > 0 && !anyTagMatches(t.Tags, f.tags) {
 		return false
 	}
-	if size != "" && !strings.EqualFold(t.Size, size) {
+	if len(f.sizes) > 0 && !anyEqualFold(f.sizes, t.Size) {
 		return false
 	}
-	if module != "" && !strings.Contains(strings.ToLower(t.Module), strings.ToLower(module)) {
+	if len(f.modules) > 0 && !anyModuleSubstring(f.modules, t.Module) {
 		return false
 	}
-	if taskType != "" && !strings.EqualFold(t.Type, taskType) {
+	if len(f.types) > 0 && !anyEqualFold(f.types, t.Type) {
 		return false
 	}
-	if priority != "" && !strings.EqualFold(t.Priority, priority) {
+	if len(f.priorities) > 0 && !anyEqualFold(f.priorities, t.Priority) {
 		return false
 	}
-	if parent != "" && !strings.EqualFold(t.Parent, parent) {
+	if len(f.parents) > 0 && !anyEqualFold(f.parents, t.Parent) {
+		return false
+	}
+	if len(f.agents) > 0 && !anyAgentMatches(f.agents, t.Agent) {
+		return false
+	}
+	if f.search != "" && !matchesSearch(f.search, t.ID, t.Title) {
 		return false
 	}
 	return true
+}
+
+// anyEqualFold returns true if any value in values is case-insensitively
+// equal to candidate. It mirrors the historical `strings.EqualFold(field, v)`
+// check used by single-value filters.
+func anyEqualFold(values []string, candidate string) bool {
+	for _, v := range values {
+		if strings.EqualFold(candidate, v) {
+			return true
+		}
+	}
+	return false
+}
+
+// anyTagMatches returns true if any of the supplied filter tags equals any
+// of the task's tags (case-insensitive, whitespace-trimmed). Preserves the
+// per-value tag-name match implemented by hasTag.
+func anyTagMatches(taskTags string, filterTags []string) bool {
+	for _, ft := range filterTags {
+		if hasTag(taskTags, ft) {
+			return true
+		}
+	}
+	return false
+}
+
+// anyModuleSubstring keeps the historical case-insensitive substring match
+// for the module field, applied OR-within across multiple filter values.
+func anyModuleSubstring(filterModules []string, taskModule string) bool {
+	lowered := strings.ToLower(taskModule)
+	for _, m := range filterModules {
+		if strings.Contains(lowered, strings.ToLower(m)) {
+			return true
+		}
+	}
+	return false
+}
+
+// anyAgentMatches treats the "none" sentinel as "blank Agent". Other values
+// have already been canonicalized to lowercase by buildListFilters and are
+// compared case-insensitively to the task's Agent field.
+func anyAgentMatches(filterAgents []string, taskAgent string) bool {
+	taskAgentLower := strings.ToLower(strings.TrimSpace(taskAgent))
+	for _, a := range filterAgents {
+		if a == "none" {
+			if taskAgentLower == "" {
+				return true
+			}
+			continue
+		}
+		if a == taskAgentLower {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesSearch implements the GUI FilterBar search-box semantics:
+// case-insensitive substring match against either the task ID or title.
+func matchesSearch(term, id, title string) bool {
+	t := strings.ToLower(term)
+	return strings.Contains(strings.ToLower(id), t) || strings.Contains(strings.ToLower(title), t)
 }
 
 // orDash returns the string or "-" if empty.
