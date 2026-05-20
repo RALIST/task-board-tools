@@ -6,7 +6,9 @@
 **Module:** gui
 **Tags:** agent,metadata,attribution,recovery
 **Agent:** codex
-**AgentStatus:** interrupted
+**AgentStatus:** lost
+**ImplementedBy:** codex
+**ImplementStatus:** lost
 **Branch:** —
 
 ## Goal
@@ -58,3 +60,6 @@ Update stale-run recovery so the latest dead-PID run writes TB-237 per-mode attr
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited agentstatus=interrupted
 - 2026-05-20: Edited goal/acceptance after TB-251 introduced `lost`
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=lost, implemented-by=codex, implement-status=lost

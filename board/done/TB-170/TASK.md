@@ -29,4 +29,3 @@ Filing as documented hot path: callers that emit many `AppendEvent`s for the sam
 - 2026-05-15: Created
 - 2026-05-15: Started — moved to in-progress
 - 2026-05-15: Done
-

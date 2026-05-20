@@ -76,7 +76,10 @@ func cmdScan(args []string) {
 		}
 	}
 
-	hits := scanForTodos(searchRoot, projectRoot)
+	hits, err := scanForTodos(searchRoot, projectRoot)
+	if err != nil {
+		fatal("scan failed: %v", err)
+	}
 
 	if len(hits) == 0 {
 		fmt.Println("No untagged TODO/FIXME/HACK/WORKAROUND comments found.")
@@ -143,12 +146,12 @@ func cmdScan(args []string) {
 }
 
 // scanForTodos walks the directory tree and finds untagged TODO/FIXME/HACK/WORKAROUND(TB-279) comments.
-func scanForTodos(searchRoot, projectRoot string) []todoHit {
+func scanForTodos(searchRoot, projectRoot string) ([]todoHit, error) {
 	var hits []todoHit
 
-	filepath.Walk(searchRoot, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(searchRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return fmt.Errorf("walk %s: %w", path, err)
 		}
 
 		// Skip hidden directories, node_modules, vendor, .claude/board.
@@ -169,8 +172,11 @@ func scanForTodos(searchRoot, projectRoot string) []todoHit {
 		hits = append(hits, fileHits...)
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 
-	return hits
+	return hits, nil
 }
 
 // scanFile reads a single file and returns untagged TODO(TB-280) hits.

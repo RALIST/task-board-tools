@@ -4,7 +4,7 @@
 **Priority:** P2
 **Size:** S
 **Agent:** codex
-**AgentStatus:** success
+**AgentStatus:** running
 **Module:** cli
 **Tags:** edit,body-sections,quick-win
 **GroomedBy:** codex
@@ -90,4 +90,7 @@ notes: managed --context/--constraints support added to tb edit; subagent review
 - 2026-05-20: Edited reviewref=3ebef31
 - 2026-05-20: Submitted to code-review
 - 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
 

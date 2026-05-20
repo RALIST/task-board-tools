@@ -85,7 +85,7 @@ func TestSkillTemplateIsPortableAgentSkill(t *testing.T) {
 	for _, want := range []string{
 		"---\nname: task-board\n",
 		"description:",
-		"Use when working with a markdown task board through the tb CLI",
+		"Use when working with a markdown task board: inspecting board state",
 		"# Task Board Workflow",
 		"Compatible with Claude Code and Codex.",
 		"Read `board/CONVENTIONS.md` before changing board state",

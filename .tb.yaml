@@ -12,9 +12,9 @@ prefix: TB
 # `wip_limit` (legacy) seeds the in-progress limit when no explicit
 # wip_limit_in_progress is set.
 # wip_limit: 2
-# wip_limit_ready: 5
-# wip_limit_in_progress: 2
-# wip_limit_code_review: 3
+wip_limit_ready: 10
+wip_limit_in_progress: 3
+wip_limit_code_review: 3
 
 # WIP enforcement: 'warn' (default) emits a stderr warning when a
 # move would exceed the destination column's limit. 'strict' rejects

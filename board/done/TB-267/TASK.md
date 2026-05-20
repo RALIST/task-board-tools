@@ -66,4 +66,3 @@ Block auto-implementation of a child task when an earlier sibling in the same ep
 - 2026-05-20: Submitted to code-review
 - 2026-05-20: Edited review-target
 - 2026-05-20: Done
-

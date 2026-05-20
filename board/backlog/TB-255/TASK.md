@@ -57,4 +57,3 @@ On a task that already has a terminal per-action row, start the same action agai
 - 2026-05-19: Edited tags=agent,metadata,attribution,ux,quick-win, title=TaskDrawer marks stale per-action attribution during same-mode run, goal
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited agentstatus=success, groomed-by=codex, groom-status=success
-

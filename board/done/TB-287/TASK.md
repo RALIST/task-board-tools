@@ -5,7 +5,6 @@
 **Size:** S
 **Module:** gui
 **Agent:** codex
-**AgentStatus:** success
 **Tags:** daemon,recovery,testing,flaky
 **GroomedBy:** codex
 **GroomStatus:** success
@@ -13,6 +12,7 @@
 **ImplementStatus:** success
 **ReviewedBy:** codex
 **ReviewStatus:** success
+**AgentStatus:** success
 **Branch:** —
 
 ## Goal
@@ -68,3 +68,5 @@ Fix the data race in the periodic recovery integration test path so `TestDaemonP
 - 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewed-by=codex, review-status=success
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Summary — replaced unsafe `recordingEmitter.events` reads with mutex-backed snapshots; verified focused and full GUI race suites; subagent review found no CRITICAL/MAJOR issues.
+- 2026-05-20: Edited agentstatus=none
+- 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success

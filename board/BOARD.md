@@ -7,6 +7,8 @@
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-262 | Auto-review | 0/4 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
+| TB-292 | Epic: mirror project settings between GUI and .tb.yaml | 0/3 | ready | gui |
+| TB-303 | Epic: remove generic AgentStatus field | 0/4 | backlog | workflow |
 
 ## Finished Epics
 
@@ -30,24 +32,29 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 1/1 | tooling |
 
-## In Progress (0/2)
+## In Progress (1/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-266 | Daemon: reconcile autonomous stage transitions | P1 | gui | — |
 
-## Code Review
+## Code Review (2/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
+| TB-269 | Docs: define staged autonomous agent workflow | P1 | docs | — |
 | TB-290 | CLI: edit Context and Constraints sections | P2 | cli | — |
 
-## Ready
+## Ready (6/10)
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
-| TB-266 | Daemon: reconcile autonomous stage transitions | improvement | P1 | M | gui |
+| TB-292 | Epic: mirror project settings between GUI and .tb.yaml | feature | P2 | XL | gui |
+| TB-293 | Config: add GUI project settings to .tb.yaml schema | feature | P2 | M | cli |
+| TB-294 | GUI backend: persist project settings in .tb.yaml | feature | P2 | M | gui |
+| TB-295 | GUI settings panel mirrors project .tb.yaml | feature | P2 | M | gui |
+| TB-304 | Auto-groom: respect ready WIP limit | bug | P2 | M | gui |
+| TB-306 | Generated conventions and skill should omit autonomous flows | bug | P2 | M | cli |
 
 ## Backlog
 
@@ -74,7 +81,6 @@
 | TB-191 | CLI: safely reassign a task parent | feature | P2 | M | cli |
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
-| TB-234 | Daemon should not auto-pick up tasks in code-review | bug | P1 | S | gui |
 | TB-246 | Regenerate darwin/Assets.car on working Xcode env | tech-debt | P2 | S | gui |
 | TB-248 | Manual macOS verification of Task Board Tools branding | improvement | P2 | S | gui |
 | TB-254 | Stale recovery should write per-mode pairs for recovered terminal runs | tech-debt | P2 | S | gui |
@@ -86,10 +92,19 @@
 | TB-263 | GUI: persist auto-review setting and controls | feature | P1 | M | gui |
 | TB-264 | GUI: enqueue code-review tasks for review-mode daemon runs | feature | P1 | M | gui |
 | TB-265 | GUI: surface auto-review state and decisions | feature | P1 | S | gui |
-| TB-269 | Docs: define staged autonomous agent workflow | improvement | P1 | S | docs |
 | TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
 | TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
 | TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
+| TB-298 | Allow DnD into the Archive column | improvement | P2 | S | gui-frontend |
+| TB-299 | Auto-implement: gate on per-mode ImplementStatus, clear AgentStatus on tb ready | tech-debt | P1 | S | gui |
+| TB-301 | GUI: add startup grace before automation pickup | bug | P2 | M | gui |
+| TB-302 | Board switch: auto runned tasks behaviour | bug | P2 | M |  |
+| TB-303 | Epic: remove generic AgentStatus field | tech-debt | P2 | XL | workflow |
+| TB-305 | CLI: install project task-board skills during init | improvement | P2 | M | cli |
+| TB-307 | CLI: replace AgentStatus metadata with per-mode status fields | tech-debt | P2 | M | cli |
+| TB-308 | GUI: run lifecycle uses per-mode statuses only | tech-debt | P2 | L | gui |
+| TB-309 | Frontend: remove generic AgentStatus display dependency | improvement | P2 | M | gui-frontend |
+| TB-310 | Docs and board cleanup for AgentStatus removal | tech-debt | P2 | M | docs |
 
 ## Recently Done
 
@@ -112,6 +127,7 @@
 | TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | gui |
 | TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | gui |
 | TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | tooling |
+| TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | tooling |
 | TB-247 | Triage TB-205 knip first-pass findings | tech-debt | gui-frontend |
 | TB-244 | Periodic re-recovery for stale agent runs | improvement | gui |
 | TB-242 | Agent runner blocks on stdout EOF when child processes inherit pipes | bug | gui |
@@ -144,4 +160,3 @@
 | TB-212 | QA probe folder attachments | bug | cli |
 | TB-211 | QA probe CLI happy edited | improvement | cli |
 | TB-210 | Manual QA: MVP live-board pass | spike | gui |
-| TB-208 | Switch projects bug | bug | gui |

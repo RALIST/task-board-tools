@@ -26,4 +26,3 @@ gui/internal/cli/mutations.go:347-359 - Attach / RemoveAttachments append user-s
 - 2026-05-15: Created
 - 2026-05-15: Started — moved to in-progress
 - 2026-05-15: Done
-

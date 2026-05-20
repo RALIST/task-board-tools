@@ -65,4 +65,3 @@ Allow users to rename a task title from the GUI without editing raw markdown or 
 - 2026-05-17: Started — moved to in-progress
 - 2026-05-17: Done
 - 2026-05-17: Edited agentstatus=success
-

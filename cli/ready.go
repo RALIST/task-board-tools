@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 )
 
 // cmdReady promotes a task from backlog to the ready column. The canonical
@@ -82,7 +83,49 @@ func promoteToReady(taskID string) (string, error) {
 	if result.Noop {
 		return "", nil
 	}
+
+	// Mirror TB-268's review-fail clear: the commitment point should
+	// present a clean cursor so downstream consumers (auto-implement
+	// gate, humans inspecting the file) don't see a leftover groom-mode
+	// `success` or recovery-stranded `lost` as in-flight implement
+	// state. Per-mode attribution (GroomStatus, ImplementStatus, etc.)
+	// is preserved.
+	if err := clearReadyAgentStatus(boardDir, taskID); err != nil {
+		return "", fmt.Errorf("moved %s to ready but failed to clear AgentStatus: %w", taskID, err)
+	}
 	return fmt.Sprintf("Moved %s from %s to ready", taskID, result.SrcStatus), nil
+}
+
+// clearReadyAgentStatus removes the generic **AgentStatus:** line from the
+// ready task, under the board lock so a concurrent edit cannot interleave.
+// Noop if the field is already absent. Per-mode attribution lines
+// (GroomStatus, ImplementStatus, ReviewStatus) are intentionally
+// preserved.
+func clearReadyAgentStatus(boardDir, taskID string) error {
+	lock, err := lockBoard(boardDir)
+	if err != nil {
+		return err
+	}
+	defer lock.unlock()
+
+	ref, err := resolveTaskRef(boardDir, taskID, []string{"ready"})
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(ref.Path)
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", ref.Path, err)
+	}
+	lines := strings.Split(string(data), "\n")
+	cleared := clearField(lines, "AgentStatus")
+	if len(cleared) == len(lines) {
+		// No change needed; avoid an unnecessary write.
+		return nil
+	}
+	if err := writeFileAtomic(ref.Path, []byte(strings.Join(cleared, "\n")), 0644); err != nil {
+		return fmt.Errorf("cannot write %s: %w", ref.Path, err)
+	}
+	return nil
 }
 
 // cmdPull is the canonical kanban pull action: move the highest-priority
@@ -190,7 +233,7 @@ func enforceWipLimit(status, boardDir string) error {
 	}
 	tasks, err := collectTasks(boardDir, status)
 	if err != nil {
-		return nil
+		return fmt.Errorf("cannot check WIP limit for %s: %w", status, err)
 	}
 	if len(tasks) < limit {
 		return nil

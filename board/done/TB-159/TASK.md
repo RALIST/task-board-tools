@@ -23,4 +23,3 @@ gui/internal/agent/state.go:275 in resolveArtifactPaths does strings.TrimSpace(t
 - 2026-05-15: Created
 - 2026-05-15: Started — moved to in-progress
 - 2026-05-15: Done
-

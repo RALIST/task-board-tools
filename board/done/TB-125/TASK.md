@@ -49,4 +49,3 @@ When a task drawer is open, dropping files anywhere inside the drawer should att
 - 2026-05-14: Edited acceptance
 - 2026-05-14: Done
 - 2026-05-14: Edited agentstatus=success
-

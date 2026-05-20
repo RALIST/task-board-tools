@@ -100,7 +100,7 @@ func TestInitExistingBoardRefreshesDocsByDefault(t *testing.T) {
 	assertContains(t, out, "CONVENTIONS.md.bak")
 	assertContains(t, out, "SKILL.md.bak")
 	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "Detailed command syntax belongs in CLI help")
-	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "Use when working with a markdown task board through the tb CLI")
+	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "Use when working with a markdown task board: inspecting board state")
 }
 
 func TestInitGeneratedConventionsUseConfiguredBoardPath(t *testing.T) {
@@ -270,7 +270,7 @@ func TestInitRefreshDocsBacksUpCustomizedDocs(t *testing.T) {
 		t.Fatalf("custom skill backup = %q", got)
 	}
 	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "CONVENTIONS.md")), "generated board view")
-	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "Use when working with a markdown task board through the tb CLI")
+	assertContains(t, readFileForTest(t, filepath.Join(boardDir, "SKILL.md")), "Use when working with a markdown task board: inspecting board state")
 }
 
 func seedInitializedBoardForRefresh(t *testing.T, prefix string) (string, string) {

@@ -138,6 +138,80 @@ func TestPromoteToReadyNoopWhenAlreadyInReady(t *testing.T) {
 	}
 }
 
+// readyGroomedTaskWithAgentState mirrors readyGroomedTask but with the
+// generic AgentStatus carrying a leftover terminal status from a prior
+// run (auto-groom typically leaves `success` here) and per-mode
+// attribution populated. Used to exercise the TB-NNN clear-on-ready
+// behaviour added in this file's promoteToReady.
+const readyGroomedTaskWithAgentState = `# TB-1: Groomed Task
+
+**Type:** feature
+**Priority:** P1
+**Size:** M
+**Module:** core
+**Agent:** codex
+**AgentStatus:** success
+**GroomedBy:** codex
+**GroomStatus:** success
+**Branch:** —
+
+## Goal
+
+Implement the canonical pull mechanic.
+
+## Acceptance Criteria
+
+- [ ] Promotes only from backlog.
+- [ ] Fails when the task is not groomed.
+
+## Log
+
+- 2026-05-19: Created
+- 2026-05-19: Edited agentstatus=success, groomed-by=codex, groom-status=success
+`
+
+func TestPromoteToReadyClearsAgentStatusForFreshPickup(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	writeReadyTestTask(t, boardDir, "backlog", "TB-1", readyGroomedTaskWithAgentState)
+
+	if _, err := promoteToReady("TB-1"); err != nil {
+		t.Fatalf("promoteToReady: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(boardDir, "ready", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read promoted task: %v", err)
+	}
+	body := string(data)
+	for _, banned := range []string{"**AgentStatus:**"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("expected %q to be cleared, got:\n%s", banned, body)
+		}
+	}
+	// Per-mode attribution must be preserved so groom history stays
+	// intact (the whole point of TB-237's per-mode fields).
+	for _, required := range []string{"**GroomedBy:** codex", "**GroomStatus:** success", "**Agent:** codex"} {
+		if !strings.Contains(body, required) {
+			t.Errorf("expected %q preserved, got:\n%s", required, body)
+		}
+	}
+}
+
+func TestPromoteToReadyNoopOnAlreadyBlankAgentStatus(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	writeReadyTestTask(t, boardDir, "backlog", "TB-1", readyGroomedTask)
+
+	if _, err := promoteToReady("TB-1"); err != nil {
+		t.Fatalf("promoteToReady: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(boardDir, "ready", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read promoted task: %v", err)
+	}
+	if strings.Contains(string(data), "**AgentStatus:**") {
+		t.Errorf("unexpected AgentStatus line on a task that never had one:\n%s", data)
+	}
+}
+
 func TestPromoteToReadyHonoursStrictWipLimit(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	prevLimits := cfg.WipLimits
@@ -157,5 +231,33 @@ func TestPromoteToReadyHonoursStrictWipLimit(t *testing.T) {
 		t.Fatal("expected strict WIP error")
 	} else if !strings.Contains(err.Error(), "WIP limit reached for ready") {
 		t.Fatalf("expected WIP error, got: %v", err)
+	}
+}
+
+func TestEnforceWipLimitReportsCollectTasksError(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	prevLimits := cfg.WipLimits
+	prevEnforcement := cfg.WipEnforcement
+	cfg.WipLimits = map[string]int{"ready": 1}
+	cfg.WipEnforcement = "warn"
+	t.Cleanup(func() {
+		cfg.WipLimits = prevLimits
+		cfg.WipEnforcement = prevEnforcement
+	})
+
+	readyDir := filepath.Join(boardDir, "ready")
+	if err := os.Remove(readyDir); err != nil {
+		t.Fatalf("remove ready dir: %v", err)
+	}
+	if err := os.WriteFile(readyDir, []byte("not a directory"), 0644); err != nil {
+		t.Fatalf("write ready file: %v", err)
+	}
+
+	err := enforceWipLimit("ready", boardDir)
+	if err == nil {
+		t.Fatal("expected collectTasks error")
+	}
+	if !strings.Contains(err.Error(), "cannot check WIP limit for ready") {
+		t.Fatalf("WIP error = %q, want collection context", err)
 	}
 }

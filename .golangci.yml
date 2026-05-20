@@ -51,21 +51,5 @@ linters:
       # Wails' generated iOS scaffold is build-tagged/platform support code and
       # currently trips host-only unused analysis outside an iOS build.
       - (^|/)build/ios/
-    rules:
-      # TB-249 tracks the CLI baseline findings from the initial lint pass.
-      # These narrow suppressions keep the new workflow green without hiding
-      # unrelated future diagnostics.
-      - linters: [errcheck]
-        path: (^|/)cli/board\.go
-        text: "Error return value of `syscall.Flock` is not checked"
-      - linters: [errcheck]
-        path: (^|/)cli/scan\.go
-        text: "Error return value of `filepath.Walk` is not checked"
-      - linters: [nilerr]
-        path: (^|/)cli/(board|ready|scan)\.go
-        text: "error is not nil.*but it returns nil"
-      - linters: [unused]
-        path: (^|/)cli/board\.go
-        text: "func (writeSimpleYAML|statusFromTaskPath) is unused"
 issues:
   max-same-issues: 5

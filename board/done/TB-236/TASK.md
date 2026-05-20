@@ -63,4 +63,3 @@ Make double-clicking the GUI's macOS titlebar/topbar toggle the main window betw
 - 2026-05-19: Started — moved to in-progress
 - 2026-05-19: Done — Set gui/main.go InvisibleTitleBarHeight to 0 so Wails' native performWindowDragWithEvent: no longer eats double-clicks in the content-area drag strip; added onTopbarDblClick in routes/+page.svelte that calls Window.Zoom() on macOS only, ignores interactive controls, and skips while fullscreen. Suppressed text selection on the title text so dblclick reaches the handler. Verified go test ./..., npm run check (0/0/0), npm test (190/190). Manual macOS dev-server verification still requires the user.
 - 2026-05-19: Edited agentstatus=success
-

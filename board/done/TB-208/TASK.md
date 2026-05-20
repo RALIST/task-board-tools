@@ -74,4 +74,3 @@ Constraints and non-goals:
 - 2026-05-15: Edited agentstatus=success
 - 2026-05-17: Started — moved to in-progress
 - 2026-05-17: Done — added `validateCandidateBoardActive` in `gui/app/settings_service.go` which runs `tb ls --json --status active` against the candidate board's CLI client and reuses `boardLoadError` to reshape duplicate-task failures into the same actionable message the runtime refresh emits. `OpenBoard` invokes it BEFORE watcher.Switch / BoardService rebind / daemon activation / recents update / Wails emits, so a failed validation leaves all previous state intact. New `TestOpenBoard_RejectsCandidateWithDuplicateTask` (valid→invalid) and `TestOpenBoard_RecoverableAfterFailedSwitch` (no prior board → invalid → valid recovers). Existing `TestSetCLIPath_*` log-count tests updated to account for the new validate call. Frontend untouched; `npm run check && npm test` clean. Manual smoke deferred.
-

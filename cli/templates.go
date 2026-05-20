@@ -161,7 +161,7 @@ After making a `+"`needs-user`"+` handoff, stop cleanly. Do not mark the task do
 func skillTemplate(prefix, boardPath string) string {
 	return fmt.Sprintf(`---
 name: task-board
-description: "Use when working with a markdown task board through the tb CLI: inspecting board state, creating or grooming tasks, moving work through kanban, capturing follow-ups, or keeping agent handoffs safe."
+description: "Use when working with a markdown task board: inspecting board state, creating or grooming tasks, moving work through kanban, capturing follow-ups, or keeping agent handoffs safe."
 ---
 
 # Task Board Workflow

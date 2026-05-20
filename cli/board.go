@@ -92,21 +92,6 @@ func parseSimpleYAML(data []byte) map[string]string {
 	return result
 }
 
-// writeSimpleYAML serializes a map to minimal YAML (sorted keys for determinism).
-func writeSimpleYAML(values map[string]string) []byte {
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	var b strings.Builder
-	for _, k := range keys {
-		fmt.Fprintf(&b, "%s: %s\n", k, values[k])
-	}
-	return []byte(b.String())
-}
-
 // loadProjectConfig walks up from the current working directory looking for .tb.yaml.
 // If found, it parses the config and resolves the board path relative to the config file.
 // Falls back to TB_BOARD_DIR env var if no .tb.yaml is found.
@@ -233,13 +218,6 @@ func isTaskDirName(name string) bool {
 
 func isFolderTaskPath(path string) bool {
 	return filepath.Base(path) == folderTaskFileName
-}
-
-func statusFromTaskPath(path string) string {
-	if isFolderTaskPath(path) {
-		return filepath.Base(filepath.Dir(filepath.Dir(path)))
-	}
-	return filepath.Base(filepath.Dir(path))
 }
 
 func ownerPathFromTaskPath(path string) string {
@@ -432,7 +410,10 @@ func warnDualForm(taskID, status, filePath, folderPath string) {
 func cleanupOrphanFileFormSibling(boardDir, status, taskID string) error {
 	folderPath := taskFolderMarkdownPath(boardDir, status, taskID)
 	if _, err := os.Stat(folderPath); err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("cannot stat folder-form task %s: %w", folderPath, err)
 	}
 	sibling := taskFilePath(boardDir, status, taskID)
 	if err := os.Remove(sibling); err != nil && !os.IsNotExist(err) {
@@ -486,18 +467,27 @@ func lockBoard(boardDir string) (*boardLock, error) {
 		return nil, fmt.Errorf("cannot open lock file: %w", err)
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, fmt.Errorf("cannot acquire board lock: %w; also failed closing lock file: %w", err, closeErr)
+		}
 		return nil, fmt.Errorf("cannot acquire board lock: %w", err)
 	}
 	return &boardLock{file: f}, nil
 }
 
-// unlock releases the board lock.
+// unlock releases the board lock. Unlock/close failures are only warnable at
+// defer time, but they are still surfaced instead of silently ignored.
 func (l *boardLock) unlock() {
-	if l.file != nil {
-		syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
-		l.file.Close()
+	if l == nil || l.file == nil {
+		return
 	}
+	if err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to release board lock: %v\n", err)
+	}
+	if err := l.file.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to close board lock file: %v\n", err)
+	}
+	l.file = nil
 }
 
 // allocateID reads .next-id, returns the current value, and atomically writes

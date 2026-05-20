@@ -8,6 +8,7 @@
 **Agent:** codex
 **ImplementedBy:** codex
 **ImplementStatus:** failed
+**AgentStatus:** running
 **Branch:** —
 
 ## Goal
@@ -76,3 +77,6 @@ Add soft deterministic reconciliation for the staged autonomous flow so daemon-o
 - 2026-05-20: Edited agentstatus=failed, implemented-by=codex, implement-status=failed
 - 2026-05-20: Edited agentstatus=none
 - 2026-05-20: Moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running

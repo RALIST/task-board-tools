@@ -4,9 +4,11 @@
 **Priority:** P1
 **Size:** M
 **Agent:** codex
-**AgentStatus:** interrupted
+**AgentStatus:** lost
 **Module:** cli
 **Tags:** init,ux,templates,skills
+**ImplementedBy:** codex
+**ImplementStatus:** lost
 **Branch:** —
 
 ## Goal
@@ -70,4 +72,6 @@ This task builds on the completed init-reconcile slice from TB-227, TB-228, TB-2
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited agentstatus=interrupted
-
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=lost, implemented-by=codex, implement-status=lost

@@ -172,3 +172,43 @@ func TestAllocateID_UsesAtomicReplaceForNextID(t *testing.T) {
 		t.Fatalf(".next-id changed to %q, want original content after failed atomic write", data)
 	}
 }
+
+func TestCleanupOrphanFileFormSiblingMissingFolderMarkdownNoop(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	writeReadyTestTask(t, boardDir, "backlog", "TB-1", readyGroomedTask)
+
+	if err := cleanupOrphanFileFormSibling(boardDir, "backlog", "TB-1"); err != nil {
+		t.Fatalf("cleanupOrphanFileFormSibling: %v", err)
+	}
+	if _, err := os.Stat(taskFilePath(boardDir, "backlog", "TB-1")); err != nil {
+		t.Fatalf("file-form sibling should remain when folder markdown is missing: %v", err)
+	}
+}
+
+func TestCleanupOrphanFileFormSiblingReportsUnexpectedStatError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permission semantics are not portable on Windows")
+	}
+
+	boardDir := newCommandTestBoard(t)
+	taskDir := filepath.Join(boardDir, "backlog", "TB-1")
+	if err := os.MkdirAll(taskDir, 0755); err != nil {
+		t.Fatalf("mkdir task dir: %v", err)
+	}
+	if err := os.Chmod(taskDir, 0000); err != nil {
+		t.Fatalf("chmod task dir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(taskDir, 0755); err != nil {
+			t.Fatalf("restore task dir perms: %v", err)
+		}
+	})
+
+	err := cleanupOrphanFileFormSibling(boardDir, "backlog", "TB-1")
+	if err == nil {
+		t.Fatal("expected stat error from unreadable task directory")
+	}
+	if !strings.Contains(err.Error(), "cannot stat folder-form task") {
+		t.Fatalf("cleanup error = %q, want folder-form stat context", err)
+	}
+}

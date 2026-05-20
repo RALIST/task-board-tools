@@ -49,4 +49,3 @@ Do not close the task, just read it and check if you can find and read attachmen
 - 2026-05-15: Attached Снимок экрана 2026-05-15 в 00.22.57.png
 - 2026-05-15: Attached Снимок экрана 2026-05-15 в 00.23.06.png
 - 2026-05-15: Moved to done
-
