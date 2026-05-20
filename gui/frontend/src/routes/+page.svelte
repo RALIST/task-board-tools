@@ -22,14 +22,13 @@
     readyTask,
     type RecentBoard,
   } from '$lib/api';
-  import { handleBoardDrop, type BoardDropTarget } from '$lib/boardDrop';
   import {
     board,
     loaded,
     loadError,
+    optimisticMove,
     patchTask,
     refresh,
-    optimisticMove,
     revert,
     setStatusMode,
   } from '$lib/stores/board';
@@ -265,20 +264,40 @@
     return p;
   }
 
-  async function onDrop(taskId: string, target: BoardDropTarget) {
-    // Pre-routing through handleBoardDrop keeps drag/drop aligned with
-    // canonical CLI commands: ready triage gate, pull WIP checks, and
-    // regular moves all surface the same validation stderr as terminal use.
-    await handleBoardDrop(taskId, target, {
-      snapshot: () => $board,
-      optimisticMove,
-      revert,
-      readyTask,
-      pullTask,
-      moveTask,
-      pushToast,
-      formatError: errorString,
-    });
+  async function onDrop(taskId: string, target: 'backlog' | 'ready' | 'in-progress' | 'code-review' | 'done') {
+    // Resolve source column so we can route through the canonical kanban
+    // commands when applicable. Pre-routing means the CLI runs its triage
+    // gate (ready), WIP enforcement (pull), and warn-on-skip (start)
+    // identically whether the user drags a card or types `tb ready`/`tb pull`.
+    const source = sourceStatusOf(taskId);
+    const before = optimisticMove(taskId, target);
+    try {
+      if (source === 'backlog' && target === 'ready') {
+        await readyTask(taskId);
+      } else if (source === 'ready' && target === 'in-progress') {
+        await pullTask(taskId);
+      } else {
+        await moveTask(taskId, target);
+      }
+    } catch (err) {
+      revert(before);
+      pushToast(`Move failed: ${errorString(err)}`);
+    }
+  }
+
+  // sourceStatusOf scans the current snapshot for the task's column so
+  // onDrop can pick the right CLI command. Returns undefined when the
+  // task can't be located (e.g. it was just removed in another window) —
+  // the caller then falls back to plain moveTask.
+  function sourceStatusOf(id: string): string | undefined {
+    const snap = $board;
+    if (snap.backlog.some((t) => t.id === id)) return 'backlog';
+    if ((snap.ready ?? []).some((t) => t.id === id)) return 'ready';
+    if (snap.inProgress.some((t) => t.id === id)) return 'in-progress';
+    if ((snap.codeReview ?? []).some((t) => t.id === id)) return 'code-review';
+    if (snap.done.some((t) => t.id === id)) return 'done';
+    if ((snap.archive ?? []).some((t) => t.id === id)) return 'archive';
+    return undefined;
   }
 
   function onShowArchiveChange(show: boolean) {
