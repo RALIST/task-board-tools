@@ -23,6 +23,13 @@ func TestConventionsTemplateStaysPolicyFocused(t *testing.T) {
 		"Implementation tasks should point to a commit or review artifact that includes the task ID",
 		"Spikes should link or attach the investigation result",
 		"Archive is only for closing work that should leave the active board",
+		"## Autonomous Stages",
+		"`auto-groom`",
+		"`auto-implement`",
+		"`auto-review`",
+		"Failed review handoff should clear retry-blocking generic `AgentStatus`",
+		"a later numeric child must not be selected while an earlier child is still active outside `done`",
+		"Daemon housekeeping for autonomous stages is soft and deterministic",
 	} {
 		assertContains(t, content, want)
 	}
@@ -90,6 +97,13 @@ func TestSkillTemplateIsPortableAgentSkill(t *testing.T) {
 		"Implementation tasks should cite a commit or review artifact that includes `TB-NNN`",
 		"Spike tasks should link or attach the investigation result",
 		"Use `archive` only to close obsolete, duplicate, superseded, or intentionally dropped tasks",
+		"## Autonomous Stages",
+		"`auto-groom`",
+		"`auto-implement`",
+		"`auto-review`",
+		"Failed review handoff should clear retry-blocking generic `AgentStatus`",
+		"auto-implement must not pick a later numeric child",
+		"Daemon housekeeping is deterministic repair only",
 		"`needs-user`",
 		"Reason:",
 		"Question/Action:",

@@ -94,6 +94,20 @@ Every done task needs evidence. No task should move to `+"`done`"+` without proo
 
 Do not use `+"`archive`"+` as a shortcut for unfinished work or as a substitute for evidence. Archive is only for closing work that should leave the active board: obsolete, superseded, duplicate, or intentionally dropped tasks.
 
+## Autonomous Stages
+
+Autonomous board work is split into three independent stages. Enabling one stage does not enable or imply the others:
+
+- `+"`auto-groom`"+` works on `+"`backlog`"+` intake. It may refine task content and, after the task no longer needs triage, promote through the managed ready gate into `+"`ready`"+`.
+- `+"`auto-implement`"+` works only on committed `+"`ready`"+` tasks. The coordinator owns the `+"`ready`"+` to `+"`in-progress`"+` transition; the implementation agent owns the change and submits completed work to `+"`code-review`"+` with review target metadata.
+- `+"`auto-review`"+` works only on `+"`code-review`"+` tasks. A pass moves to `+"`done`"+`; a failure returns to `+"`ready`"+` with `+"`review-failed`"+` and a clear rework note.
+
+Backlog tasks are not auto-implemented. A ready task tagged `+"`review-failed`"+` is rework for auto-implement, not a review candidate. Failed review handoff should clear retry-blocking generic `+"`AgentStatus`"+` while keeping review history in the task log, review fields, and agent artifacts.
+
+Auto-implement obeys epic child order. For tasks with the same parent epic, a later numeric child must not be selected while an earlier child is still active outside `+"`done`"+`; `+"`archive`"+` is treated as closed work because archive is reserved for obsolete, superseded, duplicate, or intentionally dropped tasks. Missing or unreadable earlier siblings should block with a diagnostic instead of being ignored.
+
+Daemon housekeeping for autonomous stages is soft and deterministic. It may repair missed transitions only from objective board/run markers, must use managed board operations, and must not guess from arbitrary prose, logs, or comments. It must preserve `+"`needs-user`"+`, `+"`cancelled`"+`, unresolved `+"`interrupted`"+`, and `+"`lost`"+` states. WIP-blocked repairs should back off durably so watcher reloads do not loop on the same blocked transition.
+
 ### Agent lifecycle (AgentStatus)
 
 | Value | Meaning |
@@ -174,6 +188,18 @@ Read `+"`%[2]s/CONVENTIONS.md`"+` before changing board state. It is the policy 
 6. Use `+"`archive`"+` only to close obsolete, duplicate, superseded, or intentionally dropped tasks.
 
 Every `+"`done`"+` task needs evidence. Implementation tasks should cite a commit or review artifact that includes `+"`%[1]s-NNN`"+`. Spike tasks should link or attach the investigation result, decision record, notes file, or follow-up task list.
+
+## Autonomous Stages
+
+Treat autonomous work as three separate opt-in stages:
+
+- `+"`auto-groom`"+`: backlog intake is groomed and may be promoted to `+"`ready`"+` only after it is no longer triage-reported.
+- `+"`auto-implement`"+`: committed `+"`ready`"+` work is pulled into `+"`in-progress`"+`, implemented, and submitted to `+"`code-review`"+` with review target metadata.
+- `+"`auto-review`"+`: `+"`code-review`"+` work is reviewed; pass moves to `+"`done`"+`, fail returns to `+"`ready`"+` with `+"`review-failed`"+`.
+
+Do not auto-implement backlog tasks. Do not auto-review ready `+"`review-failed`"+` rework. Failed review handoff should clear retry-blocking generic `+"`AgentStatus`"+` while preserving review history.
+
+For epic children, auto-implement must not pick a later numeric child while an earlier same-parent child is still active outside `+"`done`"+`; missing or unreadable earlier siblings block with a diagnostic. Daemon housekeeping is deterministic repair only: use objective board/run markers, managed board operations, and durable backoff for WIP-blocked repairs; never guess from prose or override `+"`needs-user`"+`, `+"`cancelled`"+`, `+"`interrupted`"+`, or `+"`lost`"+`.
 
 ## Backlog Capture
 

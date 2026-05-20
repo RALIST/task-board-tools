@@ -350,6 +350,42 @@ If a `running` task has no JSONL at all, recovery synthesizes `finished{status:l
 
 Groom runs use the same JSONL/storage lifecycle with `mode:"groom"`. Review runs (TB-198) use `mode:"review"`. Resume runs use `mode:"resume"`. Each goes through its own decorator in `gui/internal/agent/runner.go` (`GroomingDecorator`, `ReviewDecorator`, `ResumeDecorator`) that overrides the prompt before delegating to the underlying Claude/Codex runner; the daemon and runGoroutine stay mode-agnostic. Review-mode agents write findings via the managed `tb review --findings` / `tb review --fail` surface and do not edit implementation files. Resume invokes `claude -r <uuid>` (same session id reused) or `codex exec --json resume <uuid> <prompt>` (a new id flows back through the translator's `OnSessionID` callback as a fresh `session` event — the new id is the resumable target for any future resume; the chain is traceable via each queued event's `resumed_from` + `resumed_from_run` fields).
 
+## Staged autonomous workflow
+
+Autonomous board work is staged, not controlled by one monolithic automation switch. Each stage has its own user-facing preference and compact board-header control, and enabling one stage does not imply enabling the others:
+
+| Stage | Input | Run mode | Owner of status movement | Output |
+|-------|-------|----------|--------------------------|--------|
+| `auto-groom` | `backlog` tasks reported by triage after the settle window | `groom` | Groom agent edits task content; coordinator/daemon may promote only after the task is no longer triage-reported | `ready` |
+| `auto-implement` | `ready` tasks matching the saved auto-implement query with no retry-blocking `AgentStatus` | `implement` | Coordinator/daemon pulls into work; implementation agent prepares review target and submits through managed review commands | `in-progress` then `code-review` |
+| `auto-review` | `code-review` tasks with a machine-readable `ReviewRef` | `review` | Review agent uses managed pass/fail review commands | `done` on pass, `ready` on fail |
+
+The stages share the same agent runner, JSONL/log storage, cancellation, stale recovery, and Wails event stream described above. They differ only in candidate selection, prompt decorator, and allowed kanban transition.
+
+### Auto-groom
+
+Auto-groom operates only on backlog tasks that `tb triage --json` still reports as needing grooming. It is off by default, requires a valid default agent, and uses an optional settle window so recently edited intake is not queued while a human is still shaping it. A groom-mode agent may refine goal, acceptance criteria, metadata, related tasks, or split work into subtasks. It does not own a status move. A successful groom run can be promoted from `backlog` to `ready` only through the managed `tb ready` gate, and only when the task no longer appears in triage.
+
+### Auto-implement
+
+Auto-implement operates only on committed `ready` tasks. It is off by default, requires a valid default agent and non-empty saved query, and applies the same filter language users see on the board. Candidate selection uses the task's assigned `Agent` when present and otherwise falls back to the default agent. Backlog tasks are never auto-implemented; they must first pass manual or automatic grooming into `ready`.
+
+The coordinator owns the canonical `ready -> in-progress` pull/start transition before the implement run does work. The implementation agent owns the code/doc/test change, final verification, and review submission metadata. Before moving to `code-review`, the task must have both human-readable review target prose and non-empty machine-readable `ReviewRef`.
+
+Epic ordering is the first hard dependency policy for auto-implement. A child task with `**Parent:** <epic>` must not be selected while any lower numeric same-parent child is still unfinished. Active earlier siblings in `backlog`, `ready`, `in-progress`, or `code-review` block later children; blocking `AgentStatus` values such as `needs-user`, `interrupted`, or `cancelled` also block. Missing or unparseable earlier siblings are treated as diagnostics, not silently ignored. Archived siblings are closed work for this rule because archive is reserved for obsolete, superseded, duplicate, or intentionally dropped tasks.
+
+### Auto-review
+
+Auto-review operates only on `code-review` tasks. It is off by default and requires a valid default agent. The review target is the top-level `**ReviewRef:**` metadata; `## Review Target` is supplementary prose for humans. Missing `ReviewRef` is a skip or `needs-user` condition, not permission to guess from branch names, logs, or body text.
+
+Review-mode agents are read-only against implementation files. On pass, they use the managed pass flow owned by TB-272 to record "no blocking findings" and move the task to `done`. Until that flow exists, pass remains prompt-owned and must be explicit. On fail, they use `tb review --fail`, which writes findings, returns the task to `ready`, adds the `review-failed` tag, and clears retry-blocking generic `AgentStatus` per TB-268 while preserving review attribution/history in per-mode fields and JSONL. A ready task tagged `review-failed` is input for auto-implement rework, not auto-review.
+
+### Daemon reconciliation limits
+
+Daemon housekeeping is soft and deterministic. It may repair missed autonomous transitions only when objective markers prove the intended state: task status, run mode, terminal run status, `ReviewRef`, triage eligibility, managed review pass/fail markers, tags, and per-mode attribution. It must use managed CLI operations so locking, atomic writes, WIP enforcement, and `BOARD.md` regeneration stay centralized.
+
+Reconciliation must not infer meaning from arbitrary task prose, logs, or review comments. It must never override `needs-user`, `cancelled`, unresolved `interrupted`, or `lost` states. WIP-blocked or partially applied repairs record a durable skip/backoff keyed to the attempted transition and relevant task fingerprint so watcher reloads do not hot-loop. Review pass repair remains conservative unless a managed pass marker proves the pass; review fail repair may only complete deterministic fallout from the managed fail flow, such as a strict-WIP partial where findings/tag were written but the final move back to `ready` was blocked.
+
 ## Daemon
 
 A goroutine inside the GUI process. Constructed in `main` before `app.Run()`; *activated* by the `SettingsService.OpenBoard` hook once a project root is selected. Stops on app shutdown.

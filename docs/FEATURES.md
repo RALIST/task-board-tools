@@ -299,6 +299,21 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ---
 
+## M11 — Staged autonomous workflow (TB-172 / TB-177 / TB-262)
+
+- ⬚ **Contract:** autonomous operation is three independently toggleable stages, not one global automation switch. `auto-groom` owns backlog grooming into `ready`; `auto-implement` owns committed ready work into `in-progress` and then `code-review`; `auto-review` owns review-mode pass/fail from `code-review`.
+- ☑ **Auto-groom (TB-172):** Settings exposes `auto_groom_enabled` and `auto_groom_settle_minutes`, with a board-header quick toggle backed by the same preference. When enabled and a valid `default_agent` exists, backlog tasks reported by triage after the settle window are queued as `mode=groom`; successful clean grooming promotes through the managed ready gate. Disabled or no-default paths leave tasks untouched and keep manual Groom available.
+- ☑ **Auto-implement (TB-177):** Settings exposes `auto_implement_enabled` and a saved query, mirrored by a compact board-header control. When enabled with a valid default agent and query, only matching `ready` tasks with blank generic `AgentStatus` are eligible. The stage uses assigned-agent/default-agent fallback, moves through the canonical pull path into `in-progress`, and the implementation agent submits with `ReviewRef` to `code-review`. Backlog tasks are never auto-implemented.
+- ☑ **Auto-implement dependency gate (TB-267):** child tasks in the same epic are considered in numeric task-ID order. A later child is skipped while any lower-ID same-parent child is not closed/done, and diagnostics identify the blocker instead of silently guessing.
+- ☑ **Review-failed retry state (TB-268):** a failed review returns to `ready` with `review-failed` and clears retry-blocking generic `AgentStatus` so auto-implement can pick up eligible rework. Per-mode review attribution and JSONL history remain the audit trail.
+- ☐ **Auto-review (TB-262):** Settings will expose `auto_review_enabled`, defaulted off and validated against `default_agent`, with a compact board-header control. When enabled, eligible `code-review` tasks with concrete `ReviewRef` are queued as `mode=review`; pass moves to `done` through the managed pass flow (TB-272), fail uses managed review fail back to `ready` with `review-failed`.
+- ☐ **Daemon reconciliation (TB-266):** housekeeping repairs only objective missed transitions, uses managed CLI operations, never guesses from prose/logs, never overrides `needs-user`/`cancelled`/`interrupted`/`lost`, and records durable skip/backoff for WIP-blocked or partially applied repairs.
+- ☐ **Prompt alignment (TB-270):** `groom.md`, `implement.md`, and `review.md` must use the same ownership boundaries as this staged contract. Current prompt drift is tracked there rather than treated as daemon behavior.
+
+**Acceptance**: a user can enable each stage independently; disabling one stage does not disable or imply another. The documented kanban transitions are `backlog -> ready` for auto-groom, `ready -> in-progress -> code-review` for auto-implement, and `code-review -> done|ready` for auto-review. Failed reviews return to `ready` with `review-failed` and a cleared generic scheduling cursor, and auto-implement must not pick a later epic child while an earlier same-parent child is unfinished.
+
+---
+
 ## Explicit non-goals
 
 - Multi-user / collaboration / comments

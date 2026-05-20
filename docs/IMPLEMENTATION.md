@@ -192,11 +192,29 @@ Marker legend:
 
 ---
 
+## M11 — Staged autonomous workflow · ⬚
+
+**Deliverable**: make autonomous operation explicit as three separate opt-in stages with independent Settings and board-header controls:
+
+1. ☑ `auto-groom` (TB-172): backlog intake that still appears in triage is queued as groom mode after the settle window; successful clean grooming can be promoted `backlog -> ready`.
+2. ☑ `auto-implement` (TB-177): committed `ready` tasks matching a saved query are pulled into `in-progress`, run in implement mode, and submitted to `code-review` with a non-empty `ReviewRef`.
+3. ☐ `auto-review` (TB-262): `code-review` tasks with a concrete `ReviewRef` are queued in review mode; pass moves to `done`, fail moves to `ready` with `review-failed`.
+
+**Cross-stage rules**:
+- ☑ TB-267: auto-implement enforces numeric child ordering within an epic. A later same-parent child is skipped while any lower-ID child is not done/closed, and diagnostics identify the blocker.
+- ☑ TB-268: review-failed handoff clears retry-blocking generic `AgentStatus` while preserving per-mode review attribution and JSONL history.
+- ☐ TB-266: daemon reconciliation is soft/deterministic housekeeping only. It may repair objective missed transitions through managed CLI operations, but it must not infer pass/fail from prose, hot-loop on WIP blockers, or override `needs-user`, `cancelled`, `interrupted`, or `lost`.
+- ☐ TB-270: prompt cleanup owns the known contradictions in `groom.md`, `implement.md`, and `review.md`; daemon tasks should not paper over prompt drift.
+
+**Acceptance**: the product docs and board guidance describe `auto-groom: backlog -> ready`, `auto-implement: ready -> in-progress -> code-review`, and `auto-review: code-review -> done|ready`; each stage is independently toggleable; failed review returns to `ready` with `review-failed` and a cleared generic scheduling cursor; auto-implement never picks a later epic child while an earlier same-parent child is unfinished; daemon reconciliation is documented as deterministic repair, not semantic guessing.
+
+---
+
 ## M9 — Code-review column (TB-194) · ☑
 
 **Deliverable**: `code-review` is a first-class board status with managed CLI commands, a GUI column + drawer affordances, a `review` agent mode, and a `review-failed` rework loop. Detailed contract in [`board/CONVENTIONS.md`](../board/CONVENTIONS.md) → "Code review workflow"; agent prompt locked at [`gui/internal/agent/prompts/review.md`](../gui/internal/agent/prompts/review.md).
 
-**Acceptance**: `tb review --submit / --target / --notes / --findings / --fail` operate atomically under `.board.lock` and regenerate `BOARD.md`; the GUI renders Backlog / In Progress / Code Review / Done with drag/drop and optimistic move; review-mode runs reuse the existing JSONL/daemon/cancellation pipeline; failed reviews land in backlog tagged `review-failed` with visible findings; resubmit clears the tag.
+**Acceptance**: `tb review --submit / --target / --notes / --findings / --fail` operate atomically under `.board.lock` and regenerate `BOARD.md`; the GUI renders Backlog / Ready / In Progress / Code Review / Done with drag/drop and optimistic move; review-mode runs reuse the existing JSONL/daemon/cancellation pipeline; failed reviews land in `ready` tagged `review-failed` with visible findings; resubmit clears the tag.
 
 ### Tasks
 1. ☑ [TB-195](../board/done/TB-195/TASK.md) — CLI: add `code-review` status and submit flow.
