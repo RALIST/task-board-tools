@@ -4,7 +4,6 @@
 **Priority:** P2
 **Size:** M
 **Agent:** codex
-**AgentStatus:** success
 **Module:** gui
 **Tags:** automation,daemon,startup,ux,auto-implement
 **GroomedBy:** codex
@@ -54,15 +53,6 @@ Give users a short, visible grace window after the GUI opens a board before daem
 - **TB-300** — Worker-budget and WIP preflight that must still gate starts after the grace window.
 - **TB-266** — Deterministic reconciliation/backoff must stay separate from this startup pause.
 
-## Related Tasks
-
-- **TB-5 / TB-57** — Original daemon startup queue pickup and activation ordering.
-- **TB-172** — Auto-groom stage and its separate per-task settle window.
-- **TB-177** — Auto-implement stage that scans ready tasks on activation.
-- **TB-291** — Auto-resume behavior that must also respect startup grace for coordinator-owned runs.
-- **TB-300** — Worker-budget and WIP preflight that must still gate starts after the grace window.
-- **TB-266** — Deterministic reconciliation/backoff must stay separate from this startup pause.
-
 ## Attachments
 
 ## Log
@@ -78,4 +68,6 @@ Give users a short, visible grace window after the GUI opens a board before daem
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
 - 2026-05-20: Edited acceptance
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
 

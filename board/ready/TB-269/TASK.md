@@ -4,9 +4,8 @@
 **Priority:** P1
 **Size:** S
 **Module:** docs
-**Tags:** automation,docs,kanban,agent
+**Tags:** automation,docs,kanban,agent,review-failed
 **Agent:** codex
-**AgentStatus:** running
 **ImplementedBy:** codex
 **ImplementStatus:** failed
 **ReviewRef:** 54d5549
@@ -56,6 +55,10 @@ Verification:
 - cd cli && go build -o tb .; cp cli/tb tb
 - scoped subagent review: No CRITICAL or MAJOR issues found.
 
+## Review Findings
+
+- docs/IMPLEMENTATION.md:281 still describes the old code-review failure path as moving tasks back to `backlog`, showing backlog `review-failed` markers, and clearing the tag when resubmitting from backlog to code-review. That contradicts the current staged/canonical contract in the same doc and in docs/FEATURES.md, where failed reviews return to `ready` with `review-failed` and rework is picked up from ready. Update or clearly supersede this completed-work-log paragraph so the source-of-truth docs no longer carry stale backlog-based review semantics.
+
 ## Related Tasks
 
 - **TB-172** — Auto-groom stage.
@@ -92,4 +95,5 @@ Verification:
 - 2026-05-20: Edited agentstatus=failed, implemented-by=codex, implement-status=failed
 - 2026-05-20: Edited agentstatus=queued
 - 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Failed code review — moved to ready with review-failed marker
 

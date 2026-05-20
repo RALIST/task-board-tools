@@ -4,7 +4,6 @@
 **Priority:** P2
 **Size:** M
 **Agent:** codex
-**AgentStatus:** success
 **Module:** cli
 **Tags:** init,templates,skills,claude,codex
 **GroomedBy:** codex
@@ -65,4 +64,6 @@ Related work: TB-273 covers the broader interactive `tb init` flow and already i
 - 2026-05-20: Edited constraints
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Edited agentstatus=success, groom-status=success
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
 

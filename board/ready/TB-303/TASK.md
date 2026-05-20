@@ -4,9 +4,10 @@
 **Priority:** P2
 **Size:** XL
 **Agent:** codex
-**AgentStatus:** running
 **Tags:** agent-status,per-mode-fields,epic,refactor
 **Module:** workflow
+**GroomedBy:** codex
+**GroomStatus:** success
 **Branch:** —
 
 ## Goal
@@ -59,4 +60,6 @@ Remove generic `AgentStatus` as a live scheduling/status field across the projec
 - 2026-05-20: Edited context
 - 2026-05-20: Edited constraints
 - 2026-05-20: Edited acceptance
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
 
