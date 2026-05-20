@@ -5,6 +5,9 @@
 **Size:** M
 **Module:** gui
 **Tags:** auto-implement,ux,filter,frontend,prereq-tb289
+**ImplementedBy:** claude
+**ImplementStatus:** success
+**ReviewRef:** 7dc4527
 **Branch:** —
 
 ## Goal
@@ -56,4 +59,8 @@ Blocked on **TB-289** (extend `tb ls` with multi-value filter flags). The auto-i
 - 2026-05-20: Edited priority=P2, type=feature, size=L, tags=auto-implement,ux,filter,frontend,parent-tb177, acceptance
 - 2026-05-20: Edited goal, acceptance
 - 2026-05-20: Edited size=M, tags=auto-implement,ux,filter,frontend,prereq-tb289
+- 2026-05-20: Committed — moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited implemented-by=claude, implement-status=success, reviewref=7dc4527
+- 2026-05-20: Done
 
