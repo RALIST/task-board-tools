@@ -99,7 +99,7 @@ Usage:
   tb review --fail <ID> file|-                                           Fail review: write findings, move to ready, mark review-failed
   tb start <ID>                                                          Start working (warns when called on a backlog task — pulls should come from ready)
   tb done <ID>                                                           Mark done
-  tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|lost|needs-user] [--review-ref value|none] [--title "New title"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]
+  tb edit <ID> [-p P0] [-T type] [-s M] [-m module] [-t tags] [-a claude|codex] [--agent-status queued|running|success|failed|cancelled|interrupted|lost|needs-user] [--review-ref value|none] [--title "New title"] [--goal file|-] [--context file|-] [--constraints file|-] [--acceptance file|-] [--user-attention file|-]
   tb attach <ID> <path>...                                               Copy files into task attachments
   tb attach --rm <ID> <attachment-name>...                               Remove task attachments
   tb assign <ID> <agent>                                                 Assign claude|codex and queue for daemon pickup
@@ -129,7 +129,7 @@ Commands:
   pull              Pull the next highest-priority ready task into in-progress (canonical kanban pull)
   start             Move task to in-progress (push-style — warns when source is backlog; prefer ` + "`tb pull`" + `)
   done              Move task to done
-  edit              Edit task metadata, title (--title), and Goal/Acceptance Criteria/User Attention sections
+  edit              Edit task metadata, title (--title), and managed body sections
   attach            Copy files into task attachments; --rm: Remove task attachments by name
   assign            Assign a runnable agent and set AgentStatus=queued for daemon pickup
   close             Archive task (moves to archive/)

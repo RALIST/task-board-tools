@@ -43,11 +43,13 @@ func cmdEdit(args []string) {
 	reviewStatus := fs.String("review-status", "", "terminal status of last review run (queued, running, success, failed, cancelled, interrupted, lost, needs-user, none)")
 	title := fs.String("title", "", "task title (replaces the H1 header)")
 	goalPath := fs.String("goal", "", "replace/insert ## Goal from file path or - for stdin")
+	contextPath := fs.String("context", "", "replace/insert ## Context from file path or - for stdin")
+	constraintsPath := fs.String("constraints", "", "replace/insert ## Constraints from file path or - for stdin")
 	acceptancePath := fs.String("acceptance", "", "replace/insert ## Acceptance Criteria from file path or - for stdin")
 	userAttentionPath := fs.String("user-attention", "", "replace/insert ## User Attention from file path or - for stdin")
 
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted|lost|needs-user|none] [--review-ref value|none] [--groomed-by claude|none] [--groom-status status|none] [--implemented-by claude|none] [--implement-status status|none] [--reviewed-by claude|none] [--review-status status|none] [--title \"New title\"] [--goal file|-] [--acceptance file|-] [--user-attention file|-]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: tb edit <ID> [-p P0] [-T feature] [-s M] [-m module] [-t tags] [-a claude] [--agent-status queued|running|success|failed|cancelled|interrupted|lost|needs-user|none] [--review-ref value|none] [--groomed-by claude|none] [--groom-status status|none] [--implemented-by claude|none] [--implement-status status|none] [--reviewed-by claude|none] [--review-status status|none] [--title \"New title\"] [--goal file|-] [--context file|-] [--constraints file|-] [--acceptance file|-] [--user-attention file|-]\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -243,6 +245,12 @@ func cmdEdit(args []string) {
 	if *goalPath == "-" {
 		stdinSources++
 	}
+	if *contextPath == "-" {
+		stdinSources++
+	}
+	if *constraintsPath == "-" {
+		stdinSources++
+	}
 	if *acceptancePath == "-" {
 		stdinSources++
 	}
@@ -250,7 +258,7 @@ func cmdEdit(args []string) {
 		stdinSources++
 	}
 	if stdinSources > 1 {
-		fmt.Fprintln(os.Stderr, "error: only one of --goal, --acceptance, --user-attention may read from stdin (-); use files for the others")
+		fmt.Fprintln(os.Stderr, "error: only one of --goal, --context, --constraints, --acceptance, --user-attention may read from stdin (-); use files for the others")
 		os.Exit(1)
 	}
 
@@ -265,6 +273,22 @@ func cmdEdit(args []string) {
 		// the generated BOARD.md.
 		body = redactText(body)
 		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Goal", body: body, label: "goal"})
+	}
+	if *contextPath != "" {
+		body, err := readBodyEditInput(*contextPath, "context")
+		if err != nil {
+			fatal("%v", err)
+		}
+		body = redactText(body)
+		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Context", body: body, label: "context"})
+	}
+	if *constraintsPath != "" {
+		body, err := readBodyEditInput(*constraintsPath, "constraints")
+		if err != nil {
+			fatal("%v", err)
+		}
+		body = redactText(body)
+		bodyEdits = append(bodyEdits, bodyEdit{heading: "## Constraints", body: body, label: "constraints"})
 	}
 	if *acceptancePath != "" {
 		body, err := readBodyEditInput(*acceptancePath, "acceptance")
@@ -433,6 +457,10 @@ func stripLeadingBodyHeading(body, label string) string {
 	switch label {
 	case "goal":
 		heading = "## Goal"
+	case "context":
+		heading = "## Context"
+	case "constraints":
+		heading = "## Constraints"
 	case "acceptance":
 		heading = "## Acceptance Criteria"
 	case "user-attention":
@@ -456,7 +484,15 @@ func upsertTaskSection(content, heading, body string) string {
 
 	switch heading {
 	case "## Goal":
-		if idx, ok := findFirstMarkdownHeading(content, []string{"## Context", "## Acceptance Criteria", "## User Attention", "## Related Tasks", "## Log"}); ok {
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Context", "## Constraints", "## Acceptance Criteria", "## User Attention", "## Related Tasks", "## Attachments", "## Log"}); ok {
+			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
+		}
+	case "## Context":
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Constraints", "## Acceptance Criteria", "## User Attention", "## Review Target", "## Reviewer Notes", "## Review Findings", "## Related Tasks", "## Attachments", "## Log"}); ok {
+			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
+		}
+	case "## Constraints":
+		if idx, ok := findFirstMarkdownHeading(content, []string{"## Acceptance Criteria", "## User Attention", "## Review Target", "## Reviewer Notes", "## Review Findings", "## Related Tasks", "## Attachments", "## Log"}); ok {
 			return insertMarkdownSectionBefore(content, idx, markdownSectionBlock(heading, body))
 		}
 	case "## Acceptance Criteria":
@@ -499,6 +535,7 @@ type markdownSectionRange struct {
 var taskMarkdownHeadings = map[string]bool{
 	"## Goal":                true,
 	"## Context":             true,
+	"## Constraints":         true,
 	"## Subtasks":            true,
 	"## Acceptance Criteria": true,
 	"## User Attention":      true,

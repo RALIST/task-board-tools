@@ -289,6 +289,310 @@ func TestEditBodySections(t *testing.T) {
 	}
 }
 
+func TestEditHelpDocumentsContextAndConstraints(t *testing.T) {
+	if os.Getenv("TB_TEST_EDIT_HELP") == "1" {
+		cmdEdit([]string{"--help"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestEditHelpDocumentsContextAndConstraints$", "-test.v")
+	cmd.Env = append(os.Environ(), "TB_TEST_EDIT_HELP=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("help command should exit 0; got %v\nstderr:\n%s", err, stderr.String())
+	}
+	help := stderr.String()
+	assertContains(t, help, "[--context file|-]")
+	assertContains(t, help, "[--constraints file|-]")
+	assertContains(t, help, "-context string")
+	assertContains(t, help, "replace/insert ## Context from file path or - for stdin")
+	assertContains(t, help, "-constraints string")
+	assertContains(t, help, "replace/insert ## Constraints from file path or - for stdin")
+}
+
+func TestEditContextAndConstraintsSections(t *testing.T) {
+	t.Run("replaces context from stdin and preserves folder task side files", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskDir := filepath.Join(boardDir, "in-progress", "TB-1")
+		if err := os.MkdirAll(filepath.Join(taskDir, ".agent-logs"), 0755); err != nil {
+			t.Fatalf("mkdir folder task: %v", err)
+		}
+		taskPath := filepath.Join(taskDir, folderTaskFileName)
+		initial := strings.Join([]string{
+			"# TB-1: Existing Task",
+			"",
+			"**Type:** improvement",
+			"**Priority:** P2",
+			"**Size:** S",
+			"**Module:** cli",
+			"**Agent:** codex",
+			"**AgentStatus:** running",
+			"**Branch:** feature/context",
+			"",
+			"## Goal",
+			"",
+			"Keep this goal.",
+			"",
+			"## Context",
+			"",
+			"Old context.",
+			"",
+			"## Constraints",
+			"",
+			"- Keep existing constraints.",
+			"",
+			"## Acceptance Criteria",
+			"",
+			"- [ ] Keep acceptance.",
+			"",
+			"## Related Tasks",
+			"",
+			"- **TB-9** — sibling",
+			"",
+			"## Attachments",
+			"",
+			"- evidence.txt",
+			"",
+			"## Log",
+			"",
+			"- 2026-05-19: Created",
+			"- 2026-05-20: Previous history",
+			"",
+		}, "\n")
+		writeFileForTest(t, taskPath, initial)
+		writeFileForTest(t, filepath.Join(taskDir, "evidence.txt"), "attachment\n")
+		writeFileForTest(t, filepath.Join(taskDir, ".agent-state.jsonl"), `{"event":"started"}`+"\n")
+		writeFileForTest(t, filepath.Join(taskDir, ".agent-logs", "r_1.log"), "log\n")
+
+		stdin := strings.Join([]string{
+			"",
+			"## Context",
+			"",
+			"Fresh context from stdin.",
+			"",
+			"```md",
+			"## Constraints",
+			"literal fenced heading, not the task constraints",
+			"```",
+			"",
+			"Inline literal text `## Context` stays inside the section.",
+			"",
+		}, "\n")
+		withStdin(t, stdin, func() {
+			captureStdout(t, func() {
+				cmdEdit([]string{"TB-1", "--context", "-"})
+			})
+		})
+
+		content := readFileForTest(t, taskPath)
+		assertContains(t, content, "**AgentStatus:** running")
+		assertContains(t, content, "## Context\n\nFresh context from stdin.")
+		assertContains(t, content, "```md\n## Constraints\nliteral fenced heading, not the task constraints\n```")
+		assertContains(t, content, "Inline literal text `## Context` stays inside the section.")
+		assertContains(t, content, "## Constraints\n\n- Keep existing constraints.")
+		assertContains(t, content, "## Related Tasks\n\n- **TB-9**")
+		assertContains(t, content, "## Attachments\n\n- evidence.txt")
+		assertContains(t, content, "- 2026-05-20: Previous history")
+		assertContains(t, content, ": Edited context")
+		assertNotContains(t, content, "Old context.")
+		assertSectionsInOrder(t, content, []string{"## Goal", "## Context", "## Constraints", "## Acceptance Criteria", "## Related Tasks", "## Attachments", "## Log"})
+		assertPathExists(t, filepath.Join(taskDir, "evidence.txt"))
+		assertPathExists(t, filepath.Join(taskDir, ".agent-state.jsonl"))
+		assertPathExists(t, filepath.Join(taskDir, ".agent-logs", "r_1.log"))
+		assertPathMissing(t, filepath.Join(boardDir, "backlog", "TB-1.md"))
+	})
+
+	t.Run("replaces constraints from file and strips leading heading", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		initial := strings.Join([]string{
+			"# TB-1: Existing Task",
+			"",
+			"**Type:** improvement",
+			"**Priority:** P2",
+			"**Size:** S",
+			"**Module:** cli",
+			"**Branch:** -",
+			"",
+			"## Goal",
+			"",
+			"Keep this goal.",
+			"",
+			"## Context",
+			"",
+			"Keep this context.",
+			"",
+			"## Constraints",
+			"",
+			"Old constraints.",
+			"```md",
+			"## Context",
+			"literal fenced heading, not context",
+			"```",
+			"",
+			"## Acceptance Criteria",
+			"",
+			"- [ ] Keep acceptance.",
+			"",
+			"## Log",
+			"",
+			"- 2026-05-19: Created",
+			"",
+		}, "\n")
+		writeFileForTest(t, taskPath, initial)
+		inputPath := filepath.Join(t.TempDir(), "constraints.md")
+		writeFileForTest(t, inputPath, strings.Join([]string{
+			"## Constraints",
+			"",
+			"- Fresh constraint from file.",
+			"- Literal text `## Constraints` remains content.",
+			"",
+		}, "\n"))
+
+		captureStdout(t, func() {
+			cmdEdit([]string{"TB-1", "--constraints", inputPath})
+		})
+
+		content := readFileForTest(t, taskPath)
+		if strings.Count(content, "\n## Constraints\n") != 1 {
+			t.Fatalf("constraints heading should not be duplicated:\n%s", content)
+		}
+		assertContains(t, content, "## Context\n\nKeep this context.")
+		assertContains(t, content, "## Constraints\n\n- Fresh constraint from file.\n- Literal text `## Constraints` remains content.\n\n## Acceptance Criteria")
+		assertContains(t, content, "- [ ] Keep acceptance.")
+		assertContains(t, content, ": Edited constraints")
+		assertNotContains(t, content, "Old constraints.")
+		assertNotContains(t, content, "literal fenced heading, not context")
+	})
+
+	t.Run("inserts missing context and constraints in canonical order", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		initial := strings.Join([]string{
+			"# TB-1: Existing Task",
+			"",
+			"**Type:** improvement",
+			"**Priority:** P2",
+			"**Size:** S",
+			"**Module:** cli",
+			"**Branch:** -",
+			"",
+			"## Goal",
+			"",
+			"Keep this goal.",
+			"",
+			"## Acceptance Criteria",
+			"",
+			"- [ ] Keep acceptance.",
+			"",
+			"## Log",
+			"",
+			"- 2026-05-19: Created",
+			"",
+		}, "\n")
+		writeFileForTest(t, taskPath, initial)
+		contextPath := filepath.Join(t.TempDir(), "context.md")
+		constraintsPath := filepath.Join(t.TempDir(), "constraints.md")
+		writeFileForTest(t, contextPath, "Inserted context.\n")
+		writeFileForTest(t, constraintsPath, "Inserted constraints.\n")
+
+		captureStdout(t, func() {
+			cmdEdit([]string{"TB-1", "--constraints", constraintsPath, "--context", contextPath})
+		})
+
+		content := readFileForTest(t, taskPath)
+		assertContains(t, content, "## Context\n\nInserted context.")
+		assertContains(t, content, "## Constraints\n\nInserted constraints.")
+		assertSectionsInOrder(t, content, []string{"## Goal", "## Context", "## Constraints", "## Acceptance Criteria", "## Log"})
+		assertContains(t, content, ": Edited context, constraints")
+	})
+
+	t.Run("inserts missing context from stdin before existing constraints", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		initial := strings.Join([]string{
+			"# TB-1: Existing Task",
+			"",
+			"**Type:** improvement",
+			"**Priority:** P2",
+			"**Size:** S",
+			"**Module:** cli",
+			"**Branch:** -",
+			"",
+			"## Goal",
+			"",
+			"Keep this goal.",
+			"",
+			"## Constraints",
+			"",
+			"Existing constraints.",
+			"",
+			"## Acceptance Criteria",
+			"",
+			"- [ ] Keep acceptance.",
+			"",
+			"## Log",
+			"",
+			"- 2026-05-19: Created",
+			"",
+		}, "\n")
+		writeFileForTest(t, taskPath, initial)
+
+		withStdin(t, "\nInserted context from stdin.\n\n", func() {
+			captureStdout(t, func() {
+				cmdEdit([]string{"TB-1", "--context", "-"})
+			})
+		})
+
+		content := readFileForTest(t, taskPath)
+		assertContains(t, content, "## Context\n\nInserted context from stdin.\n\n## Constraints")
+		assertSectionsInOrder(t, content, []string{"## Goal", "## Context", "## Constraints", "## Acceptance Criteria", "## Log"})
+	})
+
+	t.Run("inserts missing constraints from stdin after existing context", func(t *testing.T) {
+		boardDir := newCommandTestBoard(t)
+		taskPath := filepath.Join(boardDir, "backlog", "TB-1.md")
+		initial := strings.Join([]string{
+			"# TB-1: Existing Task",
+			"",
+			"**Type:** improvement",
+			"**Priority:** P2",
+			"**Size:** S",
+			"**Module:** cli",
+			"**Branch:** -",
+			"",
+			"## Goal",
+			"",
+			"Keep this goal.",
+			"",
+			"## Context",
+			"",
+			"Existing context.",
+			"",
+			"## Acceptance Criteria",
+			"",
+			"- [ ] Keep acceptance.",
+			"",
+			"## Log",
+			"",
+			"- 2026-05-19: Created",
+			"",
+		}, "\n")
+		writeFileForTest(t, taskPath, initial)
+
+		withStdin(t, "\nInserted constraints from stdin.\n\n", func() {
+			captureStdout(t, func() {
+				cmdEdit([]string{"TB-1", "--constraints", "-"})
+			})
+		})
+
+		content := readFileForTest(t, taskPath)
+		assertContains(t, content, "## Constraints\n\nInserted constraints from stdin.\n\n## Acceptance Criteria")
+		assertSectionsInOrder(t, content, []string{"## Goal", "## Context", "## Constraints", "## Acceptance Criteria", "## Log"})
+	})
+}
+
 func TestEditTitleRename(t *testing.T) {
 	initial := strings.Join([]string{
 		"# TB-1: Original title",

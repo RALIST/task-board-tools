@@ -45,7 +45,7 @@ Markdown command spans:
 var flagsWithValue = map[string]bool{
 	"-p": true, "-T": true, "-s": true, "-m": true, "-t": true, "-d": true, "-a": true,
 	"--status": true, "--parent": true, "--agent": true, "--agent-status": true,
-	"--goal": true, "--acceptance": true, "--user-attention": true, "--title": true,
+	"--goal": true, "--context": true, "--constraints": true, "--acceptance": true, "--user-attention": true, "--title": true,
 	"--review-ref": true,
 	// TB-237: per-mode attribution flags accepted by `tb edit`.
 	"--groomed-by": true, "--groom-status": true,
