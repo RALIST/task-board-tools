@@ -35,16 +35,6 @@ func (e *recordingEmitter) Emit(name string, data ...any) {
 	e.mu.Unlock()
 }
 
-func (e *recordingEmitter) names() []string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	out := make([]string, 0, len(e.events))
-	for _, ev := range e.events {
-		out = append(out, ev.Name)
-	}
-	return out
-}
-
 // snapshot returns a copy of the recorded events under the lock so
 // callers can iterate without a race.
 func (e *recordingEmitter) snapshot() []emittedEvent {

@@ -354,7 +354,9 @@ func TestRecentBoards_DeadEntriesFilteredOnList(t *testing.T) {
 		{ProjectRoot: "/this/does/not/exist", Prefix: "X", LastOpened: time.Now()},
 	}
 	b, _ := json.Marshal(preload)
-	os.MkdirAll(filepath.Dir(recents), 0o755)
+	if err := os.MkdirAll(filepath.Dir(recents), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(recents, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +376,9 @@ func TestRecentBoards_DeadEntriesFilteredOnList(t *testing.T) {
 
 func TestRecentBoards_CorruptFileIsTolerated(t *testing.T) {
 	recents := filepath.Join(t.TempDir(), "recent.json")
-	os.MkdirAll(filepath.Dir(recents), 0o755)
+	if err := os.MkdirAll(filepath.Dir(recents), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(recents, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}

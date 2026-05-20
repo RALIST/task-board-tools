@@ -57,7 +57,11 @@ func (defaultOpener) Open(ctx context.Context, path string) error {
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("open %s: %v: %s", path, err, strings.TrimSpace(string(out)))
+		output := strings.TrimSpace(string(out))
+		if output != "" {
+			return fmt.Errorf("open %s: %w: %s", path, err, output)
+		}
+		return fmt.Errorf("open %s: %w", path, err)
 	}
 	return nil
 }

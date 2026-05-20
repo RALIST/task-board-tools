@@ -103,7 +103,7 @@ func TestGroomingDecorator_RunRendersPromptAndForwardsInput(t *testing.T) {
 	if gotResult != wantResult {
 		t.Fatalf("Run result = %#v, want %#v", gotResult, wantResult)
 	}
-	if gotErr != runErr {
+	if !errors.Is(gotErr, runErr) {
 		t.Fatalf("Run error = %v, want %v", gotErr, runErr)
 	}
 	if inner.calls != 1 {

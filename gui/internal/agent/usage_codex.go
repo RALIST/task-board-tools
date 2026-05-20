@@ -126,11 +126,11 @@ func findLatestCodexSession(root string) (string, error) {
 		if !strings.HasPrefix(name, "rollout-") || !strings.HasSuffix(name, ".jsonl") {
 			return nil
 		}
-		fi, err := d.Info()
-		if err != nil {
-			return nil
+		// Files can disappear between WalkDir's entry read and Info. Skip
+		// that candidate and keep scanning the rest of the rollout tree.
+		if fi, err := d.Info(); err == nil {
+			cands = append(cands, candidate{path: path, mtime: fi.ModTime()})
 		}
-		cands = append(cands, candidate{path: path, mtime: fi.ModTime()})
 		return nil
 	})
 	if err != nil {

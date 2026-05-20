@@ -67,28 +67,5 @@ linters:
       - linters: [unused]
         path: (^|/)cli/board\.go
         text: "func (writeSimpleYAML|statusFromTaskPath) is unused"
-      # TB-250 tracks the GUI baseline findings from the initial lint pass.
-      - linters: [errcheck]
-        path: (^|/)gui/app/agent_run\.go
-        text: "Error return value is not checked"
-      - linters: [errcheck]
-        path: (^|/)gui/app/settings_service_test\.go
-        text: "Error return value of `os.MkdirAll` is not checked"
-      - linters: [errorlint]
-        path: (^|/)gui/app/attachments\.go
-        text: "non-wrapping format verb"
-      - linters: [errorlint]
-        path: (^|/)gui/internal/agent/groom_test\.go
-        text: "comparing with != will fail on wrapped errors"
-      - linters: [nilerr]
-        path: (^|/)gui/internal/agent/usage_codex\.go
-        text: "error is not nil.*but it returns nil"
-      - linters: [unused]
-        path: (^|/)gui/app/agent_run\.go
-        text: "func \\(\\*AgentService\\)\\.hasActiveRunID is unused"
-      - linters: [unused]
-        path: (^|/)gui/app/agent_service_test\.go
-        text: "func \\(\\*recordingEmitter\\)\\.names is unused"
-
 issues:
   max-same-issues: 5
