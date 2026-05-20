@@ -30,11 +30,14 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | tooling |
 
-## In Progress (0/2)
+## In Progress (4/2 ⚠)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-247 | Triage TB-205 knip first-pass findings | P2 | gui-frontend | — |
+| TB-249 | Resolve CLI golangci-lint baseline findings | P2 | tooling | — |
+| TB-250 | Resolve GUI golangci-lint baseline findings | P2 | tooling | — |
+| TB-291 | Auto-resume interrupted tasks in auto-groom and auto-implement coordinators | P1 | gui | — |
 
 ## Code Review
 
@@ -46,13 +49,12 @@
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-247 | Triage TB-205 knip first-pass findings | tech-debt | P2 | S | gui-frontend |
-| TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
-| TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
 | TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
 | TB-261 | Safely clean up orphaned agent processes | improvement | P2 | M | gui |
 | TB-286 | Show readable GUI error toasts | bug | P2 | S | gui-frontend |
 | TB-287 | Flaky race in TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart | bug | P2 | S | gui |
+| TB-288 | FilterBar-driven auto-implement query (replaces text DSL) | feature | P2 | M | gui |
+| TB-290 | CLI: edit Context and Constraints sections | improvement | P2 | S | cli |
 
 ## Backlog
 
@@ -97,14 +99,13 @@
 | TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
 | TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
 | TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
-| TB-288 | FilterBar-driven auto-implement query (replaces text DSL) | feature | P2 | M | gui |
-| TB-289 | Extend tb ls with multi-value filter flags + --agent + --search | feature | P2 | M | cli |
-| TB-290 | Allow to edit context and constraits by CLI | improvement | P2 | S |  |
+| TB-292 | Save settings to tb.yaml instead of separate place - user can edit it right from the project, all project specific settings should be mirrored in GUI and tb yaml config | bug | P2 | M |  |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-289 | Extend tb ls with multi-value filter flags + --agent + --search | feature | cli |
 | TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
 | TB-268 | Review-failed handoff clears retry-blocking agent state | bug | workflow |
 | TB-267 | Auto-implement: respect epic child order | feature | gui |
@@ -154,4 +155,3 @@
 | TB-198 | Agent: add review mode and findings section | feature | agent |
 | TB-197 | GUI: show code-review column and review fields | feature | gui |
 | TB-196 | CLI: add review target and notes commands | feature | cli |
-| TB-195 | CLI: add code-review status and submit flow | feature | cli |
