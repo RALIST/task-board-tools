@@ -5,7 +5,7 @@
 **Size:** M
 **Tags:** ui,gui
 **Agent:** claude
-**AgentStatus:** running
+**AgentStatus:** success
 **Module:** gui
 **GroomedBy:** claude
 **GroomStatus:** success
@@ -54,4 +54,6 @@ Redesign the GUI top bar in `gui/frontend/src/routes/+page.svelte` so it fits on
 - 2026-05-20: Edited agentstatus=queued
 - 2026-05-20: Edited agentstatus=running
 - 2026-05-20: Implemented refactor. AgentUsageHeader chips render as `agent N% · N%` (window labels + "used" suffix moved into tooltip); title and project path stack vertically with path capped at max-width 220px (ellipsis on overflow, full path on hover); Auto-groom/Auto-impl labels lose the ": on/off" suffix (colored dot + aria-pressed convey state); pills/buttons get `white-space: nowrap`; the macOS `.actions { flex-wrap: wrap }` rule that wrapped "Open board…" to a second line is removed. `needs-default` warning styling, tooltips, disabled-while-busy semantics, and `data-testid="auto-implement-pill"` all preserved. `onTopbarDblClick` untouched. Verified `npm run check` / `npm run lint` / `npm run build` / `npm run deadcode` clean; `npm test` 229 pass with 2 pre-existing Card.test.ts resume-gating failures unrelated to this change (confirmed by re-running tests with these edits stashed). Layout fit at 1280px confirmed via an isolated CSS mock screenshot with all topbar items present. Full live `task dev` Wails session and chip-refresh interaction not exercised in this autonomous run; reviewer should hover the project path, toggle both pills, open Settings + the board picker, double-click the bar for window zoom, and confirm both usage chips refresh.
+- 2026-05-20: Edited agentstatus=success
+- 2026-05-20: Done
 
