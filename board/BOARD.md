@@ -51,6 +51,8 @@
 | TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
 | TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
 | TB-261 | Safely clean up orphaned agent processes | improvement | P2 | M | gui |
+| TB-286 | Show readable GUI error toasts | bug | P2 | S | gui-frontend |
+| TB-287 | Flaky race in TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart | bug | P2 | S | gui |
 
 ## Backlog
 
@@ -95,8 +97,7 @@
 | TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
 | TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
 | TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
-| TB-286 | Nice UI errors | improvement | P2 | M |  |
-| TB-287 | Flaky race in TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart | bug | P2 | M | gui |
+| TB-288 | FilterBar-driven auto-implement query (replaces text DSL) | feature | P2 | L | gui |
 
 ## Recently Done
 
