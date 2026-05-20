@@ -22,13 +22,14 @@
     readyTask,
     type RecentBoard,
   } from '$lib/api';
+  import { handleBoardDrop, type BoardDropTarget } from '$lib/boardDrop';
   import {
     board,
     loaded,
     loadError,
-    optimisticMove,
     patchTask,
     refresh,
+    optimisticMove,
     revert,
     setStatusMode,
   } from '$lib/stores/board';
@@ -264,40 +265,20 @@
     return p;
   }
 
-  async function onDrop(taskId: string, target: 'backlog' | 'ready' | 'in-progress' | 'code-review' | 'done') {
-    // Resolve source column so we can route through the canonical kanban
-    // commands when applicable. Pre-routing means the CLI runs its triage
-    // gate (ready), WIP enforcement (pull), and warn-on-skip (start)
-    // identically whether the user drags a card or types `tb ready`/`tb pull`.
-    const source = sourceStatusOf(taskId);
-    const before = optimisticMove(taskId, target);
-    try {
-      if (source === 'backlog' && target === 'ready') {
-        await readyTask(taskId);
-      } else if (source === 'ready' && target === 'in-progress') {
-        await pullTask(taskId);
-      } else {
-        await moveTask(taskId, target);
-      }
-    } catch (err) {
-      revert(before);
-      pushToast(`Move failed: ${errorString(err)}`);
-    }
-  }
-
-  // sourceStatusOf scans the current snapshot for the task's column so
-  // onDrop can pick the right CLI command. Returns undefined when the
-  // task can't be located (e.g. it was just removed in another window) —
-  // the caller then falls back to plain moveTask.
-  function sourceStatusOf(id: string): string | undefined {
-    const snap = $board;
-    if (snap.backlog.some((t) => t.id === id)) return 'backlog';
-    if ((snap.ready ?? []).some((t) => t.id === id)) return 'ready';
-    if (snap.inProgress.some((t) => t.id === id)) return 'in-progress';
-    if ((snap.codeReview ?? []).some((t) => t.id === id)) return 'code-review';
-    if (snap.done.some((t) => t.id === id)) return 'done';
-    if ((snap.archive ?? []).some((t) => t.id === id)) return 'archive';
-    return undefined;
+  async function onDrop(taskId: string, target: BoardDropTarget) {
+    // Pre-routing through handleBoardDrop keeps drag/drop aligned with
+    // canonical CLI commands: ready triage gate, pull WIP checks, and
+    // regular moves all surface the same validation stderr as terminal use.
+    await handleBoardDrop(taskId, target, {
+      snapshot: () => $board,
+      optimisticMove,
+      revert,
+      readyTask,
+      pullTask,
+      moveTask,
+      pushToast,
+      formatError: errorString,
+    });
   }
 
   function onShowArchiveChange(show: boolean) {
@@ -404,7 +385,7 @@
             : 'Auto-groom is off. Click to enable.'}
         onclick={toggleAutoGroom}>
         <span class="dot" aria-hidden="true"></span>
-        Auto-groom: {autoGroomEnabled ? 'on' : 'off'}
+        Auto-groom
       </button>
       <button
         type="button"
@@ -421,7 +402,7 @@
             : 'Auto-implement is off. Click to enable.'}
         onclick={toggleAutoImplement}>
         <span class="dot" aria-hidden="true"></span>
-        Auto-impl: {autoImplementEnabled ? 'on' : 'off'}
+        Auto-impl
       </button>
       <button class="pick" onclick={() => (settingsOpen = true)}>Settings</button>
       <button class="pick" onclick={pickAndOpen}>Open board…</button>
@@ -537,18 +518,23 @@
     justify-content: flex-end;
     gap: 8px;
   }
-  .topbar h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
-  .title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .topbar h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; line-height: 1.15; }
+  .title {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
   .root {
     color: var(--fg-dim);
-    font-size: 12px;
+    font-size: 11px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  :global(html.platform-mac) .actions {
-    flex-wrap: wrap;
+    max-width: 220px;
   }
   .pick {
     background: rgba(255, 255, 255, 0.08);
@@ -557,6 +543,7 @@
     border-radius: 6px;
     padding: 5px 12px;
     cursor: pointer;
+    white-space: nowrap;
   }
   .pick:hover { background: rgba(255, 255, 255, 0.14); }
   .new {
@@ -567,6 +554,7 @@
     padding: 5px 14px;
     cursor: pointer;
     font-weight: 600;
+    white-space: nowrap;
   }
   .new:hover { filter: brightness(1.1); }
 
@@ -583,6 +571,7 @@
     line-height: 1.2;
     letter-spacing: 0.01em;
     cursor: pointer;
+    white-space: nowrap;
     transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
   }
   .auto-groom-toggle:hover { background: rgba(255, 255, 255, 0.11); }

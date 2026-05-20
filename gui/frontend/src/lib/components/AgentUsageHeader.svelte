@@ -74,18 +74,12 @@
       <span class="name">{u.agent}</span>
       {#if u.available}
         {#if u.primary?.usedPercent != null}
-          <span class="bucket">
-            <span class="lbl">{u.primary.windowLabel || 'short'}</span>
-            <span class="pct">{formatPercent(u.primary.usedPercent)}</span>
-          </span>
+          <span class="pct">{formatPercent(u.primary.usedPercent)}</span>
         {/if}
         {#if u.secondary?.usedPercent != null}
-          <span class="bucket secondary">
-            <span class="lbl">{u.secondary.windowLabel || 'long'}</span>
-            <span class="pct">{formatPercent(u.secondary.usedPercent)}</span>
-          </span>
+          <span class="sep" aria-hidden="true">·</span>
+          <span class="pct secondary">{formatPercent(u.secondary.usedPercent)}</span>
         {/if}
-        <span class="used-suffix" aria-hidden="true">used</span>
       {:else}
         <span class="pct unknown">unknown</span>
       {/if}
@@ -131,28 +125,16 @@
     text-transform: lowercase;
     letter-spacing: 0.02em;
   }
-  .chip .bucket {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 3px;
-  }
-  .chip .bucket .lbl {
-    color: var(--fg-dim);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .chip .bucket .pct {
+  .chip .pct {
     font-variant-numeric: tabular-nums;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
-  .chip .bucket.secondary .pct {
+  .chip .pct.secondary {
     color: var(--fg-dim);
   }
-  .chip .used-suffix {
+  .chip .sep {
     color: var(--fg-dim);
-    font-size: 10px;
-    margin-left: 2px;
+    opacity: 0.7;
   }
   .chip .pct.unknown {
     font-style: italic;
