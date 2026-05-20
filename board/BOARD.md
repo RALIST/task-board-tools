@@ -97,7 +97,9 @@
 | TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
 | TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
 | TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
-| TB-288 | FilterBar-driven auto-implement query (replaces text DSL) | feature | P2 | L | gui |
+| TB-288 | FilterBar-driven auto-implement query (replaces text DSL) | feature | P2 | M | gui |
+| TB-289 | Extend tb ls with multi-value filter flags + --agent + --search | feature | P2 | M | cli |
+| TB-290 | Allow to edit context and constraits by CLI | improvement | P2 | S |  |
 
 ## Recently Done
 
