@@ -31,4 +31,5 @@ Auto-resume crashed agent runs without requiring user intervention. When the dae
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Pulled into in-progress
+- 2026-05-20: Done
 
