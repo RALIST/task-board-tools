@@ -5,6 +5,10 @@
 **Size:** S
 **Module:** gui-frontend
 **Tags:** dead-code,frontend,lint
+**Agent:** codex
+**ImplementedBy:** codex
+**ImplementStatus:** success
+**ReviewRef:** 8c759ec
 **Branch:** —
 **Parent:** TB-205
 
@@ -83,4 +87,22 @@ below. They are real findings, not false positives.
 
 - 2026-05-19: Created from TB-205 first-pass knip output.
 - 2026-05-19: Committed — moved to ready
+- 2026-05-20: Edited agent=codex
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=lost, implemented-by=codex, implement-status=lost
+- 2026-05-20: Moved to ready
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=success, implement-status=success, reviewref=8c759ec
+- 2026-05-20: Done
+- 2026-05-20: Edited agentstatus=none
 
