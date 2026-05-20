@@ -1,5 +1,16 @@
 import { get } from 'svelte/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  emptyAutoImplementFilter,
+  type AutoImplementFilter,
+} from '$lib/autoImplementFilter';
+
+const acFilter: AutoImplementFilter = {
+  ...emptyAutoImplementFilter,
+  types: ['bug'],
+  sizes: ['S'],
+  modules: ['gui'],
+};
 
 const getMaxWorkers = vi.fn<() => Promise<number>>();
 const setMaxWorkers = vi.fn<(n: number) => Promise<void>>();
@@ -17,9 +28,8 @@ const getAutoGroomSettleMinutes = vi.fn<() => Promise<number>>();
 const setAutoGroomSettleMinutes = vi.fn<(n: number) => Promise<void>>();
 const getAutoImplementEnabled = vi.fn<() => Promise<boolean>>();
 const setAutoImplementEnabled = vi.fn<(enabled: boolean) => Promise<void>>();
-const getAutoImplementQuery = vi.fn<() => Promise<string>>();
-const setAutoImplementQuery = vi.fn<(expr: string) => Promise<void>>();
-const validateAutoImplementQuery = vi.fn<(expr: string) => Promise<void>>();
+const getAutoImplementQuery = vi.fn<() => Promise<AutoImplementFilter>>();
+const setAutoImplementQuery = vi.fn<(filter: AutoImplementFilter) => Promise<void>>();
 const pushToast = vi.fn();
 
 vi.mock('$lib/api', () => ({
@@ -40,8 +50,7 @@ vi.mock('$lib/api', () => ({
   getAutoImplementEnabled: () => getAutoImplementEnabled(),
   setAutoImplementEnabled: (enabled: boolean) => setAutoImplementEnabled(enabled),
   getAutoImplementQuery: () => getAutoImplementQuery(),
-  setAutoImplementQuery: (expr: string) => setAutoImplementQuery(expr),
-  validateAutoImplementQuery: (expr: string) => validateAutoImplementQuery(expr),
+  setAutoImplementQuery: (filter: AutoImplementFilter) => setAutoImplementQuery(filter),
 }));
 
 vi.mock('./toast', () => ({
@@ -61,7 +70,6 @@ const {
   setDefaultAgent: storeSetDefaultAgent,
   setMaxWorkers: storeSetMaxWorkers,
   setPeriodicRecoveryEnabled: storeSetPeriodicRecoveryEnabled,
-  validateAutoImplementQuery: storeValidateAutoImplementQuery,
 } = await import('./preferences');
 
 describe('preferencesStore', () => {
@@ -76,7 +84,7 @@ describe('preferencesStore', () => {
     getAutoGroomEnabled.mockResolvedValue(false);
     getAutoGroomSettleMinutes.mockResolvedValue(5);
     getAutoImplementEnabled.mockResolvedValue(false);
-    getAutoImplementQuery.mockResolvedValue('');
+    getAutoImplementQuery.mockResolvedValue({ ...emptyAutoImplementFilter });
     setMaxWorkers.mockResolvedValue();
     setAgentTimeoutMinutes.mockResolvedValue();
     setDefaultAgent.mockResolvedValue();
@@ -86,7 +94,6 @@ describe('preferencesStore', () => {
     setAutoGroomSettleMinutes.mockResolvedValue();
     setAutoImplementEnabled.mockResolvedValue();
     setAutoImplementQuery.mockResolvedValue();
-    validateAutoImplementQuery.mockResolvedValue();
   });
 
   it('hydrates preferences and marks the store loaded', async () => {
@@ -98,7 +105,7 @@ describe('preferencesStore', () => {
     getAutoGroomEnabled.mockResolvedValue(true);
     getAutoGroomSettleMinutes.mockResolvedValue(10);
     getAutoImplementEnabled.mockResolvedValue(true);
-    getAutoImplementQuery.mockResolvedValue('bug, S size, gui');
+    getAutoImplementQuery.mockResolvedValue(acFilter);
 
     await loadPreferences();
 
@@ -111,7 +118,7 @@ describe('preferencesStore', () => {
       autoGroomEnabled: true,
       autoGroomSettleMinutes: 10,
       autoImplementEnabled: true,
-      autoImplementQuery: 'bug, S size, gui',
+      autoImplementQuery: acFilter,
       loaded: true,
     });
   });
@@ -196,24 +203,48 @@ describe('preferencesStore', () => {
   it('round-trips auto-implement settings through the api', async () => {
     await loadPreferences();
 
-    await storeSetAutoImplementQuery('bug, S size, gui');
+    await storeSetAutoImplementQuery(acFilter);
     await storeSetAutoImplementEnabled(true);
 
-    expect(setAutoImplementQuery).toHaveBeenCalledWith('bug, S size, gui');
+    expect(setAutoImplementQuery).toHaveBeenCalledWith(acFilter);
     expect(setAutoImplementEnabled).toHaveBeenCalledWith(true);
     expect(get(preferencesStore)).toMatchObject({
       autoImplementEnabled: true,
-      autoImplementQuery: 'bug, S size, gui',
+      autoImplementQuery: acFilter,
     });
   });
 
-  it('trims whitespace before persisting the auto-implement query', async () => {
+  it('normalizes filter values before persisting (trims search, drops blank segments)', async () => {
     await loadPreferences();
 
-    await storeSetAutoImplementQuery('   bug   ');
+    const dirty: AutoImplementFilter = {
+      ...emptyAutoImplementFilter,
+      search: '  router ',
+      types: [' bug ', '', 'improvement'],
+    };
+    await storeSetAutoImplementQuery(dirty);
 
-    expect(setAutoImplementQuery).toHaveBeenCalledWith('bug');
-    expect(get(preferencesStore)).toMatchObject({ autoImplementQuery: 'bug' });
+    expect(setAutoImplementQuery).toHaveBeenCalledWith({
+      ...emptyAutoImplementFilter,
+      search: 'router',
+      types: ['bug', 'improvement'],
+    });
+  });
+
+  it('migrates a legacy string-shaped auto_implement_query to the empty filter', async () => {
+    // The Go layer hands back the empty filter when the on-disk shape is
+    // a legacy text-DSL string, but the wails binding could surface an
+    // unexpected payload (manual edit, in-flight migration). The store
+    // must coerce defensively rather than blow up.
+    getAutoImplementQuery.mockResolvedValueOnce(
+      'bug, S size, gui' as unknown as AutoImplementFilter,
+    );
+
+    await loadPreferences();
+
+    expect(get(preferencesStore)).toMatchObject({
+      autoImplementQuery: emptyAutoImplementFilter,
+    });
   });
 
   it('rolls back an auto-implement enable when the backend rejects', async () => {
@@ -227,16 +258,6 @@ describe('preferencesStore', () => {
       'Could not save auto-implement: default-agent required',
       undefined,
     );
-  });
-
-  it('validateAutoImplementQuery proxies the api and surfaces error strings', async () => {
-    validateAutoImplementQuery.mockRejectedValueOnce(new Error('invalid size'));
-    const errMsg = await storeValidateAutoImplementQuery('size:huge');
-    expect(errMsg).toBe('invalid size');
-
-    validateAutoImplementQuery.mockResolvedValueOnce(undefined);
-    const ok = await storeValidateAutoImplementQuery('bug');
-    expect(ok).toBeNull();
   });
 
   it('rolls back optimistic writes on rejected promises', async () => {

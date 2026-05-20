@@ -9,25 +9,25 @@ import (
 	"sync"
 	"time"
 
+	"tools/tb-gui/internal/agent"
 	"tools/tb-gui/internal/automation/epicorder"
-	"tools/tb-gui/internal/automation/query"
 	"tools/tb-gui/internal/cli"
 )
 
 // AutoImplementStatus is the snapshot the Wails-bound Status() returns
 // (TB-180 consumes it). NeedsDefaultAgent and NeedsQuery describe the
-// two enable-prerequisites; only one is reported at a time so the
-// frontend can render a single actionable warning. LastSkipReasons
-// helps the UI explain "skipped because TB-X is not done yet" diagnostics.
+// two enable-prerequisites. NeedsQuery now means "filter is empty" since
+// TB-288 replaced the text-DSL parser with a structured filter that
+// cannot fail to parse. LastSkipReasons helps the UI explain
+// "skipped because TB-X is not done yet" diagnostics.
 type AutoImplementStatus struct {
-	Enabled           bool              `json:"enabled"`
-	Query             string            `json:"query"`
-	DefaultAgent      string            `json:"default_agent"`
-	NeedsDefaultAgent bool              `json:"needs_default_agent"`
-	NeedsQuery        bool              `json:"needs_query"`
-	QueryError        string            `json:"query_error,omitempty"`
-	LastScanAt        string            `json:"last_scan_at,omitempty"`
-	LastSkipReasons   map[string]string `json:"last_skip_reasons,omitempty"`
+	Enabled           bool                `json:"enabled"`
+	Query             AutoImplementFilter `json:"query"`
+	DefaultAgent      string              `json:"default_agent"`
+	NeedsDefaultAgent bool                `json:"needs_default_agent"`
+	NeedsQuery        bool                `json:"needs_query"`
+	LastScanAt        string              `json:"last_scan_at,omitempty"`
+	LastSkipReasons   map[string]string   `json:"last_skip_reasons,omitempty"`
 }
 
 // AutoImplementCoordinator drives the TB-179 auto-implement loop:
@@ -49,15 +49,16 @@ type AutoImplementCoordinator struct {
 
 	now func() time.Time
 
-	mu            sync.Mutex
-	boardDir      string
-	activated     bool
-	lastNeedsDef  bool
-	lastNeedsQry  bool
-	lastScanAt    time.Time
-	lastSkip      map[string]string
-	debounceTimer *time.Timer
-	closed        chan struct{}
+	mu             sync.Mutex
+	boardDir       string
+	activated      bool
+	lastNeedsDef   bool
+	lastNeedsQry   bool
+	lastScanAt     time.Time
+	lastSkip       map[string]string
+	debounceTimer  *time.Timer
+	resumeAttempts map[string]time.Time
+	closed         chan struct{}
 }
 
 // AutoImplementCoordinatorOptions configures NewAutoImplementCoordinator.
@@ -83,14 +84,15 @@ func NewAutoImplementCoordinator(opts AutoImplementCoordinatorOptions) *AutoImpl
 		clock = time.Now
 	}
 	return &AutoImplementCoordinator{
-		board:    opts.Board,
-		agent:    opts.Agent,
-		settings: opts.Settings,
-		emitter:  opts.Emitter,
-		logger:   logger.With("component", "auto-implement"),
-		now:      clock,
-		lastSkip: map[string]string{},
-		closed:   make(chan struct{}),
+		board:          opts.Board,
+		agent:          opts.Agent,
+		settings:       opts.Settings,
+		emitter:        opts.Emitter,
+		logger:         logger.With("component", "auto-implement"),
+		now:            clock,
+		lastSkip:       map[string]string{},
+		resumeAttempts: map[string]time.Time{},
+		closed:         make(chan struct{}),
 	}
 }
 
@@ -119,6 +121,7 @@ func (c *AutoImplementCoordinator) Activate(ctx context.Context, boardDir string
 	c.boardDir = boardDir
 	c.activated = true
 	c.lastSkip = map[string]string{}
+	c.resumeAttempts = map[string]time.Time{}
 	c.lastNeedsDef = false
 	c.lastNeedsQry = false
 	c.cancelTimersLocked()
@@ -203,11 +206,6 @@ func (c *AutoImplementCoordinator) Status() AutoImplementStatus {
 			out.LastSkipReasons[k] = v
 		}
 	}
-	if c.lastNeedsQry {
-		if _, err := query.Parse(q); err != nil {
-			out.QueryError = err.Error()
-		}
-	}
 	return out
 }
 
@@ -268,11 +266,9 @@ func (c *AutoImplementCoordinator) scan(ctx context.Context, boardDir string) {
 		return
 	}
 
-	parsedQuery, queryErr := query.Parse(q)
-	if queryErr != nil {
+	if q.IsEmpty() {
 		c.transitionNeedsQuery(true)
 		c.transitionNeedsDefault(false)
-		c.logger.Debug("auto-implement: query invalid", "err", queryErr)
 		c.emit("auto-implement:scan-complete", map[string]any{})
 		return
 	}
@@ -291,6 +287,44 @@ func (c *AutoImplementCoordinator) scan(ctx context.Context, boardDir string) {
 		c.emit("auto-implement:scan-complete", map[string]any{})
 		return
 	}
+
+	// Candidate pool comes from `tb ls --status ready` with the persisted
+	// filter applied CLI-side (TB-289 / TB-288). The local gates below
+	// (agent-status, triage, active-run, epic-order) still run on the
+	// pre-filtered set. snap above is kept for the resume sweep + sibling
+	// pool because those need every column, not just ready.
+	readyCandidates, err := c.board.ListWithFilter(ctx, "ready", q)
+	if err != nil {
+		c.logger.Warn("auto-implement: ListWithFilter failed", "err", err)
+		c.emit("auto-implement:scan-complete", map[string]any{})
+		return
+	}
+
+	// Resume sweep: in-progress tasks left `interrupted` or `lost` by
+	// stale-recovery (daemon crash) get reanimated before we hunt for
+	// fresh candidates. The initiator filter scopes this to runs that
+	// the auto-implement coordinator originally queued — user-triggered
+	// runs that crashed are left for the user to deal with via the GUI.
+	// ResumeAgent/RunAgent flip AgentStatus to "queued" atomically, so
+	// the candidate pass below won't see them as resumable on this scan
+	// or the next.
+	c.pruneResumeAttempts()
+	for _, t := range snap.InProgress {
+		if t.AgentStatus != "interrupted" && t.AgentStatus != "lost" {
+			continue
+		}
+		initiator, ierr := agent.LatestQueuedInitiator(boardDir, t.ID)
+		if ierr != nil {
+			c.logger.Debug("auto-implement: LatestQueuedInitiator failed", "task", t.ID, "err", ierr)
+			continue
+		}
+		if initiator != agent.InitiatorAutoImplement {
+			c.recordSkip(t.ID, "user-initiated; auto-resume skipped")
+			continue
+		}
+		c.tryAutoResume(ctx, t.ID, t.AgentStatus)
+	}
+
 	triage, err := c.board.Triage(ctx)
 	if err != nil {
 		c.logger.Warn("auto-implement: Triage failed", "err", err)
@@ -309,14 +343,9 @@ func (c *AutoImplementCoordinator) scan(ctx context.Context, boardDir string) {
 		isReviewFail bool
 	}
 	var candidates []candidate
-	for _, t := range snap.Ready {
+	for _, t := range readyCandidates {
 		if t.AgentStatus != "" {
 			c.recordSkip(t.ID, "agent-status "+t.AgentStatus)
-			continue
-		}
-		if !query.Match(parsedQuery, queryTaskFromBoardTask(t)) {
-			// Quiet skip: not matching the query is the dominant path
-			// and shouldn't pollute LastSkipReasons.
 			continue
 		}
 		if _, flagged := triage[t.ID]; flagged {
@@ -407,9 +436,9 @@ func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir 
 		return
 	}
 
-	runID, err := c.agent.RunAgent(ctx, task.ID)
+	runID, err := c.agent.RunAgentAs(ctx, task.ID, agent.InitiatorAutoImplement)
 	if err != nil {
-		c.logger.Warn("auto-implement: RunAgent failed", "task", task.ID, "err", err)
+		c.logger.Warn("auto-implement: RunAgentAs failed", "task", task.ID, "err", err)
 		c.recordSkip(task.ID, "run-failed: "+err.Error())
 		c.emit("auto-implement:run-failed", map[string]any{
 			"task_id": task.ID,
@@ -424,6 +453,86 @@ func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir 
 		"task_id": task.ID,
 		"run_id":  runID,
 		"agent":   agentName,
+	})
+}
+
+// pruneResumeAttempts ages out cooldown entries past their useful life so
+// the map can't grow indefinitely across many distinct tasks that each
+// failed resume once and then left the interrupted state.
+func (c *AutoImplementCoordinator) pruneResumeAttempts() {
+	cutoff := c.now().Add(-2 * resumeAttemptCooldown)
+	c.mu.Lock()
+	for id, ts := range c.resumeAttempts {
+		if ts.Before(cutoff) {
+			delete(c.resumeAttempts, id)
+		}
+	}
+	c.mu.Unlock()
+}
+
+// tryResume calls AgentService.ResumeAgent with a per-task cooldown so a
+// persistently failing resume (e.g., session no longer resumable in the
+// agent CLI) doesn't get retried on every watcher-driven scan.
+// tryAutoResume reanimates a daemon-owned crashed run. interrupted →
+// session-resume via ResumeAgentAs; lost → fresh implement run via
+// RunAgentAs (no session continuity; the task is already in-progress so
+// no pull is needed). Per-task cooldown prevents tight loops on
+// persistent failures.
+func (c *AutoImplementCoordinator) tryAutoResume(ctx context.Context, id, status string) {
+	if c.agent.HasActiveRun(id) {
+		c.recordSkip(id, "active run")
+		return
+	}
+	c.mu.Lock()
+	if last, ok := c.resumeAttempts[id]; ok && c.now().Sub(last) < resumeAttemptCooldown {
+		c.mu.Unlock()
+		c.recordSkip(id, "resume cooldown")
+		return
+	}
+	c.resumeAttempts[id] = c.now()
+	c.mu.Unlock()
+
+	var (
+		runID string
+		err   error
+		op    string
+	)
+	switch status {
+	case "interrupted":
+		op = "resume"
+		runID, err = c.agent.ResumeAgentAs(ctx, id, agent.InitiatorAutoImplement)
+	case "lost":
+		// No session continuity; the task is already in in-progress so no
+		// pull is needed. Re-queues a fresh implement run that will see
+		// whatever the previous (now-dead) run left in the worktree.
+		op = "restart"
+		runID, err = c.agent.RunAgentAs(ctx, id, agent.InitiatorAutoImplement)
+	default:
+		return
+	}
+	if err != nil {
+		if errors.Is(err, ErrAlreadyRunning) {
+			return
+		}
+		c.logger.Warn("auto-implement: auto-"+op+" failed", "task", id, "err", err)
+		c.recordSkip(id, op+" failed: "+err.Error())
+		c.emit("auto-implement:resume-failed", map[string]any{
+			"task_id": id,
+			"op":      op,
+			"error":   err.Error(),
+		})
+		return
+	}
+	c.mu.Lock()
+	delete(c.lastSkip, id)
+	delete(c.resumeAttempts, id)
+	c.mu.Unlock()
+	c.logger.Info("auto-implement: auto-"+op+" of crashed run",
+		"task", id, "run_id", runID, "previous_status", status)
+	c.emit("auto-implement:resumed", map[string]any{
+		"task_id": id,
+		"run_id":  runID,
+		"op":      op,
 	})
 }
 
@@ -477,9 +586,9 @@ func (c *AutoImplementCoordinator) settingsEnabled() bool {
 	return c.settings.GetAutoImplementEnabled()
 }
 
-func (c *AutoImplementCoordinator) settingsQuery() string {
+func (c *AutoImplementCoordinator) settingsQuery() AutoImplementFilter {
 	if c.settings == nil {
-		return ""
+		return AutoImplementFilter{}
 	}
 	return c.settings.GetAutoImplementQuery()
 }
@@ -522,19 +631,6 @@ func epicTaskFromBoardTask(t Task) epicorder.Task {
 	}
 }
 
-func queryTaskFromBoardTask(t Task) query.Task {
-	return query.Task{
-		ID:       t.ID,
-		Title:    t.Title,
-		Type:     t.Type,
-		Priority: t.Priority,
-		Size:     t.Size,
-		Module:   t.Module,
-		Tags:     t.Tags,
-		Agent:    t.Agent,
-		Parent:   t.Parent,
-	}
-}
 
 // priorityRank maps a priority string to an int where lower is more
 // urgent. Unknown / empty priorities sort lowest (largest rank) so they

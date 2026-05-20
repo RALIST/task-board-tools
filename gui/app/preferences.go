@@ -3,13 +3,10 @@ package app
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"tools/tb-gui/internal/automation/query"
 )
 
 // preferencesFile is the filename SettingsService persists tuning knobs
@@ -94,7 +91,7 @@ type Preferences struct {
 	AutoGroomEnabled        bool   `json:"auto_groom_enabled"`
 	AutoGroomSettleMinutes  int    `json:"auto_groom_settle_minutes"`
 	AutoImplementEnabled    bool   `json:"auto_implement_enabled"`
-	AutoImplementQuery      string `json:"auto_implement_query"`
+	AutoImplementQuery      AutoImplementFilter `json:"auto_implement_query"`
 }
 
 // preferencesPath returns the absolute path the preferences file lives
@@ -280,8 +277,8 @@ func (s *SettingsService) SetAutoImplementEnabled(enabled bool) error {
 			if prefs.DefaultAgent != "claude" && prefs.DefaultAgent != "codex" {
 				return ErrAutoImplementDefaultAgentRequired
 			}
-			if _, parseErr := query.Parse(prefs.AutoImplementQuery); parseErr != nil {
-				return fmt.Errorf("%w: %w", ErrAutoImplementQueryRequired, parseErr)
+			if prefs.AutoImplementQuery.IsEmpty() {
+				return ErrAutoImplementQueryRequired
 			}
 		}
 		prefs.AutoImplementEnabled = enabled
@@ -295,37 +292,29 @@ func (s *SettingsService) SetAutoImplementEnabled(enabled bool) error {
 	return nil
 }
 
-// GetAutoImplementQuery returns the persisted filter expression used by
+// GetAutoImplementQuery returns the persisted structured filter used by
 // auto-implement candidate selection. Missing preferences yield an empty
-// query (which the SettingsService rejects on enable).
-func (s *SettingsService) GetAutoImplementQuery() string {
+// filter (which the SettingsService rejects on enable).
+func (s *SettingsService) GetAutoImplementQuery() AutoImplementFilter {
 	prefs, err := s.loadPreferences()
 	if err != nil {
 		s.logger.Warn("preferences: read failed; using default", "err", err)
-		return ""
+		return AutoImplementFilter{}
 	}
 	return prefs.AutoImplementQuery
 }
 
-// SetAutoImplementQuery persists the filter expression after trimming
-// surrounding whitespace. If auto-implement is currently enabled, the
-// new value must parse successfully — an invalid query while enabled is
-// rejected to avoid silently disabling the daemon. Saving a blank query
-// while auto-implement is currently enabled also fails for the same
-// reason; the user must disable auto-implement first or supply a valid
-// query.
-func (s *SettingsService) SetAutoImplementQuery(expr string) error {
-	expr = strings.TrimSpace(expr)
+// SetAutoImplementQuery persists the structured filter. Saving an empty
+// filter is permitted while auto-implement is disabled (so the user can
+// reset a draft) but rejected while currently enabled — the user must
+// disable auto-implement first or supply a non-empty filter.
+func (s *SettingsService) SetAutoImplementQuery(filter AutoImplementFilter) error {
+	normalized := filter.normalize()
 	if err := s.updatePreferencesWithValidator(func(prefs *Preferences) error {
-		if prefs.AutoImplementEnabled {
-			if expr == "" {
-				return ErrAutoImplementQueryRequired
-			}
-			if _, parseErr := query.Parse(expr); parseErr != nil {
-				return fmt.Errorf("%w: %w", ErrAutoImplementQueryRequired, parseErr)
-			}
+		if prefs.AutoImplementEnabled && normalized.IsEmpty() {
+			return ErrAutoImplementQueryRequired
 		}
-		prefs.AutoImplementQuery = expr
+		prefs.AutoImplementQuery = normalized
 		return nil
 	}); err != nil {
 		return err
@@ -334,20 +323,6 @@ func (s *SettingsService) SetAutoImplementQuery(expr string) error {
 		controller.NotifyAutoImplementQueryChanged()
 	}
 	return nil
-}
-
-// ValidateAutoImplementQuery is a non-mutating validator the frontend
-// uses to render inline error messages without round-tripping a save.
-// Returns the parser's error verbatim so the UI can surface a useful
-// message. An empty query returns ErrAutoImplementQueryRequired so the
-// frontend can colour the field identically to a parse failure.
-func (s *SettingsService) ValidateAutoImplementQuery(expr string) error {
-	expr = strings.TrimSpace(expr)
-	if expr == "" {
-		return ErrAutoImplementQueryRequired
-	}
-	_, err := query.Parse(expr)
-	return err
 }
 
 // AutoImplementController is implemented by composite activators that
@@ -461,16 +436,8 @@ func defaultPreferences() Preferences {
 		AutoGroomEnabled:       AutoGroomEnabledDefault,
 		AutoGroomSettleMinutes: AutoGroomSettleMinutesDefault,
 		AutoImplementEnabled:   AutoImplementEnabledDefault,
-		AutoImplementQuery:     "",
+		AutoImplementQuery:     AutoImplementFilter{},
 	}
-}
-
-// normalizeAutoImplementQuery trims surrounding whitespace. The query is
-// otherwise free-form — Parse handles validation; persistence accepts
-// any string so the user can save a draft while auto-implement is
-// disabled.
-func normalizeAutoImplementQuery(expr string) string {
-	return strings.TrimSpace(expr)
 }
 
 func normalizePreferences(prefs Preferences, logger *slog.Logger) Preferences {
@@ -478,7 +445,7 @@ func normalizePreferences(prefs Preferences, logger *slog.Logger) Preferences {
 	prefs.AgentTimeoutMinutes = clampAgentTimeoutMinutes(prefs.AgentTimeoutMinutes, logger)
 	prefs.DefaultAgent = normalizeDefaultAgent(prefs.DefaultAgent, logger)
 	prefs.AutoGroomSettleMinutes = clampAutoGroomSettleMinutes(prefs.AutoGroomSettleMinutes, logger)
-	prefs.AutoImplementQuery = normalizeAutoImplementQuery(prefs.AutoImplementQuery)
+	prefs.AutoImplementQuery = prefs.AutoImplementQuery.normalize()
 	return prefs
 }
 
@@ -532,6 +499,16 @@ func (s *SettingsService) loadPreferences() (Preferences, error) {
 	if jsonErr := json.Unmarshal(b, &raw); jsonErr == nil {
 		if _, present := raw["auto_groom_settle_minutes"]; !present {
 			p.AutoGroomSettleMinutes = AutoGroomSettleMinutesDefault
+		}
+		// TB-288: detect the pre-TB-288 text-DSL string form so we can
+		// log the migration. AutoImplementFilter.UnmarshalJSON handles
+		// the actual graceful reset; this branch is purely for the
+		// one-line warning the AC requires.
+		if v, present := raw["auto_implement_query"]; present && len(v) > 0 && v[0] == '"' {
+			var legacy string
+			if err := json.Unmarshal(v, &legacy); err == nil {
+				s.logger.Warn("preferences: legacy text auto_implement_query reset to empty filter (TB-288)", "previous", legacy)
+			}
 		}
 	}
 	return p, nil

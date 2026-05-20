@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -133,44 +134,69 @@ func TestSetAutoGroomEnabled_RoundTrip(t *testing.T) {
 	}
 }
 
-// TB-178: auto-implement preferences round-trip and validation gates.
+// TB-178 / TB-288: auto-implement preferences round-trip with the
+// structured filter. The text-DSL parser was deleted in TB-288.
+func acFixtureFilter() AutoImplementFilter {
+	return AutoImplementFilter{
+		Types:   []string{"bug"},
+		Sizes:   []string{"S"},
+		Modules: []string{"gui"},
+	}
+}
+
 func TestSetAutoImplementQuery_RoundTrip(t *testing.T) {
 	s, path := newSettingsForPrefs(t)
-	if err := s.SetAutoImplementQuery("bug, S size, gui"); err != nil {
+	want := acFixtureFilter()
+	if err := s.SetAutoImplementQuery(want); err != nil {
 		t.Fatalf("SetAutoImplementQuery: %v", err)
 	}
-	if got := s.GetAutoImplementQuery(); got != "bug, S size, gui" {
-		t.Errorf("after set: got %q, want \"bug, S size, gui\"", got)
+	if got := s.GetAutoImplementQuery(); !reflect.DeepEqual(got, want) {
+		t.Errorf("after set: got %#v, want %#v", got, want)
 	}
 	s2 := NewSettingsService(SettingsOptions{
 		Logger:    slog.Default(),
 		PrefsPath: path,
 	})
-	if got := s2.GetAutoImplementQuery(); got != "bug, S size, gui" {
-		t.Errorf("fresh read: got %q", got)
+	if got := s2.GetAutoImplementQuery(); !reflect.DeepEqual(got, want) {
+		t.Errorf("fresh read: got %#v", got)
 	}
 }
 
-func TestSetAutoImplementQuery_TrimsWhitespace(t *testing.T) {
+func TestSetAutoImplementQuery_NormalizesValues(t *testing.T) {
 	s, _ := newSettingsForPrefs(t)
-	if err := s.SetAutoImplementQuery("  bug  "); err != nil {
+	in := AutoImplementFilter{
+		Search: "  router ",
+		Types:  []string{" bug ", "", "improvement"},
+		Tags:   []string{",", "macos", " "},
+	}
+	if err := s.SetAutoImplementQuery(in); err != nil {
 		t.Fatalf("SetAutoImplementQuery: %v", err)
 	}
-	if got := s.GetAutoImplementQuery(); got != "bug" {
-		t.Errorf("got %q, want %q", got, "bug")
+	got := s.GetAutoImplementQuery()
+	if got.Search != "router" {
+		t.Errorf("Search not trimmed: %q", got.Search)
+	}
+	if !reflect.DeepEqual(got.Types, []string{"bug", "improvement"}) {
+		t.Errorf("Types not normalized: %#v", got.Types)
+	}
+	if !reflect.DeepEqual(got.Tags, []string{",", "macos"}) {
+		// Note: a lone "," is preserved because cleanStringSlice only
+		// drops fully-whitespace segments. Tag values with commas would
+		// be split by `tb ls`, but we don't validate against that here
+		// — that's the user's responsibility via the FilterBar UI.
+		t.Errorf("Tags not normalized: %#v", got.Tags)
 	}
 }
 
 func TestSetAutoImplementEnabled_RequiresDefaultAgent(t *testing.T) {
 	s, _ := newSettingsForPrefs(t)
 	// default_agent stays at "none" — enable must fail.
-	if err := s.SetAutoImplementQuery("bug"); err != nil {
+	if err := s.SetAutoImplementQuery(acFixtureFilter()); err != nil {
 		t.Fatalf("SetAutoImplementQuery: %v", err)
 	}
 	if err := s.SetAutoImplementEnabled(true); err == nil {
 		t.Fatalf("expected enable rejection without default_agent")
 	}
-	// Preferences must not have been mutated.
 	if got := s.GetAutoImplementEnabled(); got {
 		t.Errorf("preferences mutated despite validation failure")
 	}
@@ -182,7 +208,7 @@ func TestSetAutoImplementEnabled_RequiresNonEmptyQuery(t *testing.T) {
 		t.Fatalf("SetDefaultAgent: %v", err)
 	}
 	if err := s.SetAutoImplementEnabled(true); err == nil {
-		t.Fatalf("expected enable rejection with empty query")
+		t.Fatalf("expected enable rejection with empty filter")
 	}
 	if s.GetAutoImplementEnabled() {
 		t.Errorf("preferences mutated despite validation failure")
@@ -194,7 +220,7 @@ func TestSetAutoImplementEnabled_AcceptsValidPrereqs(t *testing.T) {
 	if err := s.SetDefaultAgent("claude"); err != nil {
 		t.Fatalf("SetDefaultAgent: %v", err)
 	}
-	if err := s.SetAutoImplementQuery("bug, S size, gui"); err != nil {
+	if err := s.SetAutoImplementQuery(acFixtureFilter()); err != nil {
 		t.Fatalf("SetAutoImplementQuery: %v", err)
 	}
 	if err := s.SetAutoImplementEnabled(true); err != nil {
@@ -210,50 +236,32 @@ func TestSetAutoImplementQuery_BlocksBlankWhileEnabled(t *testing.T) {
 	if err := s.SetDefaultAgent("codex"); err != nil {
 		t.Fatalf("SetDefaultAgent: %v", err)
 	}
-	if err := s.SetAutoImplementQuery("bug"); err != nil {
+	if err := s.SetAutoImplementQuery(acFixtureFilter()); err != nil {
 		t.Fatalf("SetAutoImplementQuery: %v", err)
 	}
 	if err := s.SetAutoImplementEnabled(true); err != nil {
 		t.Fatalf("SetAutoImplementEnabled: %v", err)
 	}
-	// While enabled, an attempt to blank the query is rejected.
-	if err := s.SetAutoImplementQuery(""); err == nil {
-		t.Errorf("expected blank query rejection while enabled")
+	if err := s.SetAutoImplementQuery(AutoImplementFilter{}); err == nil {
+		t.Errorf("expected empty filter rejection while enabled")
 	}
-	if got := s.GetAutoImplementQuery(); got != "bug" {
-		t.Errorf("query mutated despite validation failure: %q", got)
-	}
-}
-
-func TestSetAutoImplementEnabled_RejectsInvalidQuery(t *testing.T) {
-	s, _ := newSettingsForPrefs(t)
-	if err := s.SetDefaultAgent("claude"); err != nil {
-		t.Fatalf("SetDefaultAgent: %v", err)
-	}
-	if err := s.SetAutoImplementQuery("type:bogus"); err != nil {
-		t.Fatalf("SetAutoImplementQuery (draft): %v", err)
-	}
-	if err := s.SetAutoImplementEnabled(true); err == nil {
-		t.Errorf("expected enable rejection on invalid query")
+	if got := s.GetAutoImplementQuery(); got.IsEmpty() {
+		t.Errorf("filter mutated despite validation failure: %#v", got)
 	}
 }
 
 // TestSetAutoImplementEnabled_RevalidatesInsideWrite pins the TOCTOU
 // fix: even if a fresh validation read sees a valid state, the write
 // itself must re-validate so a between-read flip of default_agent on
-// disk cannot land enabled=true with default_agent=none. Simulated by
-// flipping default_agent on disk and replaying the call against a fresh
-// SettingsService pointed at the same file (proxy for the race).
+// disk cannot land enabled=true with default_agent=none.
 func TestSetAutoImplementEnabled_RevalidatesInsideWrite(t *testing.T) {
 	s, path := newSettingsForPrefs(t)
 	if err := s.SetDefaultAgent("claude"); err != nil {
 		t.Fatalf("SetDefaultAgent: %v", err)
 	}
-	if err := s.SetAutoImplementQuery("bug"); err != nil {
+	if err := s.SetAutoImplementQuery(acFixtureFilter()); err != nil {
 		t.Fatalf("SetAutoImplementQuery: %v", err)
 	}
-	// External writer flips default_agent back to none after our
-	// in-memory normalization above but before the next enable call.
 	external := NewSettingsService(SettingsOptions{
 		Logger:    slog.Default(),
 		PrefsPath: path,
@@ -261,8 +269,6 @@ func TestSetAutoImplementEnabled_RevalidatesInsideWrite(t *testing.T) {
 	if err := external.SetDefaultAgent("none"); err != nil {
 		t.Fatalf("external SetDefaultAgent: %v", err)
 	}
-	// Now another caller asks to enable. The transactional validator
-	// reads default_agent fresh and rejects.
 	if err := s.SetAutoImplementEnabled(true); err == nil {
 		t.Fatalf("expected enable rejection after external default_agent flip")
 	}
@@ -271,16 +277,20 @@ func TestSetAutoImplementEnabled_RevalidatesInsideWrite(t *testing.T) {
 	}
 }
 
-func TestValidateAutoImplementQuery(t *testing.T) {
-	s, _ := newSettingsForPrefs(t)
-	if err := s.ValidateAutoImplementQuery(""); err == nil {
-		t.Errorf("expected empty-query error")
+// Legacy migration: a preferences.json carrying the pre-TB-288 text DSL
+// string for auto_implement_query loads cleanly, the field resets to an
+// empty filter, and subsequent normal use works.
+func TestLoadPreferences_LegacyStringAutoImplementQueryMigratesToEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "preferences.json")
+	legacy := []byte(`{"auto_implement_query":"bug, S size, gui"}`)
+	if err := os.WriteFile(path, legacy, 0o644); err != nil {
+		t.Fatalf("write legacy prefs: %v", err)
 	}
-	if err := s.ValidateAutoImplementQuery("type:nope"); err == nil {
-		t.Errorf("expected parser error for invalid type")
-	}
-	if err := s.ValidateAutoImplementQuery("bug, S size, gui"); err != nil {
-		t.Errorf("expected valid query to validate; got %v", err)
+	s := NewSettingsService(SettingsOptions{Logger: slog.Default(), PrefsPath: path})
+	got := s.GetAutoImplementQuery()
+	if !got.IsEmpty() {
+		t.Errorf("legacy string did not reset to empty filter: %#v", got)
 	}
 }
 
@@ -289,8 +299,8 @@ func TestGetAutoImplement_MissingFileReturnsDefaults(t *testing.T) {
 	if got := s.GetAutoImplementEnabled(); got != AutoImplementEnabledDefault {
 		t.Errorf("missing file: enabled = %v, want default %v", got, AutoImplementEnabledDefault)
 	}
-	if got := s.GetAutoImplementQuery(); got != "" {
-		t.Errorf("missing file: query = %q, want empty", got)
+	if got := s.GetAutoImplementQuery(); !got.IsEmpty() {
+		t.Errorf("missing file: query = %#v, want empty filter", got)
 	}
 }
 

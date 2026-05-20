@@ -6,16 +6,18 @@
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { emptyAutoImplementFilter } from '$lib/autoImplementFilter';
+
 const mocks = vi.hoisted(() => ({
-  validateAutoImplementQuery: vi.fn<(expr: string) => Promise<string | null>>(),
   setAutoImplementEnabled: vi.fn<(value: boolean) => Promise<void>>(),
-  setAutoImplementQuery: vi.fn<(value: string) => Promise<void>>(),
+  setAutoImplementQuery: vi.fn<(value: unknown) => Promise<void>>(),
   load: vi.fn<() => Promise<void>>(),
   pushToast: vi.fn(),
   enableClaudeUsageTap: vi.fn<() => Promise<unknown>>(),
   disableClaudeUsageTap: vi.fn<() => Promise<unknown>>(),
   getClaudeUsageTap: vi.fn<() => Promise<unknown>>(),
   openFile: vi.fn<() => Promise<string | string[]>>(),
+  requestFocusFilterBar: vi.fn(),
 }));
 
 vi.mock('@wailsio/runtime', () => ({
@@ -64,7 +66,16 @@ const fakeStore = vi.hoisted(() => {
     autoGroomEnabled: false,
     autoGroomSettleMinutes: 5,
     autoImplementEnabled: false,
-    autoImplementQuery: '',
+    autoImplementQuery: {
+      search: '',
+      types: [] as string[],
+      priorities: [] as string[],
+      modules: [] as string[],
+      sizes: [] as string[],
+      tags: [] as string[],
+      agents: [] as string[],
+      parents: [] as string[],
+    },
     loaded: true,
   };
   const listeners = new Set<Listener>();
@@ -96,9 +107,12 @@ vi.mock('$lib/stores/preferences', () => ({
     setAutoGroomEnabled: vi.fn().mockResolvedValue(undefined),
     setAutoGroomSettleMinutes: vi.fn().mockResolvedValue(undefined),
     setAutoImplementEnabled: (v: boolean) => mocks.setAutoImplementEnabled(v),
-    setAutoImplementQuery: (v: string) => mocks.setAutoImplementQuery(v),
-    validateAutoImplementQuery: (v: string) => mocks.validateAutoImplementQuery(v),
+    setAutoImplementQuery: (v: unknown) => mocks.setAutoImplementQuery(v),
   },
+}));
+
+vi.mock('$lib/stores/filter', () => ({
+  requestFocusFilterBar: () => mocks.requestFocusFilterBar(),
 }));
 
 import SettingsPanel from './SettingsPanel.svelte';
@@ -109,11 +123,10 @@ beforeEach(() => {
   document.body.innerHTML = '';
   vi.clearAllMocks();
   mocks.load.mockResolvedValue(undefined);
-  mocks.validateAutoImplementQuery.mockResolvedValue(null);
   mocks.getClaudeUsageTap.mockResolvedValue({ enabled: false, projectRoot: '' });
   fakeStore.set({
     autoImplementEnabled: false,
-    autoImplementQuery: '',
+    autoImplementQuery: { ...emptyAutoImplementFilter },
     defaultAgent: 'claude',
   });
 });
@@ -142,18 +155,12 @@ function findCheckbox(testid: string): HTMLInputElement {
   return el;
 }
 
-function findInput(testid: string): HTMLInputElement {
-  const el = document.querySelector<HTMLInputElement>(`input[data-testid="${testid}"]`);
-  if (!el) throw new Error(`no input testid=${testid}`);
-  return el;
-}
-
 function visibleText(): string {
   return document.body.textContent || '';
 }
 
 describe('SettingsPanel auto-implement', () => {
-  it('shows needs-filter warning when enabled with empty query', async () => {
+  it('shows needs-filter warning when enabled with empty saved filter', async () => {
     mountPanel();
     await tick();
     const toggle = findCheckbox('auto-implement-toggle');
@@ -161,7 +168,7 @@ describe('SettingsPanel auto-implement', () => {
     toggle.dispatchEvent(new Event('change', { bubbles: true }));
     toggle.dispatchEvent(new Event('input', { bubbles: true }));
     await tick();
-    expect(visibleText()).toContain('Auto-implement needs a non-empty filter');
+    expect(visibleText()).toContain('Auto-implement needs a saved filter');
   });
 
   it('shows needs-default-agent warning when enabled without an agent', async () => {
@@ -176,35 +183,69 @@ describe('SettingsPanel auto-implement', () => {
     expect(visibleText()).toContain('Set a default agent before auto-implement can run');
   });
 
-  it('clears warnings once prereqs are met', async () => {
+  it('clears warnings once prereqs are met (saved filter + default agent)', async () => {
+    fakeStore.set({
+      defaultAgent: 'claude',
+      autoImplementQuery: {
+        ...emptyAutoImplementFilter,
+        types: ['bug'],
+        sizes: ['S'],
+        modules: ['gui'],
+      },
+    });
     mountPanel();
     await tick();
     const toggle = findCheckbox('auto-implement-toggle');
     toggle.checked = true;
     toggle.dispatchEvent(new Event('change', { bubbles: true }));
     toggle.dispatchEvent(new Event('input', { bubbles: true }));
-    const queryInput = findInput('auto-implement-query');
-    queryInput.value = 'bug, S size, gui';
-    queryInput.dispatchEvent(new Event('input', { bubbles: true }));
     await tick();
-    expect(visibleText()).not.toContain('Auto-implement needs a non-empty filter');
+    expect(visibleText()).not.toContain('Auto-implement needs a saved filter');
     expect(visibleText()).not.toContain('Set a default agent before auto-implement');
   });
 
-  it('renders a parser error surfaced by the backend validator', async () => {
-    mocks.validateAutoImplementQuery.mockResolvedValue('invalid size');
+  it('renders a read-only summary of the persisted filter (no text input)', async () => {
+    fakeStore.set({
+      autoImplementQuery: {
+        ...emptyAutoImplementFilter,
+        types: ['bug', 'improvement'],
+        modules: ['gui'],
+        tags: ['macos'],
+      },
+    });
     mountPanel();
     await tick();
-    const toggle = findCheckbox('auto-implement-toggle');
-    toggle.checked = true;
-    toggle.dispatchEvent(new Event('change', { bubbles: true }));
-    toggle.dispatchEvent(new Event('input', { bubbles: true }));
-    const queryInput = findInput('auto-implement-query');
-    queryInput.value = 'size:huge';
-    queryInput.dispatchEvent(new Event('input', { bubbles: true }));
-    // The validator runs after a 250ms debounce; advance fake timers.
-    await new Promise((r) => setTimeout(r, 300));
+    // Summary contains the persisted categories.
+    const summary = document.querySelector('[data-testid="auto-implement-filter-summary"]');
+    expect(summary).not.toBeNull();
+    const text = summary!.textContent || '';
+    expect(text).toContain('Type: bug, improvement');
+    expect(text).toContain('Module: gui');
+    expect(text).toContain('Tags: macos');
+    // The old text input is gone.
+    expect(document.querySelector('[data-testid="auto-implement-query"]')).toBeNull();
+  });
+
+  it('renders the "No filter saved" placeholder when the filter is empty', async () => {
+    mountPanel();
     await tick();
-    expect(visibleText()).toContain('Filter is invalid');
+    const summary = document.querySelector('[data-testid="auto-implement-filter-summary"]');
+    expect(summary?.textContent || '').toContain('No filter saved');
+  });
+
+  it('Edit in board filter button bumps focus token and closes the panel', async () => {
+    const onClose = vi.fn();
+    component = mount(SettingsPanel, {
+      target: document.body,
+      props: { open: true, onClose },
+    });
+    await tick();
+    const edit = document.querySelector(
+      '[data-testid="auto-implement-edit-filter"]',
+    ) as HTMLButtonElement | null;
+    expect(edit).not.toBeNull();
+    edit!.click();
+    expect(mocks.requestFocusFilterBar).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

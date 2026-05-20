@@ -1,15 +1,29 @@
 <script lang="ts">
   import type { BoardSnapshot } from '$lib/api';
-  import { clearFilter, filter, type BoardFilter } from '$lib/stores/filter';
+  import {
+    clearFilter,
+    filter,
+    focusFilterBarToken,
+    type BoardFilter,
+  } from '$lib/stores/filter';
   import { observedEpics, observedTags, observedValues } from '$lib/filtering';
   import FilterDropdown from './FilterDropdown.svelte';
   import ActiveFilters from './ActiveFilters.svelte';
+  import { preferencesStore } from '$lib/stores/preferences';
+  import { pushToast } from '$lib/stores/toast';
+  import {
+    autoImplementFilterEquals,
+    boardFilterToAutoImplement,
+    isBoardFilterActive,
+  } from '$lib/autoImplementFilter';
 
   interface Props {
     snapshot: BoardSnapshot;
     onShowArchiveChange?: (show: boolean) => void;
   }
   let { snapshot, onShowArchiveChange }: Props = $props();
+
+  let searchInput: HTMLInputElement | null = $state(null);
 
   let types = $derived(observedValues(snapshot, 'type'));
   let priorities = $derived(observedValues(snapshot, 'priority'));
@@ -18,17 +32,20 @@
   let tags = $derived(observedTags(snapshot));
   let epicTasks = $derived(observedEpics(snapshot));
   let epicOptions = $derived(epicTasks.map((e) => e.id));
+  // Size is a closed enum the CLI accepts; surface every value so the
+  // Save-as-auto-implement-query button can produce the original AC
+  // fixture `bug + S + gui` end-to-end (TB-288 acceptance criterion).
+  const sizeOptions = ['S', 'M', 'L', 'XL'];
 
-  // svelte/prefer-writable-derived suggests rewriting this as
-  // `let f = $derived(...)` (writable $derived, Svelte ≥ 5.25). That
-  // refactor is intentionally deferred — see TB-247 — to keep TB-205
-  // limited to lint/dead-code tooling setup and avoid a reactivity
-  // behaviour change in the same PR.
-  // eslint-disable-next-line svelte/prefer-writable-derived
-  let f = $state<BoardFilter>({ ...$filter });
-  $effect(() => {
-    f = { ...$filter };
-  });
+  let f: BoardFilter = $derived({ ...$filter });
+
+  let saveable = $derived(isBoardFilterActive(f));
+  let saved = $derived(
+    autoImplementFilterEquals(
+      boardFilterToAutoImplement(f),
+      $preferencesStore.autoImplementQuery,
+    ),
+  );
 
   function commit() {
     filter.set({ ...f });
@@ -38,7 +55,10 @@
     return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
   }
 
-  function toggle(category: 'types' | 'priorities' | 'modules' | 'tags' | 'agents', v: string) {
+  function toggle(
+    category: 'types' | 'priorities' | 'modules' | 'sizes' | 'tags' | 'agents',
+    v: string,
+  ) {
     f = { ...f, [category]: toggleMember(f[category], v) };
     commit();
   }
@@ -48,7 +68,10 @@
     commit();
   }
 
-  function removeFilter(category: 'types' | 'priorities' | 'modules' | 'tags' | 'agents' | 'parentEpic', value: string) {
+  function removeFilter(
+    category: 'types' | 'priorities' | 'modules' | 'sizes' | 'tags' | 'agents' | 'parentEpic',
+    value: string,
+  ) {
     if (category === 'parentEpic') {
       f = { ...f, parentEpic: '' };
     } else {
@@ -72,10 +95,29 @@
     f = { ...f, search: (ev.currentTarget as HTMLInputElement).value };
     commit();
   }
+
+  async function saveAsAutoImplement() {
+    if (!saveable) return;
+    try {
+      await preferencesStore.setAutoImplementQuery(boardFilterToAutoImplement(f));
+      pushToast('Saved as auto-implement query');
+    } catch {
+      // optimisticWrite already surfaced a toast; no further action needed.
+    }
+  }
+
+  // SettingsPanel's "Edit in board filter" button bumps focusFilterBarToken;
+  // refocus the search input so the user lands cursor-ready.
+  $effect(() => {
+    const token = $focusFilterBarToken;
+    if (token === 0) return;
+    searchInput?.focus();
+  });
 </script>
 
 <section class="filter" aria-label="Filters">
   <input
+    bind:this={searchInput}
     class="search"
     type="search"
     placeholder="Search id or title…"
@@ -103,6 +145,11 @@
       selected={f.modules}
       onToggle={(v) => toggle('modules', v)} />
   {/if}
+  <FilterDropdown
+    label="Size"
+    options={sizeOptions}
+    selected={f.sizes}
+    onToggle={(v) => toggle('sizes', v)} />
   {#if tags.length > 1}
     <FilterDropdown
       label="Tags"
@@ -131,6 +178,18 @@
     <span>Show archived</span>
   </label>
 
+  <button
+    class="save-auto-implement"
+    class:saved
+    data-testid="save-as-auto-implement"
+    disabled={!saveable}
+    title={saved
+      ? 'Auto-implement query matches the current filter'
+      : 'Persist this filter as the auto-implement query'}
+    onclick={saveAsAutoImplement}
+    type="button">
+    {saved ? 'Saved' : 'Save as auto-implement'}
+  </button>
   <button class="clear" onclick={clear} type="button">Clear</button>
 </section>
 
@@ -157,9 +216,22 @@
     min-width: 180px;
   }
   .check { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; color: var(--fg-dim); }
-  .clear {
+  .save-auto-implement {
     font: inherit;
     margin-left: auto;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--fg-dim);
+    border-radius: 5px;
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .save-auto-implement:hover:not(:disabled) { color: var(--fg); }
+  .save-auto-implement:disabled { opacity: 0.45; cursor: not-allowed; }
+  .save-auto-implement.saved { color: var(--fg); border-color: rgba(120, 200, 120, 0.45); }
+  .clear {
+    font: inherit;
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: var(--fg-dim);

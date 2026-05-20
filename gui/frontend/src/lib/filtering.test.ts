@@ -8,6 +8,7 @@ const baseFilter: BoardFilter = {
   types: [],
   priorities: [],
   modules: [],
+  sizes: [],
   tags: [],
   agents: [],
   parentEpic: '',

@@ -9,6 +9,13 @@
     GetClaudeUsageTap,
   } from '../../../bindings/tools/tb-gui/app/settingsservice.js';
   import { refresh as refreshUsage } from '$lib/stores/usage';
+  import {
+    emptyAutoImplementFilter,
+    isAutoImplementFilterEmpty,
+    summarizeAutoImplementFilter,
+    type AutoImplementFilter,
+  } from '$lib/autoImplementFilter';
+  import { requestFocusFilterBar } from '$lib/stores/filter';
 
   interface ClaudeUsageTapStatus {
     enabled: boolean;
@@ -35,11 +42,12 @@
   let autoGroomInput = $state(false);
   let autoGroomSettleInput = $state('5');
   let autoImplementInput = $state(false);
-  let autoImplementQueryInput = $state('');
-  let autoImplementQueryError = $state('');
-  // Plain `let` (not $state) so the increment-in-effect doesn't
-  // self-trigger the effect via Svelte's reactive dependency tracking.
-  let autoImplementQueryValidateToken = 0;
+  // TB-288: the auto-implement filter is persisted as a structured
+  // object, edited via the FilterBar "Save as auto-implement" button.
+  // SettingsPanel only shows a read-only summary + "Edit in board
+  // filter" shortcut; the toggle is still locally tracked so a single
+  // Save round-trip can flip it.
+  let savedFilter = $state<AutoImplementFilter>({ ...emptyAutoImplementFilter });
   let saving = $state(false);
   let opened = $state(false);
   let seededLoaded = $state(false);
@@ -54,7 +62,7 @@
     autoGroomEnabled: false,
     autoGroomSettleMinutes: 5,
     autoImplementEnabled: false,
-    autoImplementQuery: '',
+    autoImplementQuery: { ...emptyAutoImplementFilter },
   });
 
   let nextMaxWorkers = $derived(clampNumber(maxWorkersInput, 1, 4, baseline.maxWorkers));
@@ -65,7 +73,6 @@
   let nextAutoGroomSettle = $derived(
     clampNumber(autoGroomSettleInput, 0, 60, baseline.autoGroomSettleMinutes),
   );
-  let nextAutoImplementQuery = $derived(autoImplementQueryInput.trim());
   let dirty = $derived(
     nextMaxWorkers !== baseline.maxWorkers ||
       nextAgentTimeout !== baseline.agentTimeoutMinutes ||
@@ -74,8 +81,7 @@
       periodicRecoveryInput !== baseline.periodicRecoveryEnabled ||
       autoGroomInput !== baseline.autoGroomEnabled ||
       nextAutoGroomSettle !== baseline.autoGroomSettleMinutes ||
-      autoImplementInput !== baseline.autoImplementEnabled ||
-      nextAutoImplementQuery !== baseline.autoImplementQuery,
+      autoImplementInput !== baseline.autoImplementEnabled,
   );
   let autoGroomNeedsDefaultAgent = $derived(
     autoGroomInput && defaultAgentInput === 'none',
@@ -83,29 +89,11 @@
   let autoImplementNeedsDefaultAgent = $derived(
     autoImplementInput && defaultAgentInput === 'none',
   );
-  let autoImplementNeedsQuery = $derived(
-    autoImplementInput && nextAutoImplementQuery === '',
-  );
-
-  // Debounced parser validation through the backend. Triggered on each
-  // query input change; result lands in autoImplementQueryError. The
-  // request token guards against out-of-order responses (a fresh edit
-  // landing after a stale validation resolves).
-  $effect(() => {
-    const query = nextAutoImplementQuery;
-    if (query === '') {
-      autoImplementQueryError = '';
-      return;
-    }
-    autoImplementQueryValidateToken += 1;
-    const token = autoImplementQueryValidateToken;
-    const handle = setTimeout(async () => {
-      const err = await preferencesStore.validateAutoImplementQuery(query);
-      if (token !== autoImplementQueryValidateToken) return;
-      autoImplementQueryError = err ?? '';
-    }, 250);
-    return () => clearTimeout(handle);
-  });
+  // TB-288: "needs query" is now "no filter saved" since the structured
+  // filter cannot fail to parse. Mirrors Go-side IsEmpty check.
+  let autoImplementFilterEmpty = $derived(isAutoImplementFilterEmpty(savedFilter));
+  let autoImplementNeedsQuery = $derived(autoImplementInput && autoImplementFilterEmpty);
+  let autoImplementFilterSummary = $derived(summarizeAutoImplementFilter(savedFilter));
 
   $effect(() => {
     const prefs = $preferencesStore;
@@ -219,17 +207,9 @@
           failures.push('auto-groom settle window');
         }
       }
-      // Auto-implement: persist the query first (a freshly typed query
-      // must be on disk before the enable validator reads it), then the
-      // enable toggle. Validation errors land in `failures` so the
-      // toast still surfaces them and the baseline doesn't drift.
-      if (nextAutoImplementQuery !== baseline.autoImplementQuery) {
-        try {
-          await preferencesStore.setAutoImplementQuery(nextAutoImplementQuery);
-        } catch {
-          failures.push('auto-implement query');
-        }
-      }
+      // TB-288: the auto-implement filter is no longer editable from
+      // SettingsPanel — the FilterBar "Save as auto-implement" button
+      // is the single write path. SettingsPanel only flips the toggle.
       if (autoImplementInput !== baseline.autoImplementEnabled) {
         try {
           await preferencesStore.setAutoImplementEnabled(autoImplementInput);
@@ -276,8 +256,7 @@
     autoGroomInput = baseline.autoGroomEnabled;
     autoGroomSettleInput = String(baseline.autoGroomSettleMinutes);
     autoImplementInput = baseline.autoImplementEnabled;
-    autoImplementQueryInput = baseline.autoImplementQuery;
-    autoImplementQueryError = '';
+    savedFilter = baseline.autoImplementQuery;
   }
 
   function toEditable(prefs: PreferencesState): EditablePreferences {
@@ -463,20 +442,30 @@
           </small>
         </label>
 
-        <label class="field" class:disabled-field={!autoImplementInput}>
+        <div class="field" class:disabled-field={!autoImplementInput}>
           <span>Auto-implement filter</span>
-          <input
-            type="text"
-            spellcheck="false"
-            placeholder="bug, S size, gui"
-            data-testid="auto-implement-query"
-            disabled={!autoImplementInput}
-            bind:value={autoImplementQueryInput} />
+          <div class="filter-summary" data-testid="auto-implement-filter-summary">
+            {#if autoImplementFilterEmpty}
+              <em class="muted">No filter saved.</em>
+            {:else}
+              <span>{autoImplementFilterSummary}</span>
+            {/if}
+          </div>
+          <button
+            class="ghost edit-filter"
+            data-testid="auto-implement-edit-filter"
+            type="button"
+            onclick={() => {
+              requestFocusFilterBar();
+              onClose();
+            }}>
+            Edit in board filter
+          </button>
           <small>
-            Comma-separated terms: type, priority (P0–P3), size, module, tag:name,
-            agent:claude, parent:TB-N. Bare words match the task title or module.
+            Build the filter on the board and click "Save as auto-implement" in the
+            FilterBar to persist it.
           </small>
-        </label>
+        </div>
 
         {#if autoImplementNeedsDefaultAgent}
           <p class="inline-warning" role="alert">
@@ -485,12 +474,7 @@
         {/if}
         {#if autoImplementNeedsQuery}
           <p class="inline-warning" role="alert">
-            Auto-implement needs a non-empty filter to know which tasks to pick.
-          </p>
-        {/if}
-        {#if autoImplementQueryError && !autoImplementNeedsQuery}
-          <p class="inline-warning" role="alert">
-            Filter is invalid: {autoImplementQueryError}
+            Auto-implement needs a saved filter to know which tasks to pick.
           </p>
         {/if}
       </section>
@@ -600,6 +584,25 @@
   }
   .disabled-field {
     opacity: 0.55;
+  }
+  .filter-summary {
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.18);
+    font-size: 12px;
+    color: var(--fg);
+    word-break: break-word;
+  }
+  .filter-summary .muted {
+    color: var(--fg-dim);
+    font-style: italic;
+  }
+  .edit-filter {
+    align-self: flex-start;
+    margin-top: 6px;
+    font-size: 11px;
+    padding: 4px 10px;
   }
   .inline-warning {
     margin: -2px 0 0;

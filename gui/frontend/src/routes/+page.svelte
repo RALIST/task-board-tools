@@ -49,6 +49,7 @@
   import AgentUsageHeader from '$lib/components/AgentUsageHeader.svelte';
   import { preferencesStore } from '$lib/stores/preferences';
   import { shortcutAction } from '$lib/shortcuts';
+  import { isAutoImplementFilterEmpty } from '$lib/autoImplementFilter';
 
   let projectRoot = $state('');
   let recents = $state<RecentBoard[]>([]);
@@ -93,7 +94,8 @@
   // disable the pill and surface a tooltip pointing the user to Settings.
   let autoImplementEnabled = $derived($preferencesStore.autoImplementEnabled);
   let autoImplementMissingPrereqs = $derived(
-    $preferencesStore.defaultAgent === 'none' || $preferencesStore.autoImplementQuery.trim() === '',
+    $preferencesStore.defaultAgent === 'none' ||
+      isAutoImplementFilterEmpty($preferencesStore.autoImplementQuery),
   );
   let autoImplementToggleBusy = $state(false);
 

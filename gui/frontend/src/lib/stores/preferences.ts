@@ -18,8 +18,11 @@ import {
   setDefaultAgent as apiSetDefaultAgent,
   setMaxWorkers as apiSetMaxWorkers,
   setPeriodicRecoveryEnabled as apiSetPeriodicRecoveryEnabled,
-  validateAutoImplementQuery as apiValidateAutoImplementQuery,
 } from '$lib/api';
+import {
+  emptyAutoImplementFilter,
+  type AutoImplementFilter,
+} from '$lib/autoImplementFilter';
 import { pushToast } from './toast';
 
 export type DefaultAgent = 'none' | 'claude' | 'codex';
@@ -33,7 +36,7 @@ export interface PreferencesState {
   autoGroomEnabled: boolean;
   autoGroomSettleMinutes: number;
   autoImplementEnabled: boolean;
-  autoImplementQuery: string;
+  autoImplementQuery: AutoImplementFilter;
   loaded: boolean;
 }
 
@@ -46,7 +49,7 @@ const DEFAULT_STATE: PreferencesState = {
   autoGroomEnabled: false,
   autoGroomSettleMinutes: 5,
   autoImplementEnabled: false,
-  autoImplementQuery: '',
+  autoImplementQuery: { ...emptyAutoImplementFilter },
   loaded: false,
 };
 
@@ -102,7 +105,7 @@ export async function loadPreferences(): Promise<void> {
           DEFAULT_STATE.autoGroomSettleMinutes,
         ),
         autoImplementEnabled: autoImplementEnabled === true,
-        autoImplementQuery: typeof autoImplementQuery === 'string' ? autoImplementQuery : '',
+        autoImplementQuery: normalizeAutoImplementQuery(autoImplementQuery),
         loaded: true,
       });
     } catch (err) {
@@ -163,24 +166,11 @@ export async function setAutoImplementEnabled(value: boolean): Promise<void> {
   );
 }
 
-export async function setAutoImplementQuery(value: string): Promise<void> {
-  const next = value.trim();
+export async function setAutoImplementQuery(value: AutoImplementFilter): Promise<void> {
+  const next = normalizeAutoImplementQuery(value);
   await optimisticWrite('autoImplementQuery', next, 'auto-implement query', () =>
     apiSetAutoImplementQuery(next),
   );
-}
-
-// validateAutoImplementQuery proxies the backend non-mutating validator.
-// Components use it to render inline parse errors without round-tripping
-// a save. Returns a string error message on failure or null on success
-// so callers can wire it into existing reactive validation patterns.
-export async function validateAutoImplementQuery(expr: string): Promise<string | null> {
-  try {
-    await apiValidateAutoImplementQuery(expr);
-    return null;
-  } catch (err) {
-    return stringifyError(err);
-  }
 }
 
 export const preferencesStore = {
@@ -195,7 +185,6 @@ export const preferencesStore = {
   setAutoGroomSettleMinutes,
   setAutoImplementEnabled,
   setAutoImplementQuery,
-  validateAutoImplementQuery,
 };
 
 export function _resetPreferencesStoreForTesting(): void {
@@ -245,4 +234,37 @@ function stringifyError(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (err == null) return 'unknown error';
   return String(err);
+}
+
+// normalizeAutoImplementQuery shields the store from anything that
+// isn't a proper structured filter. The Go side migrates legacy text
+// shapes silently (preferences.go logs the warning), but a partially
+// constructed object reaching the bindings would still surface here —
+// this helper just coerces to the empty filter and continues. Trims
+// each value the same way the Go side does so round-trip semantics
+// hold.
+function normalizeAutoImplementQuery(value: unknown): AutoImplementFilter {
+  if (!value || typeof value !== 'object') return { ...emptyAutoImplementFilter };
+  const obj = value as Partial<Record<keyof AutoImplementFilter, unknown>>;
+  return {
+    search: typeof obj.search === 'string' ? obj.search.trim() : '',
+    types: cleanStringArray(obj.types),
+    priorities: cleanStringArray(obj.priorities),
+    modules: cleanStringArray(obj.modules),
+    sizes: cleanStringArray(obj.sizes),
+    tags: cleanStringArray(obj.tags),
+    agents: cleanStringArray(obj.agents),
+    parents: cleanStringArray(obj.parents),
+  };
+}
+
+function cleanStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== 'string') continue;
+    const t = v.trim();
+    if (t !== '') out.push(t);
+  }
+  return out;
 }

@@ -1,7 +1,14 @@
 <script lang="ts">
   import type { BoardFilter } from '$lib/stores/filter';
 
-  type Category = 'types' | 'priorities' | 'modules' | 'tags' | 'agents' | 'parentEpic';
+  type Category =
+    | 'types'
+    | 'priorities'
+    | 'modules'
+    | 'sizes'
+    | 'tags'
+    | 'agents'
+    | 'parentEpic';
 
   interface Chip {
     category: Category;
@@ -23,6 +30,7 @@
     for (const v of f.types) out.push({ category: 'types', value: v, extraClass: '', ariaLabel: `Remove type filter ${v}` });
     for (const v of f.priorities) out.push({ category: 'priorities', value: v, extraClass: 'pri', ariaLabel: `Remove priority filter ${v}` });
     for (const v of f.modules) out.push({ category: 'modules', value: v, extraClass: 'mod', ariaLabel: `Remove module filter ${v}` });
+    for (const v of f.sizes) out.push({ category: 'sizes', value: v, extraClass: '', ariaLabel: `Remove size filter ${v}` });
     for (const v of f.tags) out.push({ category: 'tags', value: v, extraClass: 'tag', ariaLabel: `Remove tag filter ${v}` });
     for (const v of f.agents) out.push({ category: 'agents', value: v, extraClass: '', ariaLabel: `Remove agent filter ${v}` });
     if (f.parentEpic !== '') out.push({ category: 'parentEpic', value: f.parentEpic, extraClass: '', ariaLabel: `Remove epic filter ${f.parentEpic}` });

@@ -227,6 +227,27 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 	return snap, nil
 }
 
+// ListWithFilter shells out to `tb ls --json --status <status>` with the
+// AutoImplementFilter serialized into the multi-value flags TB-289 added
+// to the CLI. The coordinator uses this for its candidate pool so the
+// CLI stays the single source of truth for filter semantics; no
+// in-process matching survives in the GUI repo.
+func (b *BoardService) ListWithFilter(ctx context.Context, status string, filter AutoImplementFilter) ([]Task, error) {
+	c := b.snapshot()
+	if c == nil {
+		return nil, ErrNoBoard
+	}
+	if status == "" {
+		status = "ready"
+	}
+	args := append([]string{"ls", "--json", "--status", status}, filter.toLsArgs()...)
+	var tasks []Task
+	if err := c.RunJSON(ctx, &tasks, args...); err != nil {
+		return nil, boardLoadError(err, status)
+	}
+	return tasks, nil
+}
+
 // Triage returns task IDs that need grooming, keyed by ID with the CLI's
 // reason strings as the value. The first call shells out to `tb triage --json`;
 // subsequent calls return a copy of the cached map until watcher events

@@ -19,6 +19,7 @@ function passes(t: Task, f: BoardFilter): boolean {
   if (f.types.length > 0 && !f.types.includes(t.type)) return false;
   if (f.priorities.length > 0 && !f.priorities.includes(t.priority)) return false;
   if (f.modules.length > 0 && !f.modules.includes(t.module)) return false;
+  if (f.sizes.length > 0 && !f.sizes.includes(t.size)) return false;
   if (f.agents.length > 0) {
     if (!t.agent || !f.agents.includes(t.agent)) return false;
   }

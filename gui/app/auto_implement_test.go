@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -229,16 +230,26 @@ func (f *autoImplementFixture) waitForActiveDrained(timeout time.Duration) {
 	f.t.Fatalf("active runs did not drain within %v", timeout)
 }
 
-func (f *autoImplementFixture) enableAutoImplement(t *testing.T, defaultAgent, query string) {
+func (f *autoImplementFixture) enableAutoImplement(t *testing.T, defaultAgent string, filter AutoImplementFilter) {
 	t.Helper()
 	if err := f.settings.SetDefaultAgent(defaultAgent); err != nil {
 		t.Fatalf("SetDefaultAgent: %v", err)
 	}
-	if err := f.settings.SetAutoImplementQuery(query); err != nil {
+	if err := f.settings.SetAutoImplementQuery(filter); err != nil {
 		t.Fatalf("SetAutoImplementQuery: %v", err)
 	}
 	if err := f.settings.SetAutoImplementEnabled(true); err != nil {
 		t.Fatalf("SetAutoImplementEnabled: %v", err)
+	}
+}
+
+// acFilterFixture is the structured equivalent of the legacy text-DSL
+// `bug, S size, gui` used across coordinator tests since TB-178.
+func acFilterFixture() AutoImplementFilter {
+	return AutoImplementFilter{
+		Types:   []string{"bug"},
+		Sizes:   []string{"S"},
+		Modules: []string{"gui"},
 	}
 }
 
@@ -290,12 +301,12 @@ func TestAutoImplementCoordinator_NoDefaultEmits(t *testing.T) {
 		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui"}},
 		nil,
 	)
-	if err := f.settings.SetAutoImplementQuery("bug, S size, gui"); err != nil {
+	if err := f.settings.SetAutoImplementQuery(acFilterFixture()); err != nil {
 		t.Fatalf("set query: %v", err)
 	}
 	// Don't set default agent. Enabling would fail validation; directly
 	// write to disk to simulate an externally edited preferences file.
-	prefsContent := `{"default_agent":"none","auto_implement_enabled":true,"auto_implement_query":"bug, S size, gui"}`
+	prefsContent := `{"default_agent":"none","auto_implement_enabled":true,"auto_implement_query":{"types":["bug"],"sizes":["S"],"modules":["gui"]}}`
 	if err := os.WriteFile(f.prefsPath, []byte(prefsContent), 0o644); err != nil {
 		t.Fatalf("write prefs: %v", err)
 	}
@@ -323,7 +334,7 @@ func TestAutoImplementCoordinator_EnqueuesMatchingReadyTask(t *testing.T) {
 		nil,
 	)
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 
 	queued := f.queuedTaskIDs()
@@ -344,7 +355,7 @@ func TestAutoImplementCoordinator_QueryMismatchSkips(t *testing.T) {
 		nil,
 	)
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 	if got := f.queuedTaskIDs(); len(got) != 0 {
 		t.Fatalf("expected no enqueue for non-matching task; got %v", got)
@@ -357,7 +368,7 @@ func TestAutoImplementCoordinator_BacklogTaskSkipped(t *testing.T) {
 		"backlog": {{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
 	})
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 	if got := f.queuedTaskIDs(); len(got) != 0 {
 		t.Fatalf("expected backlog task to be skipped; got %v", got)
@@ -379,7 +390,7 @@ func TestAutoImplementCoordinator_NonBlankAgentStatusSkipped(t *testing.T) {
 		t.Fatalf("seed success: %v", err)
 	}
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 	if got := f.queuedTaskIDs(); len(got) != 0 {
 		t.Fatalf("expected non-blank-status task to be skipped; got %v", got)
@@ -394,7 +405,7 @@ func TestAutoImplementCoordinator_AssignedAgentUsed(t *testing.T) {
 	)
 	f.activate(t)
 	// Default is codex, but the task's assigned agent is claude.
-	f.enableAutoImplement(t, "codex", "bug, S size, gui")
+	f.enableAutoImplement(t, "codex", acFilterFixture())
 	f.runScanSync()
 	queued := f.queuedTaskIDs()
 	if len(queued) != 1 || queued[0] != "TB-100" {
@@ -419,7 +430,7 @@ func TestAutoImplementCoordinator_DefaultAgentFallback(t *testing.T) {
 		nil,
 	)
 	f.activate(t)
-	f.enableAutoImplement(t, "codex", "bug, S size, gui")
+	f.enableAutoImplement(t, "codex", acFilterFixture())
 	f.runScanSync()
 	queued := f.queuedTaskIDs()
 	if len(queued) != 1 || queued[0] != "TB-100" {
@@ -445,7 +456,7 @@ func TestAutoImplementCoordinator_DedupeAcrossRapidScans(t *testing.T) {
 		nil,
 	)
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 
 	f.runScanSync()
 	f.waitForActiveDrained(5 * time.Second)
@@ -470,7 +481,7 @@ func TestAutoImplementCoordinator_EpicOrderBlocked(t *testing.T) {
 		},
 	)
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 
 	if got := f.queuedTaskIDs(); len(got) != 0 {
@@ -499,7 +510,7 @@ func TestAutoImplementCoordinator_ReviewFailedFirstWithinPriority(t *testing.T) 
 		nil,
 	)
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 	f.waitForActiveDrained(10 * time.Second)
 
@@ -522,7 +533,7 @@ func TestAutoImplementCoordinator_PriorityBucketTrumpsReviewFailed(t *testing.T)
 		nil,
 	)
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 	f.waitForActiveDrained(10 * time.Second)
 
@@ -545,7 +556,7 @@ func TestAutoImplementCoordinator_NoReviewFailedPreservesIDOrder(t *testing.T) {
 		nil,
 	)
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 	f.waitForActiveDrained(10 * time.Second)
 
@@ -567,7 +578,7 @@ func TestAutoImplementCoordinator_ActivateKicksInitialScan(t *testing.T) {
 	)
 	// Configure prefs BEFORE Activate so the initial debounced scan picks
 	// up the task once it fires.
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.activate(t)
 
 	// Wait for the debounce timer to fire and the run to drain.
@@ -669,7 +680,7 @@ func TestAutoImplementCoordinator_WIPBlockedPullSkips(t *testing.T) {
 	if err := settings.SetDefaultAgent("claude"); err != nil {
 		t.Fatalf("SetDefaultAgent: %v", err)
 	}
-	if err := settings.SetAutoImplementQuery("bug, S size, gui"); err != nil {
+	if err := settings.SetAutoImplementQuery(acFilterFixture()); err != nil {
 		t.Fatalf("SetAutoImplementQuery: %v", err)
 	}
 	if err := settings.SetAutoImplementEnabled(true); err != nil {
@@ -742,7 +753,7 @@ func TestAutoImplementCoordinator_RunAgentErrorEmitsRunFailed(t *testing.T) {
 	t.Cleanup(func() { close(ar.Done) })
 
 	f.activate(t)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	// HasActiveRun catches the seeded entry and short-circuits before
 	// RunAgent. That still counts as a skip, recorded with the
 	// "active run" reason. The test below asserts that skip and that
@@ -765,18 +776,238 @@ func TestAutoImplementCoordinator_StatusReflectsState(t *testing.T) {
 		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
 		nil,
 	)
-	f.enableAutoImplement(t, "claude", "bug, S size, gui")
+	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.activate(t)
 
 	status := f.coord.Status()
 	if !status.Enabled {
 		t.Errorf("expected Enabled=true")
 	}
-	if status.Query != "bug, S size, gui" {
-		t.Errorf("Query mismatch: %q", status.Query)
+	if !reflect.DeepEqual(status.Query, acFilterFixture()) {
+		t.Errorf("Query mismatch: %#v", status.Query)
 	}
 	if status.DefaultAgent != "claude" {
 		t.Errorf("DefaultAgent mismatch: %q", status.DefaultAgent)
+	}
+}
+
+// seedInterruptedTask writes a JSONL EvSession + EvFinished{interrupted}
+// trail for taskID under boardDir and flips its AgentStatus to
+// "interrupted" via the same CLI path recovery uses. Mirrors the
+// resumeFixture helper in agent_run_test.go but standalone so the
+// coordinator tests don't depend on internal AgentService fixtures.
+// seedInterruptedTask wires JSONL events + AgentStatus for a task whose
+// previous agent run crashed mid-flight. terminalStatus selects between
+// `interrupted` (writes an EvSession before the EvFinished{interrupted}
+// so ResumeAgent has a session id to resume against) and `lost` (omits
+// EvSession so the session-id lookup returns nothing). initiator is
+// stamped on the EvQueued row so the resume sweep's filter can identify
+// daemon-owned runs (see agent.InitiatorAutoGroom / InitiatorAutoImplement).
+func seedInterruptedTask(t *testing.T, boardDir string, c *cli.Client, taskID, agentName, initiator, terminalStatus string) {
+	t.Helper()
+	runID := "r_parent_" + taskID
+	sessionID := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	events := []agent.Event{
+		{TS: "2026-05-19T10:00:00Z", RunID: runID, TaskID: taskID, Event: agent.EvQueued, Agent: agentName, Initiator: initiator},
+		{TS: "2026-05-19T10:00:01Z", RunID: runID, TaskID: taskID, Event: agent.EvStarted, Agent: agentName, PID: 4242},
+	}
+	if terminalStatus == "interrupted" {
+		events = append(events, agent.Event{
+			TS: "2026-05-19T10:00:02Z", RunID: runID, TaskID: taskID, Event: agent.EvSession,
+			SessionID: sessionID, PID: 4242, Cwd: boardDir,
+			RunEnv: map[string]string{"TB_BOARD_PATH": boardDir},
+		})
+	}
+	events = append(events, agent.Event{
+		TS: "2026-05-19T10:00:03Z", RunID: runID, TaskID: taskID, Event: agent.EvFinished,
+		Status:   agent.Status(terminalStatus),
+		ExitCode: -1,
+		Reason:   "interrupted by daemon restart",
+	})
+	for _, ev := range events {
+		if err := agent.AppendEvent(boardDir, taskID, ev); err != nil {
+			t.Fatalf("AppendEvent %s: %v", ev.Event, err)
+		}
+	}
+	if err := c.Edit(context.Background(), taskID, cli.EditInput{AgentStatus: terminalStatus}); err != nil {
+		t.Fatalf("seed %s: %v", terminalStatus, err)
+	}
+}
+
+func countEmitsByName(em *recordingEmitter, name, wantTaskID string) int {
+	n := 0
+	for _, e := range em.snapshot() {
+		if e.Name != name || len(e.Payload) == 0 {
+			continue
+		}
+		payload, ok := e.Payload[0].(map[string]any)
+		if !ok {
+			continue
+		}
+		if wantTaskID == "" {
+			n++
+			continue
+		}
+		if id, _ := payload["task_id"].(string); id == wantTaskID {
+			n++
+		}
+	}
+	return n
+}
+
+// TestAutoImplementCoordinator_ResumesInterruptedInProgressTask verifies
+// the resume sweep auto-resumes a task left `interrupted` in the
+// in-progress column (the daemon's recovery target for crashed
+// implement-mode runs).
+func TestAutoImplementCoordinator_ResumesInterruptedInProgressTask(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		nil,
+		map[string][]readyTaskSpec{
+			"in-progress": {{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		},
+	)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	seedInterruptedTask(t, f.boardDir, c, "TB-100", "claude", agent.InitiatorAutoImplement, "interrupted")
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	if got := countEmitsByName(f.emitter, "auto-implement:resumed", "TB-100"); got != 1 {
+		t.Fatalf("auto-implement:resumed count = %d, want 1\nevents: %+v",
+			got, f.emitter.snapshot())
+	}
+	if got := f.stub.input().Mode; got != agent.ModeResume {
+		t.Errorf("stub RunInput.Mode = %q, want %q", got, agent.ModeResume)
+	}
+}
+
+// TestAutoImplementCoordinator_ResumeCooldown verifies a persistent
+// resume failure (interrupted task with no JSONL session — synthetic
+// state, but mirrors a corrupted recovery) does not retry within the
+// cooldown window: the second scan should skip via cooldown rather than
+// re-invoke ResumeAgent.
+func TestAutoImplementCoordinator_ResumeCooldown(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		nil,
+		map[string][]readyTaskSpec{
+			"in-progress": {{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		},
+	)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	// Stamp an EvQueued with the auto-implement initiator so the sweep's
+	// initiator filter passes, then leave AgentStatus=interrupted with no
+	// EvSession — ResumeAgent will fail with ErrNotResumable on every
+	// attempt, so the cooldown is what blocks the retry.
+	if err := agent.AppendEvent(f.boardDir, "TB-100", agent.Event{
+		TS: "2026-05-19T10:00:00Z", RunID: "r_no_session", TaskID: "TB-100",
+		Event: agent.EvQueued, Agent: "claude",
+		Initiator: agent.InitiatorAutoImplement,
+	}); err != nil {
+		t.Fatalf("seed queued: %v", err)
+	}
+	if err := c.Edit(context.Background(), "TB-100", cli.EditInput{AgentStatus: "interrupted"}); err != nil {
+		t.Fatalf("seed interrupted: %v", err)
+	}
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+
+	f.runScanSync()
+	f.runScanSync()
+	f.runScanSync()
+
+	failedCount := countEmitsByName(f.emitter, "auto-implement:resume-failed", "TB-100")
+	if failedCount != 1 {
+		t.Fatalf("expected exactly 1 resume-failed (cooldown should block repeats); got %d\nevents: %+v",
+			failedCount, f.emitter.snapshot())
+	}
+}
+
+// TestAutoImplementCoordinator_SkipsUserInitiatedInterrupted verifies the
+// initiator filter: an interrupted run that a user triggered (empty
+// initiator on the EvQueued event) is NOT auto-resumed by the
+// coordinator — the user owns recovery for their own runs via the GUI
+// Resume button.
+func TestAutoImplementCoordinator_SkipsUserInitiatedInterrupted(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		nil,
+		map[string][]readyTaskSpec{
+			"in-progress": {{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		},
+	)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	// initiator="" means user-triggered.
+	seedInterruptedTask(t, f.boardDir, c, "TB-100", "claude", "", "interrupted")
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+
+	if got := countEmitsByName(f.emitter, "auto-implement:resumed", "TB-100"); got != 0 {
+		t.Errorf("auto-implement:resumed count = %d, want 0 (user-initiated must not be auto-resumed)", got)
+	}
+}
+
+// TestAutoImplementCoordinator_RestartsLostAutoRun verifies a `lost`
+// task that the coordinator originally queued is restarted from scratch
+// via RunAgentAs (no pull — task is already in in-progress).
+func TestAutoImplementCoordinator_RestartsLostAutoRun(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		nil,
+		map[string][]readyTaskSpec{
+			"in-progress": {{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		},
+	)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	seedInterruptedTask(t, f.boardDir, c, "TB-100", "claude", agent.InitiatorAutoImplement, "lost")
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	if got := countEmitsByName(f.emitter, "auto-implement:resumed", "TB-100"); got != 1 {
+		t.Fatalf("auto-implement:resumed count = %d, want 1\nevents: %+v",
+			got, f.emitter.snapshot())
+	}
+	// Fresh restart, not a resume — stub should see ModeImplement, not ModeResume.
+	if got := f.stub.input().Mode; got != agent.ModeImplement {
+		t.Errorf("stub RunInput.Mode = %q, want %q (lost restart is a fresh run)",
+			got, agent.ModeImplement)
+	}
+}
+
+// TestAutoImplementCoordinator_SkipsLostUserRun verifies a `lost` task
+// that a user originally triggered is NOT auto-restarted: the initiator
+// filter scopes restart to coordinator-owned runs only.
+func TestAutoImplementCoordinator_SkipsLostUserRun(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		nil,
+		map[string][]readyTaskSpec{
+			"in-progress": {{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		},
+	)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	seedInterruptedTask(t, f.boardDir, c, "TB-100", "claude", "", "lost")
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+
+	if got := countEmitsByName(f.emitter, "auto-implement:resumed", "TB-100"); got != 0 {
+		t.Errorf("auto-implement:resumed count = %d, want 0 (user-initiated lost must not be auto-restarted)", got)
 	}
 }
 

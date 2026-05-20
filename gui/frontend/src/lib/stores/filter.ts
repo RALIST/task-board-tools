@@ -9,6 +9,7 @@ export interface BoardFilter {
   types: string[];
   priorities: string[];
   modules: string[];
+  sizes: string[];
   tags: string[];
   agents: string[];
   parentEpic: string; // single parent ID, '' = no constraint
@@ -20,6 +21,7 @@ export const initialFilter: BoardFilter = {
   types: [],
   priorities: [],
   modules: [],
+  sizes: [],
   tags: [],
   agents: [],
   parentEpic: '',
@@ -32,4 +34,14 @@ export const filter = writable<BoardFilter>({ ...initialFilter });
 // users expect the archive column to stay visible while they re-filter.
 export function clearFilter(): void {
   filter.update((f) => ({ ...initialFilter, showArchive: f.showArchive }));
+}
+
+// focusFilterBarToken is incremented by SettingsPanel's "Edit in board
+// filter" button. FilterBar watches it via $effect and focuses the
+// search input on increment so the user lands cursor-ready on the
+// FilterBar after closing Settings. (TB-288)
+export const focusFilterBarToken = writable<number>(0);
+
+export function requestFocusFilterBar(): void {
+  focusFilterBarToken.update((n) => n + 1);
 }

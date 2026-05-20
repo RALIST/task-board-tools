@@ -11,21 +11,15 @@ import {
   CreateTask,
   EditTask,
   EditTaskBody,
-  FailReview,
   GetTask,
   ListAttachments,
   LoadBoard,
   LoadBoardWithMode,
   MoveTask,
   OpenAttachment,
-  PullNext,
   PullTask,
   ReadyTask,
-  Regenerate,
   RemoveAttachments,
-  SetReviewFindings,
-  SetReviewTarget,
-  SetReviewerNotes,
   SubmitReview,
   Triage,
 } from '../../bindings/tools/tb-gui/app/boardservice';
@@ -41,14 +35,11 @@ import {
   RunAgent,
 } from '../../bindings/tools/tb-gui/app/agentservice';
 import { Status as AutoGroomStatusBinding } from '../../bindings/tools/tb-gui/app/autogroomcoordinator';
-import {
-  GetBoardInfo,
-} from '../../bindings/tools/tb-gui/app/settingsservice';
 import * as SettingsService from '../../bindings/tools/tb-gui/app/settingsservice';
+import type { AutoImplementFilter } from '$lib/autoImplementFilter';
 import type {
   Attachment,
   AutoGroomStatus,
-  BoardInfo,
   BoardSnapshot,
   CreateTaskInput,
   CreateTaskResult,
@@ -62,7 +53,6 @@ import type {
 export type {
   Attachment,
   AutoGroomStatus,
-  BoardInfo,
   BoardSnapshot,
   CreateTaskInput,
   CreateTaskResult,
@@ -90,9 +80,8 @@ type SettingsServiceBindings = typeof SettingsService & {
   SetAutoGroomSettleMinutes: (n: number) => Promise<void>;
   GetAutoImplementEnabled: () => Promise<boolean>;
   SetAutoImplementEnabled: (enabled: boolean) => Promise<void>;
-  GetAutoImplementQuery: () => Promise<string>;
-  SetAutoImplementQuery: (expr: string) => Promise<void>;
-  ValidateAutoImplementQuery: (expr: string) => Promise<void>;
+  GetAutoImplementQuery: () => Promise<AutoImplementFilter>;
+  SetAutoImplementQuery: (filter: AutoImplementFilter) => Promise<void>;
 };
 
 const settingsService = SettingsService as unknown as SettingsServiceBindings;
@@ -142,13 +131,6 @@ export async function readyTask(id: string): Promise<void> {
   await ReadyTask(id);
 }
 
-// pullNext pulls the highest-priority oldest task from ready into
-// in-progress. No-op (resolves successfully) when the ready column is
-// empty.
-export async function pullNext(): Promise<void> {
-  await PullNext();
-}
-
 // pullTask pulls a specific ready task into in-progress. Rejects when
 // the task is not currently in ready.
 export async function pullTask(id: string): Promise<void> {
@@ -159,32 +141,12 @@ export async function submitReview(id: string): Promise<void> {
   await SubmitReview(id);
 }
 
-export async function setReviewTarget(id: string, body: string): Promise<void> {
-  await SetReviewTarget(id, body);
-}
-
-export async function setReviewerNotes(id: string, body: string): Promise<void> {
-  await SetReviewerNotes(id, body);
-}
-
-export async function setReviewFindings(id: string, body: string): Promise<void> {
-  await SetReviewFindings(id, body);
-}
-
-export async function failReview(id: string, findings: string): Promise<void> {
-  await FailReview(id, findings);
-}
-
 export async function closeTask(id: string): Promise<void> {
   await CloseTask(id);
 }
 
 export async function editTaskBody(id: string, newBody: string): Promise<void> {
   await EditTaskBody(id, newBody);
-}
-
-export async function regenerate(): Promise<void> {
-  await Regenerate();
 }
 
 // --- Attachment wrappers ---
@@ -331,10 +293,6 @@ export async function initBoard(
   await SettingsService.InitBoard(projectRoot, boardPath, prefix);
 }
 
-export function isAlreadyInitializedError(err: unknown): boolean {
-  return errorString(err).includes('.tb.yaml already exists');
-}
-
 export async function pickBoardDialog(): Promise<string> {
   // Use the runtime dialog from the click handler so Wails attaches each fresh
   // picker to the active window; the Go service method remains for native menu
@@ -357,10 +315,6 @@ export async function listRecentBoards(): Promise<RecentBoard[]> {
 
 export async function getProjectRoot(): Promise<string> {
   return await SettingsService.GetProjectRoot();
-}
-
-export async function getBoardInfo(): Promise<BoardInfo> {
-  return await GetBoardInfo();
 }
 
 export async function getAutoGroomStatus(): Promise<AutoGroomStatus> {
@@ -431,16 +385,12 @@ export async function setAutoImplementEnabled(enabled: boolean): Promise<void> {
   await requireSettingsMethod('SetAutoImplementEnabled')(enabled);
 }
 
-export async function getAutoImplementQuery(): Promise<string> {
+export async function getAutoImplementQuery(): Promise<AutoImplementFilter> {
   return await requireSettingsMethod('GetAutoImplementQuery')();
 }
 
-export async function setAutoImplementQuery(expr: string): Promise<void> {
-  await requireSettingsMethod('SetAutoImplementQuery')(expr);
-}
-
-export async function validateAutoImplementQuery(expr: string): Promise<void> {
-  await requireSettingsMethod('ValidateAutoImplementQuery')(expr);
+export async function setAutoImplementQuery(filter: AutoImplementFilter): Promise<void> {
+  await requireSettingsMethod('SetAutoImplementQuery')(filter);
 }
 
 // Error-message heuristics — the Wails bridge stringifies Go errors, so
