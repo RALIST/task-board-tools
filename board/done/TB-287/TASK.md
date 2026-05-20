@@ -9,6 +9,10 @@
 **Tags:** daemon,recovery,testing,flaky
 **GroomedBy:** codex
 **GroomStatus:** success
+**ImplementedBy:** codex
+**ImplementStatus:** success
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -30,11 +34,11 @@ Fix the data race in the periodic recovery integration test path so `TestDaemonP
 
 ## Acceptance Criteria
 
-- [ ] The focused reproducer no longer reports a data race when run repeatedly: `cd gui && go test ./app/ -race -count=10 -run TestDaemonPeriodicRecovery`.
-- [ ] `TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart` still verifies the core behavior: stale `AgentStatus: running` is reconciled to `lost`, the appended `finished` event keeps `RunID=r_periodic`, and an `agent:run-finished` event is observed.
-- [ ] Any `recordingEmitter` assertions added or touched by this fix read through mutex-protected helpers such as `snapshot()` or `names()`; no test ranges over or inspects `recordingEmitter.events` without holding the emitter mutex.
-- [ ] The production periodic recovery lifecycle remains unchanged: `Activate` still starts the ticker when enabled, `Close`/`Deactivate` still stop it cleanly, and `SetPeriodicRecoveryEnabled` still toggles the live ticker.
-- [ ] Broader verification passes after the focused fix: `cd gui && go test ./... -race`.
+- [x] The focused reproducer no longer reports a data race when run repeatedly: `cd gui && go test ./app/ -race -count=10 -run TestDaemonPeriodicRecovery`.
+- [x] `TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart` still verifies the core behavior: stale `AgentStatus: running` is reconciled to `lost`, the appended `finished` event keeps `RunID=r_periodic`, and an `agent:run-finished` event is observed.
+- [x] Any `recordingEmitter` assertions added or touched by this fix read through mutex-protected helpers such as `snapshot()` or `names()`; no test ranges over or inspects `recordingEmitter.events` without holding the emitter mutex.
+- [x] The production periodic recovery lifecycle remains unchanged: `Activate` still starts the ticker when enabled, `Close`/`Deactivate` still stop it cleanly, and `SetPeriodicRecoveryEnabled` still toggles the live ticker.
+- [x] Broader verification passes after the focused fix: `cd gui && go test ./... -race`.
 
 ## Related Tasks
 
@@ -54,4 +58,13 @@ Fix the data race in the periodic recovery integration test path so `TestDaemonP
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
-
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Done
+- 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewed-by=codex, review-status=success
+- 2026-05-20: Edited acceptance
+- 2026-05-20: Summary — replaced unsafe `recordingEmitter.events` reads with mutex-backed snapshots; verified focused and full GUI race suites; subagent review found no CRITICAL/MAJOR issues.

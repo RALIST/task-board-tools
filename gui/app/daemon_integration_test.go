@@ -347,7 +347,7 @@ func TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart(t *testing.
 	}
 
 	foundFinishedEmit := false
-	for _, ev := range svc.emitter.(*recordingEmitter).events {
+	for _, ev := range svc.emitter.(*recordingEmitter).snapshot() {
 		if ev.Name == "agent:run-finished" {
 			foundFinishedEmit = true
 			break

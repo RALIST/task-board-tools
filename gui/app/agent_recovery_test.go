@@ -408,7 +408,8 @@ func TestRecoverStale_NoJSONL_MarksLostAndEmitsLost(t *testing.T) {
 		t.Fatalf("unexpected emitter type %T", rec.agent.emitter)
 	}
 	var found map[string]any
-	for _, ev := range em.events {
+	events := em.snapshot()
+	for _, ev := range events {
 		if ev.Name != "agent:run-finished" || len(ev.Payload) == 0 {
 			continue
 		}
@@ -419,7 +420,7 @@ func TestRecoverStale_NoJSONL_MarksLostAndEmitsLost(t *testing.T) {
 		}
 	}
 	if found == nil {
-		t.Fatalf("missing agent:run-finished event; events=%+v", em.events)
+		t.Fatalf("missing agent:run-finished event; events=%+v", events)
 	}
 	if found["status"] != "lost" {
 		t.Fatalf("finished status payload = %#v, want lost", found["status"])

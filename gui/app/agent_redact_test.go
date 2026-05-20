@@ -85,7 +85,8 @@ func TestRunAgent_RedactsSecretsAcrossAllSinks(t *testing.T) {
 		t.Fatalf("emitter was not captured; configure callback did not run")
 	}
 	sawRedactedEmit := false
-	for _, e := range em.events {
+	emitted := em.snapshot()
+	for _, e := range emitted {
 		if e.Name != "agent:run-log" {
 			continue
 		}
@@ -104,7 +105,7 @@ func TestRunAgent_RedactsSecretsAcrossAllSinks(t *testing.T) {
 		}
 	}
 	if !sawRedactedEmit {
-		t.Fatalf("no agent:run-log emit carried [REDACTED]; events=%+v", em.events)
+		t.Fatalf("no agent:run-log emit carried [REDACTED]; events=%+v", emitted)
 	}
 
 	// 4. GetRunLog readback must serve the redacted text (since the on-disk

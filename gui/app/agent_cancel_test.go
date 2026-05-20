@@ -187,7 +187,7 @@ func TestCancelRun_KillsProcessAndWritesCancelledRecord(t *testing.T) {
 
 	// Wails sink saw run-finished{cancelled}.
 	sawFinished := false
-	for _, ev := range em.events {
+	for _, ev := range em.snapshot() {
 		if ev.Name == "agent:run-finished" {
 			sawFinished = true
 			if payload, ok := ev.Payload[0].(map[string]any); ok {
