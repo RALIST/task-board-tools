@@ -70,7 +70,7 @@
 <div class="usage" aria-label="Agent quota usage">
   {#each $usageStore as u (u.agent)}
     {@const sev = dominantSeverity(u)}
-    <span class="chip sev-{sev}" class:unavailable={!u.available} title={chipTitle(u)}>
+    <span class="chip sev-{sev}" class:unavailable={!u.available} title={chipTitle(u)} aria-label={chipTitle(u)}>
       <span class="name">{u.agent}</span>
       {#if u.available}
         {#if u.primary?.usedPercent != null}
