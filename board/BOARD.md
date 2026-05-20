@@ -7,7 +7,6 @@
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
 | TB-262 | Auto-review | 0/4 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
-| TB-292 | Epic: mirror project settings between GUI and .tb.yaml | 0/3 | backlog | gui |
 
 ## Finished Epics
 
@@ -29,32 +28,26 @@
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
-| TB-205 | Setup ESLint and dead-code check for frontend | 0/1 | tooling |
+| TB-205 | Setup ESLint and dead-code check for frontend | 1/1 | tooling |
 
-## In Progress (1/2)
-
-| ID | Title | Priority | Module | Branch |
-|----|-------|----------|--------|--------|
-| TB-291 | Auto-resume interrupted tasks in auto-groom and auto-implement coordinators | P1 | gui | — |
-
-## Code Review
+## In Progress (0/2)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
 | — | — | — | — | — |
 
+## Code Review
+
+| ID | Title | Priority | Module | Branch |
+|----|-------|----------|--------|--------|
+| TB-290 | CLI: edit Context and Constraints sections | P2 | cli | — |
+
 ## Ready
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-247 | Triage TB-205 knip first-pass findings | tech-debt | P2 | S | gui-frontend |
 | TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
-| TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | P2 | M | tooling |
-| TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | P1 | S | gui |
-| TB-261 | Safely clean up orphaned agent processes | improvement | P2 | M | gui |
-| TB-286 | Show readable GUI error toasts | bug | P2 | S | gui-frontend |
-| TB-287 | Flaky race in TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart | bug | P2 | S | gui |
-| TB-290 | CLI: edit Context and Constraints sections | improvement | P2 | S | cli |
+| TB-266 | Daemon: reconcile autonomous stage transitions | improvement | P1 | M | gui |
 
 ## Backlog
 
@@ -93,29 +86,33 @@
 | TB-263 | GUI: persist auto-review setting and controls | feature | P1 | M | gui |
 | TB-264 | GUI: enqueue code-review tasks for review-mode daemon runs | feature | P1 | M | gui |
 | TB-265 | GUI: surface auto-review state and decisions | feature | P1 | S | gui |
-| TB-266 | Daemon: reconcile autonomous stage transitions | improvement | P1 | M | gui |
 | TB-269 | Docs: define staged autonomous agent workflow | improvement | P1 | S | docs |
-| TB-270 | Align agent prompts with staged kanban workflow | improvement | P1 | S | agent |
 | TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
 | TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
 | TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
-| TB-292 | Epic: mirror project settings between GUI and .tb.yaml | feature | P2 | XL | gui |
-| TB-293 | Config: add GUI project settings to .tb.yaml schema | feature | P2 | M | cli |
-| TB-294 | GUI backend: persist project settings in .tb.yaml | feature | P2 | M | gui |
-| TB-295 | GUI settings panel mirrors project .tb.yaml | feature | P2 | M | gui |
-| TB-296 | Refactor header design | improvement | P2 | M |  |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-300 | Auto-implement: respect WIP and CPU worker budget | bug | gui |
+| TB-297 | Remove auto-implement filter from settings UI | tech-debt | gui |
+| TB-296 | Refactor GUI header: condense controls so they fit on one row | improvement | gui |
+| TB-291 | Auto-resume interrupted tasks in auto-groom and auto-implement coordinators | bug | gui |
 | TB-289 | Extend tb ls with multi-value filter flags + --agent + --search | feature | cli |
 | TB-288 | FilterBar-driven auto-implement query (replaces text DSL) | feature | gui |
+| TB-287 | Flaky race in TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart | bug | gui |
+| TB-286 | Show readable GUI error toasts | bug | gui-frontend |
 | TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
+| TB-270 | Align agent prompts with staged kanban workflow | improvement | agent |
 | TB-268 | Review-failed handoff clears retry-blocking agent state | bug | workflow |
 | TB-267 | Auto-implement: respect epic child order | feature | gui |
+| TB-261 | Safely clean up orphaned agent processes | improvement | gui |
 | TB-253 | GUI Run History shows multiple concurrent RUNNING rows for one task | bug | gui |
+| TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | gui |
 | TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | gui |
+| TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | tooling |
+| TB-247 | Triage TB-205 knip first-pass findings | tech-debt | gui-frontend |
 | TB-244 | Periodic re-recovery for stale agent runs | improvement | gui |
 | TB-242 | Agent runner blocks on stdout EOF when child processes inherit pipes | bug | gui |
 | TB-241 | GUI: Resume button enabled for interrupted tasks with no captured session | bug | gui |
@@ -148,14 +145,3 @@
 | TB-211 | QA probe CLI happy edited | improvement | cli |
 | TB-210 | Manual QA: MVP live-board pass | spike | gui |
 | TB-208 | Switch projects bug | bug | gui |
-| TB-207 | Allow tasl title edit from GUI | improvement | gui |
-| TB-206 | Setup golangci-lint for project and initial run it | tech-debt | tooling |
-| TB-205 | Setup ESLint and dead-code check for frontend | tech-debt | tooling |
-| TB-204 | Show epic progress | improvement | gui/frontend |
-| TB-203 | obfuscation agents logs and tasks | bug | gui |
-| TB-202 | Create proper name and icon for app | improvement | gui |
-| TB-201 | MacOS: window buttons hides header | bug | gui |
-| TB-200 | Docs: document code-review workflow | improvement | docs |
-| TB-199 | Workflow: review-failed marker and retry priority | feature | agent |
-| TB-198 | Agent: add review mode and findings section | feature | agent |
-| TB-197 | GUI: show code-review column and review fields | feature | gui |
