@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -21,10 +22,17 @@ const MaxWorkersDefault = 1
 // MaxWorkersMin / MaxWorkersMax bracket the allowed range for
 // max_workers. Clamping happens on read so an externally-edited
 // preferences.json with a wild value never destabilises the daemon.
-const (
-	MaxWorkersMin = 1
-	MaxWorkersMax = 4
-)
+const MaxWorkersMin = 1
+
+var MaxWorkersMax = runtimeMaxWorkers()
+
+func runtimeMaxWorkers() int {
+	n := runtime.NumCPU()
+	if n < MaxWorkersMin {
+		return MaxWorkersMin
+	}
+	return n
+}
 
 // AgentTimeoutMinutesDefault is the default unattended agent-run deadline
 // persisted in preferences.json. The service converts it to a duration per
@@ -83,14 +91,14 @@ var ErrAutoImplementQueryRequired = errors.New(
 // in snake_case so a future settings UI (M7) can serialise the same
 // shape directly from a hand-edited form.
 type Preferences struct {
-	MaxWorkers              int    `json:"max_workers"`
-	AgentTimeoutMinutes     int    `json:"agent_timeout_minutes"`
-	DefaultAgent            string `json:"default_agent"`
-	CLIPath                 string `json:"cli_path"`
-	DisablePeriodicRecovery bool   `json:"disable_periodic_recovery"`
-	AutoGroomEnabled        bool   `json:"auto_groom_enabled"`
-	AutoGroomSettleMinutes  int    `json:"auto_groom_settle_minutes"`
-	AutoImplementEnabled    bool   `json:"auto_implement_enabled"`
+	MaxWorkers              int                 `json:"max_workers"`
+	AgentTimeoutMinutes     int                 `json:"agent_timeout_minutes"`
+	DefaultAgent            string              `json:"default_agent"`
+	CLIPath                 string              `json:"cli_path"`
+	DisablePeriodicRecovery bool                `json:"disable_periodic_recovery"`
+	AutoGroomEnabled        bool                `json:"auto_groom_enabled"`
+	AutoGroomSettleMinutes  int                 `json:"auto_groom_settle_minutes"`
+	AutoImplementEnabled    bool                `json:"auto_implement_enabled"`
 	AutoImplementQuery      AutoImplementFilter `json:"auto_implement_query"`
 }
 
@@ -123,6 +131,13 @@ func (s *SettingsService) GetMaxWorkers() int {
 		return MaxWorkersDefault
 	}
 	return clampMaxWorkers(prefs.MaxWorkers, s.logger)
+}
+
+// GetMaxWorkersLimit returns the upper bound the backend applies to
+// max_workers. The frontend uses this same value for display and
+// client-side clamping so UI and persisted settings stay in lockstep.
+func (s *SettingsService) GetMaxWorkersLimit() int {
+	return MaxWorkersMax
 }
 
 // SetMaxWorkers persists the value to disk after clamping. Returns the

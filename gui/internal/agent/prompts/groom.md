@@ -26,7 +26,10 @@ Follow the board format and keep board hygiene intact.
   `tb start`, `tb done`, `tb close`, or `tb mv`.
 - If the task is already clear and verifiable, make no mutation and report that
   no grooming change was needed.
-- If the task is outdated, close it with the proper board command.
+- If the task is outdated but can still be made useful, update it into a groomed
+  state with a current Goal and Acceptance Criteria.
+- If the task is outdated, too stale, or cannot be made ready from the available context,
+  use the User Attention handoff instead of closing or moving it.
 - If the task is related to UI/UX, add a manual-test note.
 - If the task is too large, create subtasks, mark the current task as an epic,
   and link the subtasks.

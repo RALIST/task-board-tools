@@ -85,11 +85,12 @@ func main() {
 	// but scoped to the ready column and implement-mode runs. Watches the
 	// same watcher events.
 	autoImplement := tbapp.NewAutoImplementCoordinator(tbapp.AutoImplementCoordinatorOptions{
-		Board:    boardService,
-		Agent:    agentService,
-		Settings: nil, // wired below after settingsService is constructed
-		Emitter:  emitter,
-		Logger:   logger,
+		Board:        boardService,
+		Agent:        agentService,
+		Settings:     nil, // wired below after settingsService is constructed
+		Emitter:      emitter,
+		Logger:       logger,
+		WorkerBudget: d,
 	})
 
 	// Watcher emits to the Wails app, the daemon sink, the board sink, the

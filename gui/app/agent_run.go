@@ -205,14 +205,13 @@ func (s *AgentService) ReviewTask(ctx context.Context, id string) (string, error
 	return s.startAgentRun(ctx, id, agent.ModeReview, "", "")
 }
 
-// ResumeAgent continues the most recent interrupted agent session for
-// the task (TB-130). Reads the persisted SessionID + cwd + env from the
-// parent run's JSONL session event, validates that the task is in
-// `interrupted` status (resume from finished runs is documented as a
-// follow-up, NOT M1 scope), then launches a new run via the same
-// runGoroutine pipeline used by RunAgent. Returns ErrNotResumable when
-// the latest run has no captured session id; ErrCannotResume when the
-// task's AgentStatus is not `interrupted`.
+// ResumeAgent continues the latest captured agent session for the task
+// (TB-130/TB-252). Reads the persisted SessionID + cwd + env from the
+// parent run's JSONL session event, validates that the task is in a
+// terminal status where resuming is an intentional user choice, then
+// launches a new run via the same runGoroutine pipeline used by RunAgent.
+// Returns ErrCannotResume when the latest run has no captured session id
+// or when AgentStatus is queued/running/non-terminal.
 //
 // The queued JSONL event for a resume run carries `resumed_from`
 // (parent session id) and `resumed_from_run` (parent RunID) so the
@@ -252,16 +251,16 @@ func (s *AgentService) resumeAgent(ctx context.Context, id, initiator string) (s
 		// TB-182: don't silently resume into a task that needs user input.
 		return "", ErrNeedsUserAttention
 	}
-	if detail.Metadata.AgentStatus != "interrupted" {
-		return "", fmt.Errorf("%w: AgentStatus is %q (want \"interrupted\")",
-			ErrCannotResume, detail.Metadata.AgentStatus)
-	}
 	candidate, ok, err := resumableSessionID(boardDir, id)
 	if err != nil {
 		return "", fmt.Errorf("ResumeAgent: resumableSessionID: %w", err)
 	}
 	if !ok {
-		return "", ErrNotResumable
+		return "", ErrCannotResume
+	}
+	if !isResumeTerminalStatus(detail.Metadata.AgentStatus) {
+		return "", fmt.Errorf("%w: AgentStatus is %q (want terminal with captured session)",
+			ErrCannotResume, detail.Metadata.AgentStatus)
 	}
 
 	agentName := strings.ToLower(strings.TrimSpace(detail.Metadata.Agent))
@@ -350,6 +349,19 @@ func (s *AgentService) resumeAgent(ctx context.Context, id, initiator string) (s
 
 	go s.runGoroutine(runCtx, runner, c, ar, boardDir, detail)
 	return runID, nil
+}
+
+func isResumeTerminalStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case string(agent.StatusInterrupted),
+		string(agent.StatusLost),
+		string(agent.StatusFailed),
+		string(agent.StatusCancelled),
+		string(agent.StatusSuccess):
+		return true
+	default:
+		return false
+	}
 }
 
 // envSliceFromMap converts a TB_-prefixed env map (as persisted in the
@@ -630,7 +642,7 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 		select {
 		case <-ctx.Done():
 			ar.markCancelled()
-			if err := killActiveRun(ar); err != nil {
+			if err := killActiveRun(ar, boardDir, "shutdown"); err != nil {
 				slog.Warn("agent: shutdown cancel signal failed", "task", id, "run", ar.RunID, "err", err)
 			}
 		case <-ctxCancelled:
@@ -667,6 +679,18 @@ func (s *AgentService) HasActiveRun(taskID string) bool {
 	_, ok := s.active[taskID]
 	s.mu.Unlock()
 	return ok
+}
+
+// ActiveTaskIDs returns a snapshot of task IDs with in-process runs.
+func (s *AgentService) ActiveTaskIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ids := make([]string, 0, len(s.active))
+	for id := range s.active {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // hasActiveRunID reports whether AgentService is tracking the specific

@@ -65,6 +65,7 @@ export type {
 export type StatusMode = 'active' | 'all';
 type SettingsServiceBindings = typeof SettingsService & {
   GetMaxWorkers: () => Promise<number>;
+  GetMaxWorkersLimit: () => Promise<number>;
   SetMaxWorkers: (n: number) => Promise<void>;
   GetAgentTimeoutMinutes: () => Promise<number>;
   SetAgentTimeoutMinutes: (n: number) => Promise<void>;
@@ -216,11 +217,10 @@ export async function reviewTask(id: string): Promise<string> {
   return await ReviewTask(id);
 }
 
-// resumeAgent continues an `interrupted` task's prior agent session
-// (TB-130). The Wails binding rejects with ErrCannotResume when
-// AgentStatus != "interrupted" and ErrNotResumable when the latest run
-// has no captured session id — surface those upstream as the toast
-// message via the standard error handling.
+// resumeAgent continues the latest captured terminal agent session
+// (TB-130/TB-252). The Wails binding rejects with ErrCannotResume when
+// there is no captured session or the task is queued/running/non-terminal;
+// `needs-user` is rejected separately so the user clears that handoff first.
 export async function resumeAgent(id: string): Promise<string> {
   return await ResumeAgent(id);
 }
@@ -325,6 +325,10 @@ export async function getMaxWorkers(): Promise<number> {
   return await requireSettingsMethod('GetMaxWorkers')();
 }
 
+export async function getMaxWorkersLimit(): Promise<number> {
+  return await requireSettingsMethod('GetMaxWorkersLimit')();
+}
+
 export async function setMaxWorkers(n: number): Promise<void> {
   await requireSettingsMethod('SetMaxWorkers')(n);
 }
@@ -409,14 +413,158 @@ export function isNoBoardError(err: unknown): boolean {
 }
 
 export function errorString(err: unknown): string {
-  if (err == null) return '';
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  try {
-    return String(err);
-  } catch {
-    return 'unknown error';
+  const message = extractErrorMessage(err, new Set(), 0);
+  return message || 'unknown error';
+}
+
+function extractErrorMessage(value: unknown, seen: Set<object>, depth: number): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return errorTextFromString(value, seen, depth);
+  if (value instanceof Error) {
+    const cause = (value as Error & { cause?: unknown }).cause;
+    const ownMessage = errorTextFromString(value.message, seen, depth);
+    if (cause !== undefined && isCliValidationEnvelope(ownMessage)) {
+      const causeStderr = extractStderrMessage(cause);
+      if (causeStderr) return causeStderr;
+      return ownMessage;
+    }
+    if (cause !== undefined && isRuntimeEnvelope(value.name, ownMessage)) {
+      const causeMessage = extractErrorMessage(cause, seen, depth + 1);
+      if (causeMessage) return causeMessage;
+    }
+    return ownMessage;
   }
+  if (typeof value === 'object') {
+    if (seen.has(value)) return '';
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    const stderr = stringField(record, 'Stderr') ?? stringField(record, 'stderr');
+    if (stderr) return errorTextFromString(stderr, seen, depth + 1);
+
+    const cause = record.cause ?? record.Cause;
+    const ownMessage = firstStringField(record, ['message', 'Message', 'error', 'Error']);
+    const message = ownMessage ? errorTextFromString(ownMessage, seen, depth + 1) : '';
+    const name = firstStringField(record, ['name', 'Name']);
+    if (cause !== undefined) {
+      const causeStderr = extractStderrMessage(cause);
+      if (causeStderr && (!message || isRuntimeEnvelope(name, message) || isCliValidationEnvelope(message))) {
+        return causeStderr;
+      }
+      const causeMessage = extractErrorMessage(cause, seen, depth + 1);
+      if (causeMessage && (!message || isRuntimeEnvelope(name, message))) return causeMessage;
+      if (!message) return causeMessage;
+    }
+    return message;
+  }
+  try {
+    return errorTextFromString(String(value), seen, depth);
+  } catch {
+    return '';
+  }
+}
+
+function errorTextFromString(text: string, seen: Set<object>, depth: number): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+
+  const parsed = parseStructuredErrorString(trimmed);
+  if (isStructuredErrorValue(parsed)) {
+    const extracted = extractErrorMessage(parsed, seen, depth + 1);
+    if (extracted) return extracted;
+  }
+
+  const stderr = extractStderrFromDebugString(trimmed);
+  if (stderr) return stderr.trim();
+
+  const withoutRuntime = trimmed.replace(/^RuntimeError:?\s*/i, '').trim();
+  if (!withoutRuntime || withoutRuntime === '[object Object]') return '';
+  if (looksLikeDebugEnvelope(withoutRuntime)) return '';
+  return withoutRuntime;
+}
+
+function parseStructuredErrorString(text: string): unknown | undefined {
+  for (const candidate of jsonCandidates(text)) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next candidate below.
+    }
+  }
+  return undefined;
+}
+
+function isStructuredErrorValue(value: unknown): value is object {
+  return typeof value === 'object' && value !== null;
+}
+
+function extractStderrMessage(value: unknown): string {
+  const stderr = findStderr(value, new Set(), 0);
+  return stderr ? errorTextFromString(stderr, new Set(), 0) : '';
+}
+
+function findStderr(value: unknown, seen: Set<object>, depth: number): string {
+  if (value == null || depth > 8) return '';
+  if (typeof value === 'string') return extractStderrFromDebugString(value);
+  if (value instanceof Error) {
+    return findStderr((value as Error & { cause?: unknown }).cause, seen, depth + 1);
+  }
+  if (typeof value !== 'object') return '';
+  if (seen.has(value)) return '';
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = findStderr(item, seen, depth + 1);
+      if (nested) return nested;
+    }
+    return '';
+  }
+
+  const record = value as Record<string, unknown>;
+  const direct = stringField(record, 'Stderr') ?? stringField(record, 'stderr');
+  if (direct) return direct;
+  return findStderr(record.cause ?? record.Cause, seen, depth + 1);
+}
+
+function jsonCandidates(text: string): string[] {
+  const candidates = [text];
+  const objectStart = text.indexOf('{');
+  if (objectStart > 0) candidates.push(text.slice(objectStart));
+  const arrayStart = text.indexOf('[');
+  if (arrayStart > 0) candidates.push(text.slice(arrayStart));
+  return candidates;
+}
+
+function extractStderrFromDebugString(text: string): string {
+  const match = text.match(/["']?Stderr["']?\s*[:=]\s*["']?([\s\S]*?)(?:["']?\s+["']?(?:Cause|Kind|Op|Args)["']?\s*[:=]|$)/);
+  return match?.[1]?.trim() ?? '';
+}
+
+function firstStringField(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = stringField(record, key);
+    if (value) return value;
+  }
+  return '';
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function isRuntimeEnvelope(name: string | undefined, message: string): boolean {
+  return name === 'RuntimeError' || /^RuntimeError\b/i.test(message);
+}
+
+function isCliValidationEnvelope(message: string): boolean {
+  return /^tb\s+\S+:\s+validation:/i.test(message);
+}
+
+function looksLikeDebugEnvelope(message: string): boolean {
+  if (message === '[object Object]') return true;
+  if (!message.startsWith('{') && !message.startsWith('[')) return false;
+  return /\b(?:Kind|Op|Args|Cause|Stderr)\b/.test(message);
 }
 
 function requireSettingsMethod<K extends keyof SettingsServiceBindings>(

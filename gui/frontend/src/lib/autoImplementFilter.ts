@@ -98,20 +98,3 @@ function arraysEqual(a: string[], b: string[]): boolean {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
 }
-
-// summarize renders the persisted filter as a one-line human-readable
-// summary for the SettingsPanel — "Type: bug, improvement · Module:
-// gui · Tags: macos". Returns '' for an empty filter so callers can
-// switch to a "no filter saved" placeholder.
-export function summarizeAutoImplementFilter(f: AutoImplementFilter): string {
-  const parts: string[] = [];
-  if (f.search.trim() !== '') parts.push(`Search: ${f.search.trim()}`);
-  if (f.types.length) parts.push(`Type: ${f.types.join(', ')}`);
-  if (f.priorities.length) parts.push(`Priority: ${f.priorities.join(', ')}`);
-  if (f.modules.length) parts.push(`Module: ${f.modules.join(', ')}`);
-  if (f.sizes.length) parts.push(`Size: ${f.sizes.join(', ')}`);
-  if (f.tags.length) parts.push(`Tags: ${f.tags.join(', ')}`);
-  if (f.agents.length) parts.push(`Agent: ${f.agents.join(', ')}`);
-  if (f.parents.length) parts.push(`Epic: ${f.parents.join(', ')}`);
-  return parts.join(' · ');
-}

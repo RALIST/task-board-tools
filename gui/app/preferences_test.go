@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -62,6 +63,37 @@ func TestSetMaxWorkers_RoundTrip(t *testing.T) {
 	})
 	if got := s2.GetMaxWorkers(); got != 3 {
 		t.Errorf("fresh read: got %d, want 3", got)
+	}
+}
+
+func TestMaxWorkersMaxTracksRuntimeCPUCount(t *testing.T) {
+	want := runtime.NumCPU()
+	if want < 1 {
+		want = 1
+	}
+	if MaxWorkersMax != want {
+		t.Fatalf("MaxWorkersMax = %d, want runtime.NumCPU minimum 1 (%d)", MaxWorkersMax, want)
+	}
+}
+
+func TestSetMaxWorkers_RoundTripsCPUCount(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	want := runtime.NumCPU()
+	if want < 1 {
+		want = 1
+	}
+	if err := s.SetMaxWorkers(want); err != nil {
+		t.Fatalf("SetMaxWorkers(%d): %v", want, err)
+	}
+	if got := s.GetMaxWorkers(); got != want {
+		t.Fatalf("after set: got %d, want %d", got, want)
+	}
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetMaxWorkers(); got != want {
+		t.Fatalf("fresh read: got %d, want %d", got, want)
 	}
 }
 

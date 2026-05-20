@@ -32,7 +32,38 @@ type autoImplementFixture struct {
 	settings  *SettingsService
 	prefsPath string
 	emitter   *recordingEmitter
+	budget    *fakeWorkerBudget
 	coord     *AutoImplementCoordinator
+}
+
+type fakeWorkerBudget struct {
+	mu     sync.Mutex
+	max    int
+	active []string
+}
+
+func (b *fakeWorkerBudget) MaxWorkers() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.max
+}
+
+func (b *fakeWorkerBudget) ActiveTaskIDs() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.active...)
+}
+
+func (b *fakeWorkerBudget) setMax(max int) {
+	b.mu.Lock()
+	b.max = max
+	b.mu.Unlock()
+}
+
+func (b *fakeWorkerBudget) setActive(ids ...string) {
+	b.mu.Lock()
+	b.active = append([]string(nil), ids...)
+	b.mu.Unlock()
 }
 
 // readyTaskBody returns a body for a task that already passed grooming
@@ -102,6 +133,10 @@ type readyTaskSpec struct {
 }
 
 func newAutoImplementFixture(t *testing.T, agentName string, ready []readyTaskSpec, others map[string][]readyTaskSpec) *autoImplementFixture {
+	return newAutoImplementFixtureWithConfig(t, agentName, ready, others, "board: board\nprefix: TB\n")
+}
+
+func newAutoImplementFixtureWithConfig(t *testing.T, agentName string, ready []readyTaskSpec, others map[string][]readyTaskSpec, boardConfig string) *autoImplementFixture {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX-only board flock")
@@ -116,7 +151,7 @@ func newAutoImplementFixture(t *testing.T, agentName string, ready []readyTaskSp
 		}
 	}
 	if err := os.WriteFile(filepath.Join(root, ".tb.yaml"),
-		[]byte("board: board\nprefix: TB\n"), 0o644); err != nil {
+		[]byte(boardConfig), 0o644); err != nil {
 		t.Fatalf(".tb.yaml: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(boardDir, ".next-id"), []byte("999\n"), 0o644); err != nil {
@@ -166,13 +201,15 @@ func newAutoImplementFixture(t *testing.T, agentName string, ready []readyTaskSp
 		RecentsPath: filepath.Join(t.TempDir(), "recent.json"),
 		PrefsPath:   prefs,
 	})
+	budget := &fakeWorkerBudget{max: 64}
 
 	coord := NewAutoImplementCoordinator(AutoImplementCoordinatorOptions{
-		Board:    board,
-		Agent:    svc,
-		Settings: settings,
-		Emitter:  em,
-		Logger:   slog.Default(),
+		Board:        board,
+		Agent:        svc,
+		Settings:     settings,
+		Emitter:      em,
+		Logger:       slog.Default(),
+		WorkerBudget: budget,
 	})
 
 	t.Cleanup(func() {
@@ -199,6 +236,7 @@ func newAutoImplementFixture(t *testing.T, agentName string, ready []readyTaskSp
 		settings:  settings,
 		prefsPath: prefs,
 		emitter:   em,
+		budget:    budget,
 		coord:     coord,
 	}
 }
@@ -375,8 +413,13 @@ func TestAutoImplementCoordinator_BacklogTaskSkipped(t *testing.T) {
 	}
 }
 
-// AC: ready task with non-blank AgentStatus is skipped (no auto-retry).
-func TestAutoImplementCoordinator_NonBlankAgentStatusSkipped(t *testing.T) {
+// AC (post-gate-redesign): a generic AgentStatus carrying a previous
+// groom-mode terminal status (typically `success`) MUST NOT block
+// implement pickup. The implement gate now consults ImplementStatus for
+// in-flight detection and only treats user-intent statuses (`cancelled`,
+// `needs-user`) on the generic cursor as blocking. This is the leak
+// path that stranded auto-groom-promoted tasks before the fix.
+func TestAutoImplementCoordinator_GroomSuccessAgentStatusDoesNotBlock(t *testing.T) {
 	f := newAutoImplementFixture(t, "claude",
 		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
 		nil,
@@ -385,15 +428,92 @@ func TestAutoImplementCoordinator_NonBlankAgentStatusSkipped(t *testing.T) {
 	if c == nil {
 		t.Fatalf("no CLI client")
 	}
-	// Seed terminal status on the otherwise-eligible task.
-	if err := c.Edit(context.Background(), "TB-100", cli.EditInput{AgentStatus: "success"}); err != nil {
-		t.Fatalf("seed success: %v", err)
+	// Seed the leftover groom-mode cursor: generic AgentStatus=success
+	// + GroomStatus=success, ImplementStatus blank. This is the exact
+	// shape auto-groom leaves on a freshly-promoted task.
+	if err := c.Edit(context.Background(), "TB-100", cli.EditInput{
+		AgentStatus: "success",
+		GroomedBy:   "codex",
+		GroomStatus: "success",
+	}); err != nil {
+		t.Fatalf("seed groom-success: %v", err)
+	}
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+	queued := f.queuedTaskIDs()
+	if len(queued) != 1 || queued[0] != "TB-100" {
+		t.Fatalf("expected TB-100 queued despite groom-success cursor; got %v", queued)
+	}
+}
+
+// AC: user-initiated `cancelled` on the generic cursor blocks pickup —
+// respect the user's intent to not run automation here.
+func TestAutoImplementCoordinator_CancelledAgentStatusStillBlocks(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		nil,
+	)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client")
+	}
+	if err := c.Edit(context.Background(), "TB-100", cli.EditInput{AgentStatus: "cancelled"}); err != nil {
+		t.Fatalf("seed cancelled: %v", err)
 	}
 	f.activate(t)
 	f.enableAutoImplement(t, "claude", acFilterFixture())
 	f.runScanSync()
 	if got := f.queuedTaskIDs(); len(got) != 0 {
-		t.Fatalf("expected non-blank-status task to be skipped; got %v", got)
+		t.Fatalf("expected cancelled task to be skipped; got %v", got)
+	}
+}
+
+// AC: `needs-user` is an explicit human handoff (CLAUDE.md). Blocks
+// regardless of which mode set it.
+func TestAutoImplementCoordinator_NeedsUserAgentStatusStillBlocks(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		nil,
+	)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client")
+	}
+	if err := c.Edit(context.Background(), "TB-100", cli.EditInput{AgentStatus: "needs-user"}); err != nil {
+		t.Fatalf("seed needs-user: %v", err)
+	}
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+	if got := f.queuedTaskIDs(); len(got) != 0 {
+		t.Fatalf("expected needs-user task to be skipped; got %v", got)
+	}
+}
+
+// AC: ImplementStatus in {queued,running} blocks even if the generic
+// AgentStatus reflects a different mode. Defense-in-depth across daemon
+// restarts (HasActiveRun only covers in-process races).
+func TestAutoImplementCoordinator_InFlightImplementStatusBlocks(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		nil,
+	)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("no CLI client")
+	}
+	if err := c.Edit(context.Background(), "TB-100", cli.EditInput{
+		ImplementedBy:   "claude",
+		ImplementStatus: "running",
+	}); err != nil {
+		t.Fatalf("seed implement-running: %v", err)
+	}
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+	if got := f.queuedTaskIDs(); len(got) != 0 {
+		t.Fatalf("expected implement-running task to be skipped; got %v", got)
 	}
 }
 
@@ -618,96 +738,85 @@ func TestAutoImplementCoordinator_DeactivateStopsFurtherWork(t *testing.T) {
 	}
 }
 
-// WIP strict: PullTask should fail when in-progress is at the limit, and
-// the coordinator should emit pull-failed + record a skip reason, NOT
-// proceed to RunAgent (the task stays in ready).
-func TestAutoImplementCoordinator_WIPBlockedPullSkips(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only board flock")
-	}
-	tbBinary := buildTbForIntegration(t)
+func TestAutoImplementCoordinator_LimitsStartsToWorkerBudget(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		[]readyTaskSpec{
+			{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+			{ID: "TB-101", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+			{ID: "TB-102", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+		},
+		nil,
+	)
+	f.budget.setMax(2)
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
 
-	root := t.TempDir()
-	boardDir := filepath.Join(root, "board")
-	for _, d := range []string{"backlog", "ready", "in-progress", "code-review", "done", "archive"} {
-		if err := os.MkdirAll(filepath.Join(boardDir, d), 0o755); err != nil {
-			t.Fatalf("mkdir: %v", err)
-		}
+	queued := f.queuedTaskIDs()
+	if got, want := queued, []string{"TB-100", "TB-101"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("queued = %v, want %v", got, want)
 	}
-	// Strict WIP limit of 1 with one task already in-progress.
-	cfg := "board: board\nprefix: TB\nwip_limit_in_progress: 1\nwip_enforcement: strict\n"
-	if err := os.WriteFile(filepath.Join(root, ".tb.yaml"), []byte(cfg), 0o644); err != nil {
-		t.Fatalf(".tb.yaml: %v", err)
+	if _, err := os.Stat(filepath.Join(f.boardDir, "ready", "TB-102.md")); err != nil {
+		t.Fatalf("TB-102 should remain ready after worker budget is exhausted: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(boardDir, ".next-id"), []byte("300\n"), 0o644); err != nil {
-		t.Fatalf(".next-id: %v", err)
+	status := f.coord.Status()
+	if reason, ok := status.LastSkipReasons["TB-102"]; !ok || reason != "worker capacity full" {
+		t.Fatalf("TB-102 skip reason = %q (have=%v), want worker capacity full", reason, ok)
 	}
-	if err := os.WriteFile(filepath.Join(boardDir, "in-progress", "TB-200.md"),
-		[]byte(readyTaskBody(readyTaskSpec{ID: "TB-200", Type: "bug", Size: "S", Module: "gui", Agent: "claude"})),
-		0o644); err != nil {
-		t.Fatalf("seed in-progress: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(boardDir, "ready", "TB-100.md"),
-		[]byte(readyTaskBody(readyTaskSpec{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"})),
-		0o644); err != nil {
-		t.Fatalf("seed ready: %v", err)
-	}
+}
 
-	c, err := cli.NewClient(cli.Options{BinaryPath: tbBinary, Cwd: root})
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	stub := &stubRunner{name: "claude", stdoutLines: []string{"x"}, exitCode: 0}
-	board := NewBoardService()
-	board.setClient(c)
-	board.setBoardDir(boardDir)
-	em := newRecordingEmitter()
-	svc := NewAgentService(AgentServiceOptions{Board: board, Emitter: em})
-	svc.setRunnerFactory(func(name string) (agent.Runner, error) { return stub, nil })
+func TestAutoImplementCoordinator_ActiveRunReducesWorkerBudget(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		[]readyTaskSpec{
+			{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+			{ID: "TB-101", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+		},
+		nil,
+	)
+	f.budget.setMax(2)
+	f.budget.setActive("TB-999")
 
-	prefs := filepath.Join(t.TempDir(), "preferences.json")
-	settings := NewSettingsService(SettingsOptions{
-		Logger:      slog.Default(),
-		RecentsPath: filepath.Join(t.TempDir(), "recent.json"),
-		PrefsPath:   prefs,
-	})
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
 
-	coord := NewAutoImplementCoordinator(AutoImplementCoordinatorOptions{
-		Board: board, Agent: svc, Settings: settings, Emitter: em, Logger: slog.Default(),
-	})
-	t.Cleanup(func() { _ = coord.Deactivate() })
+	queued := f.queuedTaskIDs()
+	if got, want := queued, []string{"TB-100"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("queued = %v, want %v", got, want)
+	}
+	status := f.coord.Status()
+	if reason, ok := status.LastSkipReasons["TB-101"]; !ok || reason != "worker capacity full" {
+		t.Fatalf("TB-101 skip reason = %q (have=%v), want worker capacity full", reason, ok)
+	}
+}
 
-	if err := settings.SetDefaultAgent("claude"); err != nil {
-		t.Fatalf("SetDefaultAgent: %v", err)
-	}
-	if err := settings.SetAutoImplementQuery(acFilterFixture()); err != nil {
-		t.Fatalf("SetAutoImplementQuery: %v", err)
-	}
-	if err := settings.SetAutoImplementEnabled(true); err != nil {
-		t.Fatalf("SetAutoImplementEnabled: %v", err)
-	}
-
-	if err := coord.Activate(context.Background(), boardDir); err != nil {
-		t.Fatalf("Activate: %v", err)
-	}
-	coord.mu.Lock()
-	if coord.debounceTimer != nil {
-		coord.debounceTimer.Stop()
-		coord.debounceTimer = nil
-	}
-	coord.mu.Unlock()
-	coord.scan(context.Background(), boardDir)
+// WIP warn: auto-implement treats wip_limit_in_progress as a hard automation
+// cap even though manual CLI moves only warn. The coordinator must skip before
+// calling tb pull, leaving the ready task untouched.
+func TestAutoImplementCoordinator_WarnModeWIPPreflightSkipsBeforePull(t *testing.T) {
+	f := newAutoImplementFixtureWithConfig(t, "claude",
+		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		map[string][]readyTaskSpec{
+			"in-progress": {{ID: "TB-200", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		},
+		"board: board\nprefix: TB\nwip_limit_in_progress: 1\nwip_enforcement: warn\n",
+	)
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
 
 	// Task must still be in ready (pull rejected).
-	if _, err := os.Stat(filepath.Join(boardDir, "ready", "TB-100.md")); err != nil {
-		t.Errorf("task should remain in ready after WIP-blocked pull: %v", err)
+	if _, err := os.Stat(filepath.Join(f.boardDir, "ready", "TB-100.md")); err != nil {
+		t.Errorf("task should remain in ready after WIP preflight skip: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(boardDir, "in-progress", "TB-100.md")); !os.IsNotExist(err) {
-		t.Errorf("task should NOT be in in-progress (WIP blocked): err=%v", err)
+	if _, err := os.Stat(filepath.Join(f.boardDir, "in-progress", "TB-100.md")); !os.IsNotExist(err) {
+		t.Errorf("task should NOT be in in-progress (WIP preflight blocked): err=%v", err)
 	}
 	pullFailed := 0
 	queued := 0
-	for _, e := range em.snapshot() {
+	for _, e := range f.emitter.snapshot() {
 		switch e.Name {
 		case "auto-implement:pull-failed":
 			pullFailed++
@@ -715,15 +824,113 @@ func TestAutoImplementCoordinator_WIPBlockedPullSkips(t *testing.T) {
 			queued++
 		}
 	}
-	if pullFailed != 1 {
-		t.Errorf("expected 1 pull-failed emit; got %d", pullFailed)
+	if pullFailed != 0 {
+		t.Errorf("expected preflight skip before tb pull; got %d pull-failed emits", pullFailed)
 	}
 	if queued != 0 {
 		t.Errorf("expected 0 queued emits; got %d", queued)
 	}
-	status := coord.Status()
+	status := f.coord.Status()
+	if reason, ok := status.LastSkipReasons["TB-100"]; !ok || reason != "in-progress WIP limit full" {
+		t.Errorf("expected WIP skip reason; got %q (have=%v)", reason, ok)
+	}
+}
+
+func TestAutoImplementCoordinator_StrictWIPRaceFallsBackToPullFailure(t *testing.T) {
+	f := newAutoImplementFixtureWithConfig(t, "claude",
+		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		nil,
+		"board: board\nprefix: TB\nwip_limit_in_progress: 1\nwip_enforcement: strict\n",
+	)
+	f.coord.beforePullForTesting = func(taskID string) {
+		if taskID != "TB-100" {
+			return
+		}
+		path := filepath.Join(f.boardDir, "in-progress", "TB-999.md")
+		body := readyTaskBody(readyTaskSpec{ID: "TB-999", Type: "bug", Size: "S", Module: "gui", Agent: "claude"})
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("seed race task: %v", err)
+		}
+	}
+
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+
+	if _, err := os.Stat(filepath.Join(f.boardDir, "ready", "TB-100.md")); err != nil {
+		t.Fatalf("TB-100 should remain ready after strict pull race: %v", err)
+	}
+	if got := countEmitsByName(f.emitter, "auto-implement:pull-failed", "TB-100"); got != 1 {
+		t.Fatalf("pull-failed emits = %d, want 1\nevents: %+v", got, f.emitter.snapshot())
+	}
+	if got := countEmitsByName(f.emitter, "auto-implement:queued", "TB-100"); got != 0 {
+		t.Fatalf("queued emits = %d, want 0", got)
+	}
+	status := f.coord.Status()
 	if reason, ok := status.LastSkipReasons["TB-100"]; !ok || !strings.HasPrefix(reason, "pull-failed:") {
-		t.Errorf("expected skip reason starting with 'pull-failed:'; got %q (have=%v)", reason, ok)
+		t.Fatalf("TB-100 skip reason = %q (have=%v), want pull-failed", reason, ok)
+	}
+}
+
+func TestAutoImplementCoordinator_PostPullRunFailureConsumesWIPSlot(t *testing.T) {
+	f := newAutoImplementFixtureWithConfig(t, "claude",
+		[]readyTaskSpec{
+			{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+			{ID: "TB-101", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+		},
+		nil,
+		"board: board\nprefix: TB\nwip_limit_in_progress: 1\nwip_enforcement: warn\n",
+	)
+	var factoryCalls int
+	f.svc.setRunnerFactory(func(name string) (agent.Runner, error) {
+		factoryCalls++
+		if factoryCalls == 1 {
+			return f.stub, nil
+		}
+		return nil, fmt.Errorf("%w: %q", ErrAgentNotSupported, name)
+	})
+
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+
+	if _, err := os.Stat(filepath.Join(f.boardDir, "in-progress", "TB-100.md")); err != nil {
+		t.Fatalf("TB-100 should consume the in-progress WIP slot after pull succeeds: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.boardDir, "ready", "TB-101.md")); err != nil {
+		t.Fatalf("TB-101 should remain ready after the pulled task consumes WIP: %v", err)
+	}
+	if got := countEmitsByName(f.emitter, "auto-implement:queued", "TB-100"); got != 0 {
+		t.Fatalf("queued emits for failed run = %d, want 0", got)
+	}
+	if got := countEmitsByName(f.emitter, "auto-implement:run-failed", "TB-100"); got != 1 {
+		t.Fatalf("run-failed emits = %d, want 1\nevents: %+v", got, f.emitter.snapshot())
+	}
+	status := f.coord.Status()
+	if reason, ok := status.LastSkipReasons["TB-101"]; !ok || reason != "in-progress WIP limit full" {
+		t.Fatalf("TB-101 skip reason = %q (have=%v), want in-progress WIP limit full", reason, ok)
+	}
+}
+
+func TestAutoImplementCoordinator_NoWIPLimitDoesNotBlock(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		[]readyTaskSpec{
+			{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+			{ID: "TB-101", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+		},
+		map[string][]readyTaskSpec{
+			"in-progress": {{ID: "TB-200", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		},
+	)
+	f.budget.setMax(2)
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	queued := f.queuedTaskIDs()
+	if got, want := queued, []string{"TB-100", "TB-101"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("queued = %v, want %v", got, want)
 	}
 }
 
@@ -903,7 +1110,7 @@ func TestAutoImplementCoordinator_ResumeCooldown(t *testing.T) {
 	}
 	// Stamp an EvQueued with the auto-implement initiator so the sweep's
 	// initiator filter passes, then leave AgentStatus=interrupted with no
-	// EvSession — ResumeAgent will fail with ErrNotResumable on every
+	// EvSession — ResumeAgent will fail with ErrCannotResume on every
 	// attempt, so the cooldown is what blocks the retry.
 	if err := agent.AppendEvent(f.boardDir, "TB-100", agent.Event{
 		TS: "2026-05-19T10:00:00Z", RunID: "r_no_session", TaskID: "TB-100",

@@ -71,6 +71,7 @@ const {
   listAttachments,
   pickAttachmentFiles,
   renameTask,
+  errorString,
 } = await import('./api');
 
 describe('pickBoardDialog', () => {
@@ -235,5 +236,68 @@ describe('renameTask', () => {
   it('propagates binding errors so callers can show a toast', async () => {
     mocks.bindEditTask.mockRejectedValueOnce(new Error('tb edit: validation: bad input'));
     await expect(renameTask('TB-1', 'Anything')).rejects.toThrow(/bad input/);
+  });
+});
+
+describe('errorString', () => {
+  it('keeps simple Error and string rejections readable', () => {
+    expect(errorString(new Error('plain failure'))).toBe('plain failure');
+    expect(errorString('string failure')).toBe('string failure');
+  });
+
+  it('extracts actionable CLI stderr from Wails runtime mutation payloads', () => {
+    const payload = {
+      name: 'RuntimeError',
+      message: 'RuntimeError: error calling BoardService.ReadyTask',
+      cause: {
+        message: 'tb ready: validation: structured envelope should not win',
+        cause: {
+          Kind: 3,
+          Op: 'ready',
+          Args: ['ready', 'TB-285'],
+          Stderr: [
+            'TB-285 is not ready - needs grooming.',
+            'Fix with:',
+            '  tb edit TB-285 --priority P2',
+            '  tb triage TB-285',
+          ].join('\n'),
+          Cause: { message: 'exit status 1' },
+        },
+      },
+    };
+
+    const message = errorString(payload);
+
+    expect(message).toContain('TB-285 is not ready - needs grooming.');
+    expect(message).toContain('tb edit TB-285');
+    expect(message).toContain('tb triage TB-285');
+    expect(message).not.toContain('RuntimeError');
+    expect(message).not.toContain('Kind');
+    expect(message).not.toContain('Op');
+    expect(message).not.toContain('Args');
+    expect(message).not.toContain('Cause');
+    expect(message).not.toContain('[object Object]');
+  });
+
+  it('preserves CLI validation messages when an Error cause only carries exit status', () => {
+    const err = new Error(
+      [
+        'tb ready: validation: TB-285 is not ready - needs grooming.',
+        'Fix with:',
+        '  tb triage TB-285',
+      ].join('\n'),
+      { cause: new Error('exit status 1') },
+    );
+
+    const message = errorString(err);
+
+    expect(message).toContain('TB-285 is not ready - needs grooming.');
+    expect(message).toContain('tb triage TB-285');
+    expect(message).not.toBe('exit status 1');
+  });
+
+  it('keeps primitive-looking string rejections as plain strings', () => {
+    expect(errorString('404')).toBe('404');
+    expect(errorString('true')).toBe('true');
   });
 });

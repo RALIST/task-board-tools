@@ -5,6 +5,10 @@ import (
 	"testing"
 )
 
+func containsPromptText(prompt, text string) bool {
+	return strings.Contains(strings.Join(strings.Fields(prompt), " "), strings.Join(strings.Fields(text), " "))
+}
+
 func TestMode_String(t *testing.T) {
 	if ModeImplement.String() != "implement" {
 		t.Fatalf("ModeImplement: %q", ModeImplement)
@@ -38,9 +42,24 @@ func TestPromptReview_LocksReviewContract(t *testing.T) {
 		"tb review --findings {{TASK_ID}}",
 		"tb review --fail {{TASK_ID}}",
 		"Do NOT change implementation code",
+		"top-level `**ReviewRef:**` metadata is the machine-readable review target",
+		"`## Review Target` is supplementary human prose",
+		"If `**ReviewRef:**` is missing",
+		"Temporary pass fallback until TB-272 lands",
+		"tb review --pass {{TASK_ID}}",
+		"tb done {{TASK_ID}}",
+		"`review-failed`",
 	} {
-		if !strings.Contains(PromptReview, text) {
+		if !containsPromptText(PromptReview, text) {
 			t.Errorf("PromptReview missing required text %q", text)
+		}
+	}
+	for _, text := range []string{
+		"commit (if not committed yet)",
+		"Do NOT run `tb start`, `tb done`, `tb close`, or `tb mv`",
+	} {
+		if containsPromptText(PromptReview, text) {
+			t.Errorf("PromptReview contains contradictory or stale text %q", text)
 		}
 	}
 }
@@ -60,9 +79,27 @@ func TestPromptImplement_NonEmptyAndContainsPlaceholders(t *testing.T) {
 		"--user-attention",
 		"--agent-status needs-user",
 		"Unblock condition",
+		"First confirm the task is already in `in-progress` with `tb show {{TASK_ID}}`",
+		"The daemon/auto-implement coordinator or a human `tb pull` owns the `ready` -> `in-progress` move",
+		"Autonomous implementation normally submits to code-review",
+		"Only run `tb done {{TASK_ID}}` when the task or user explicitly authorizes bypassing review",
+		"Use the User Attention handoff for clarification",
+		"tb review --target {{TASK_ID}}",
+		"tb edit {{TASK_ID}} --review-ref <branch|PR|commit>",
+		"tb review --submit {{TASK_ID}}",
 	} {
-		if !strings.Contains(PromptImplement, text) {
+		if !containsPromptText(PromptImplement, text) {
 			t.Errorf("PromptImplement missing user-attention handoff text %q", text)
+		}
+	}
+	for _, text := range []string{
+		"tb start {{TASK_ID}}",
+		"add a comment to the task and wait",
+		"Just add a comment with your findings and close or move to done",
+		"When the change is small and you have authorisation to land it directly",
+	} {
+		if containsPromptText(PromptImplement, text) {
+			t.Errorf("PromptImplement contains stale workflow text %q", text)
 		}
 	}
 }

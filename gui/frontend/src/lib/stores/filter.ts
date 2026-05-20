@@ -35,13 +35,3 @@ export const filter = writable<BoardFilter>({ ...initialFilter });
 export function clearFilter(): void {
   filter.update((f) => ({ ...initialFilter, showArchive: f.showArchive }));
 }
-
-// focusFilterBarToken is incremented by SettingsPanel's "Edit in board
-// filter" button. FilterBar watches it via $effect and focuses the
-// search input on increment so the user lands cursor-ready on the
-// FilterBar after closing Settings. (TB-288)
-export const focusFilterBarToken = writable<number>(0);
-
-export function requestFocusFilterBar(): void {
-  focusFilterBarToken.update((n) => n + 1);
-}

@@ -169,9 +169,10 @@ var PromptImplement string
 //go:embed prompts/groom.md
 var PromptGroom string
 
-// PromptResume is the embedded short continuation prompt used when an
-// interrupted run is resumed (TB-130). No template variables in M1 —
-// the resumed conversation already carries the original task context.
+// PromptResume is the embedded short continuation prompt used when a
+// captured terminal session is resumed (TB-130/TB-252). No template
+// variables in M1 — the resumed conversation already carries the original
+// task context.
 //
 //go:embed prompts/resume.md
 var PromptResume string

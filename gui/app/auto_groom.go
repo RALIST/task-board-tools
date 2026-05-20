@@ -543,7 +543,7 @@ func (c *AutoGroomCoordinator) boardDirLocked() string {
 
 // pruneResumeAttempts ages out cooldown entries past their useful life so
 // the map can't grow indefinitely across many distinct tasks that each
-// failed resume once and then left the interrupted state.
+// failed resume once and then left a resumable terminal state.
 func (c *AutoGroomCoordinator) pruneResumeAttempts() {
 	cutoff := c.now().Add(-2 * resumeAttemptCooldown)
 	c.mu.Lock()

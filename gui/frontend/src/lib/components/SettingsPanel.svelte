@@ -12,10 +12,8 @@
   import {
     emptyAutoImplementFilter,
     isAutoImplementFilterEmpty,
-    summarizeAutoImplementFilter,
     type AutoImplementFilter,
   } from '$lib/autoImplementFilter';
-  import { requestFocusFilterBar } from '$lib/stores/filter';
 
   interface ClaudeUsageTapStatus {
     enabled: boolean;
@@ -42,11 +40,8 @@
   let autoGroomInput = $state(false);
   let autoGroomSettleInput = $state('5');
   let autoImplementInput = $state(false);
-  // TB-288: the auto-implement filter is persisted as a structured
-  // object, edited via the FilterBar "Save as auto-implement" button.
-  // SettingsPanel only shows a read-only summary + "Edit in board
-  // filter" shortcut; the toggle is still locally tracked so a single
-  // Save round-trip can flip it.
+  // TB-297: Settings only owns the enable/disable preference. The
+  // persisted filter is read here solely to render prerequisite warnings.
   let savedFilter = $state<AutoImplementFilter>({ ...emptyAutoImplementFilter });
   let saving = $state(false);
   let opened = $state(false);
@@ -55,6 +50,7 @@
   let tapBusy = $state(false);
   let baseline = $state<EditablePreferences>({
     maxWorkers: 1,
+    maxWorkersLimit: 1,
     agentTimeoutMinutes: 30,
     defaultAgent: 'none',
     cliPath: '',
@@ -65,7 +61,9 @@
     autoImplementQuery: { ...emptyAutoImplementFilter },
   });
 
-  let nextMaxWorkers = $derived(clampNumber(maxWorkersInput, 1, 4, baseline.maxWorkers));
+  let nextMaxWorkers = $derived(
+    clampNumber(maxWorkersInput, 1, baseline.maxWorkersLimit, baseline.maxWorkers),
+  );
   let nextAgentTimeout = $derived(
     clampNumber(agentTimeoutInput, 1, 240, baseline.agentTimeoutMinutes),
   );
@@ -93,7 +91,6 @@
   // filter cannot fail to parse. Mirrors Go-side IsEmpty check.
   let autoImplementFilterEmpty = $derived(isAutoImplementFilterEmpty(savedFilter));
   let autoImplementNeedsQuery = $derived(autoImplementInput && autoImplementFilterEmpty);
-  let autoImplementFilterSummary = $derived(summarizeAutoImplementFilter(savedFilter));
 
   $effect(() => {
     const prefs = $preferencesStore;
@@ -207,9 +204,8 @@
           failures.push('auto-groom settle window');
         }
       }
-      // TB-288: the auto-implement filter is no longer editable from
-      // SettingsPanel — the FilterBar "Save as auto-implement" button
-      // is the single write path. SettingsPanel only flips the toggle.
+      // TB-297: the FilterBar "Save as auto-implement" button is the
+      // single write path for the persisted query.
       if (autoImplementInput !== baseline.autoImplementEnabled) {
         try {
           await preferencesStore.setAutoImplementEnabled(autoImplementInput);
@@ -262,6 +258,7 @@
   function toEditable(prefs: PreferencesState): EditablePreferences {
     return {
       maxWorkers: prefs.maxWorkers,
+      maxWorkersLimit: prefs.maxWorkersLimit,
       agentTimeoutMinutes: prefs.agentTimeoutMinutes,
       defaultAgent: prefs.defaultAgent,
       cliPath: prefs.cliPath,
@@ -322,11 +319,11 @@
           <input
             type="number"
             min="1"
-            max="4"
+            max={baseline.maxWorkersLimit}
             step="1"
             bind:value={maxWorkersInput}
             onblur={snapMaxWorkers} />
-          <small>1-4</small>
+          <small>1-{baseline.maxWorkersLimit}</small>
         </label>
 
         <label class="field">
@@ -441,31 +438,6 @@
             starts implementation runs. Requires a default agent and a non-empty filter.
           </small>
         </label>
-
-        <div class="field" class:disabled-field={!autoImplementInput}>
-          <span>Auto-implement filter</span>
-          <div class="filter-summary" data-testid="auto-implement-filter-summary">
-            {#if autoImplementFilterEmpty}
-              <em class="muted">No filter saved.</em>
-            {:else}
-              <span>{autoImplementFilterSummary}</span>
-            {/if}
-          </div>
-          <button
-            class="ghost edit-filter"
-            data-testid="auto-implement-edit-filter"
-            type="button"
-            onclick={() => {
-              requestFocusFilterBar();
-              onClose();
-            }}>
-            Edit in board filter
-          </button>
-          <small>
-            Build the filter on the board and click "Save as auto-implement" in the
-            FilterBar to persist it.
-          </small>
-        </div>
 
         {#if autoImplementNeedsDefaultAgent}
           <p class="inline-warning" role="alert">
@@ -584,25 +556,6 @@
   }
   .disabled-field {
     opacity: 0.55;
-  }
-  .filter-summary {
-    padding: 8px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 5px;
-    background: rgba(0, 0, 0, 0.18);
-    font-size: 12px;
-    color: var(--fg);
-    word-break: break-word;
-  }
-  .filter-summary .muted {
-    color: var(--fg-dim);
-    font-style: italic;
-  }
-  .edit-filter {
-    align-self: flex-start;
-    margin-top: 6px;
-    font-size: 11px;
-    padding: 4px 10px;
   }
   .inline-warning {
     margin: -2px 0 0;

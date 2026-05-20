@@ -13,6 +13,7 @@ const acFilter: AutoImplementFilter = {
 };
 
 const getMaxWorkers = vi.fn<() => Promise<number>>();
+const getMaxWorkersLimit = vi.fn<() => Promise<number>>();
 const setMaxWorkers = vi.fn<(n: number) => Promise<void>>();
 const getAgentTimeoutMinutes = vi.fn<() => Promise<number>>();
 const setAgentTimeoutMinutes = vi.fn<(n: number) => Promise<void>>();
@@ -34,6 +35,7 @@ const pushToast = vi.fn();
 
 vi.mock('$lib/api', () => ({
   getMaxWorkers: () => getMaxWorkers(),
+  getMaxWorkersLimit: () => getMaxWorkersLimit(),
   setMaxWorkers: (n: number) => setMaxWorkers(n),
   getAgentTimeoutMinutes: () => getAgentTimeoutMinutes(),
   setAgentTimeoutMinutes: (n: number) => setAgentTimeoutMinutes(n),
@@ -77,6 +79,7 @@ describe('preferencesStore', () => {
     _resetPreferencesStoreForTesting();
     vi.clearAllMocks();
     getMaxWorkers.mockResolvedValue(1);
+    getMaxWorkersLimit.mockResolvedValue(8);
     getAgentTimeoutMinutes.mockResolvedValue(30);
     getDefaultAgent.mockResolvedValue('none');
     getCLIPath.mockResolvedValue('');
@@ -98,6 +101,7 @@ describe('preferencesStore', () => {
 
   it('hydrates preferences and marks the store loaded', async () => {
     getMaxWorkers.mockResolvedValue(3);
+    getMaxWorkersLimit.mockResolvedValue(8);
     getAgentTimeoutMinutes.mockResolvedValue(45);
     getDefaultAgent.mockResolvedValue('codex');
     getCLIPath.mockResolvedValue('/usr/local/bin/tb');
@@ -111,6 +115,7 @@ describe('preferencesStore', () => {
 
     expect(get(preferencesStore)).toEqual({
       maxWorkers: 3,
+      maxWorkersLimit: 8,
       agentTimeoutMinutes: 45,
       defaultAgent: 'codex',
       cliPath: '/usr/local/bin/tb',
@@ -128,6 +133,7 @@ describe('preferencesStore', () => {
     await loadPreferences();
 
     expect(getMaxWorkers).toHaveBeenCalledTimes(1);
+    expect(getMaxWorkersLimit).toHaveBeenCalledTimes(1);
     expect(getAgentTimeoutMinutes).toHaveBeenCalledTimes(1);
     expect(getDefaultAgent).toHaveBeenCalledTimes(1);
     expect(getCLIPath).toHaveBeenCalledTimes(1);
@@ -158,6 +164,7 @@ describe('preferencesStore', () => {
     expect(setAutoGroomSettleMinutes).toHaveBeenCalledWith(15);
     expect(get(preferencesStore)).toMatchObject({
       maxWorkers: 4,
+      maxWorkersLimit: 8,
       agentTimeoutMinutes: 60,
       defaultAgent: 'claude',
       cliPath: '/opt/bin/tb',
@@ -174,6 +181,22 @@ describe('preferencesStore', () => {
 
     expect(setAutoGroomSettleMinutes).toHaveBeenCalledWith(0);
     expect(get(preferencesStore)).toMatchObject({ autoGroomSettleMinutes: 0 });
+  });
+
+  it('uses the backend max-worker limit when hydrating and saving', async () => {
+    getMaxWorkers.mockResolvedValue(99);
+    getMaxWorkersLimit.mockResolvedValue(12);
+    await loadPreferences();
+
+    expect(get(preferencesStore)).toMatchObject({
+      maxWorkers: 12,
+      maxWorkersLimit: 12,
+    });
+
+    await storeSetMaxWorkers(99);
+
+    expect(setMaxWorkers).toHaveBeenCalledWith(12);
+    expect(get(preferencesStore)).toMatchObject({ maxWorkers: 12 });
   });
 
   it('clamps out-of-range settle minutes on write', async () => {

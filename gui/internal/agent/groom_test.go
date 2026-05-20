@@ -51,10 +51,18 @@ func TestPromptGroom_StatesGroomingMutationContract(t *testing.T) {
 		"--user-attention",
 		"--agent-status needs-user",
 		"Unblock condition",
+		"If the task is outdated, too stale, or cannot be made ready from the available context",
 	}
 	for _, text := range required {
 		if !strings.Contains(PromptGroom, text) {
 			t.Errorf("PromptGroom missing contract text %q", text)
+		}
+	}
+	for _, text := range []string{
+		"If the task is outdated, close it with the proper board command",
+	} {
+		if strings.Contains(PromptGroom, text) {
+			t.Errorf("PromptGroom contains stale workflow text %q", text)
 		}
 	}
 }

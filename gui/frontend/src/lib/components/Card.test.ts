@@ -590,7 +590,7 @@ describe('Card.svelte needs-user indicator (TB-182)', () => {
 });
 
 describe('Card.svelte resume gating (TB-241)', () => {
-  it('disables Resume when the task has no captured session', async () => {
+  it('hides Resume when the task has no captured session', async () => {
     component = mount(Card, {
       target: document.body,
       props: { task: makeTask({ id: 'TB-241', agent: 'claude', agentStatus: 'interrupted', agentResumable: false }) },
@@ -598,12 +598,7 @@ describe('Card.svelte resume gating (TB-241)', () => {
     await tick();
 
     const resume = document.querySelector<HTMLButtonElement>('.card .resume-indicator');
-    expect(resume).not.toBeNull();
-    expect(resume?.disabled).toBe(true);
-    expect(resume?.title ?? '').toMatch(/no captured session/i);
-    resume?.click();
-    await tick();
-
+    expect(resume).toBeNull();
     expect(apiMocks.resumeAgent).not.toHaveBeenCalled();
   });
 
@@ -618,6 +613,24 @@ describe('Card.svelte resume gating (TB-241)', () => {
     const resume = document.querySelector<HTMLButtonElement>('.card .resume-indicator');
     expect(resume).not.toBeNull();
     expect(resume?.disabled).toBe(false);
+    resume?.click();
+    await tick();
+
+    expect(apiMocks.resumeAgent).toHaveBeenCalledWith('TB-241');
+  });
+
+  it('calls ResumeAgent when failed and resumable', async () => {
+    apiMocks.resumeAgent.mockResolvedValue('r_resume');
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-241', agent: 'claude', agentStatus: 'failed', agentResumable: true }) },
+    });
+    await tick();
+
+    const resume = document.querySelector<HTMLButtonElement>('.card .resume-indicator');
+    expect(resume).not.toBeNull();
+    expect(resume?.disabled).toBe(false);
+    expect(resume?.title ?? '').toMatch(/resume failed run/i);
     resume?.click();
     await tick();
 

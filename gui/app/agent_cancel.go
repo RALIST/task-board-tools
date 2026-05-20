@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"syscall"
 	"time"
+
+	"tools/tb-gui/internal/agent"
 )
 
 // cancelGracePeriod is how long CancelRun waits after SIGTERM before
@@ -53,11 +55,15 @@ func (s *AgentService) CancelRun(ctx context.Context, id string) error {
 		return ErrNotRunning
 	}
 
+	if !ar.verifyPIDIdentity() {
+		return fmt.Errorf("%w: task %s run %s", ErrRunIdentityMismatch, id, ar.RunID)
+	}
+
 	// Step 1 — mark before kill so the post-run handler defers to us.
 	ar.markCancelled()
 
 	// Step 2 — SIGTERM + grace + SIGKILL on pgid.
-	if err := killActiveRun(ar); err != nil {
+	if err := killActiveRun(ar, boardDir, "user cancelled"); err != nil {
 		// Even if the signal fails (process already dead), continue
 		// through the rest of the protocol — the goal is to leave the
 		// task in `cancelled` state regardless of the kernel's view.
@@ -78,7 +84,7 @@ func (s *AgentService) CancelRun(ctx context.Context, id string) error {
 // killActiveRun delivers SIGTERM and (after a grace period) SIGKILL to
 // the run's process group. Reads ar fields under ar.mu so a racing
 // OnStarted callback doesn't see torn values.
-func killActiveRun(ar *activeRun) error {
+func killActiveRun(ar *activeRun, boardDir string, reason string) error {
 	ar.mu.Lock()
 	pid := ar.Pid
 	pgid := ar.Pgid
@@ -96,6 +102,8 @@ func killActiveRun(ar *activeRun) error {
 		// observe cmd.Wait returning, write its return, and close Done.
 		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && err != syscall.ESRCH {
 			slog.Warn("agent: SIGTERM failed", "pid", pid, "err", err)
+		} else if err == nil {
+			appendCleanupAudit(boardDir, ar, pid, "SIGTERM", "pid", reason)
 		}
 	}
 
@@ -116,14 +124,41 @@ func killActiveRun(ar *activeRun) error {
 		// leader only.
 		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
 			slog.Warn("agent: SIGKILL pgid failed", "pgid", pgid, "err", err)
+		} else if err == nil {
+			appendCleanupAudit(boardDir, ar, pgid, "SIGKILL", "pgid", reason)
 		}
 	} else if pid > 0 {
 		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
 			slog.Warn("agent: SIGKILL pid fallback failed", "pid", pid, "err", err)
+		} else if err == nil {
+			appendCleanupAudit(boardDir, ar, pid, "SIGKILL", "pid", reason)
 		}
+	}
+	if ar.isRecovered() {
+		ar.closeDone()
 	}
 	// Wait without bound for Done — at this point the kernel has killed
 	// the process, so cmd.Wait can't be far behind.
 	<-ar.Done
 	return nil
+}
+
+func appendCleanupAudit(boardDir string, ar *activeRun, pid int, signal, target, reason string) {
+	if boardDir == "" || ar == nil || pid <= 0 {
+		return
+	}
+	if err := agent.AppendEvent(boardDir, ar.TaskID, agent.Event{
+		TS:     time.Now().UTC().Format(time.RFC3339),
+		RunID:  ar.RunID,
+		TaskID: ar.TaskID,
+		Event:  agent.EvCleanup,
+		Agent:  ar.Agent,
+		Mode:   ar.Mode,
+		PID:    pid,
+		Signal: signal,
+		Target: target,
+		Reason: reason,
+	}); err != nil {
+		slog.Warn("agent: cleanup audit write failed", "task", ar.TaskID, "run", ar.RunID, "signal", signal, "target", target, "err", err)
+	}
 }

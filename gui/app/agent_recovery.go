@@ -213,7 +213,7 @@ func (r *RecoveryService) recoverOne(ctx context.Context, c *cli.Client, boardDi
 			// signal the orphaned process group. The monitor below will close
 			// the stub's Done channel when the PID exits, so killActiveRun's
 			// wait unblocks regardless of whether cancel or natural exit wins.
-			stub := newRecoveredStubRun(r.logger, run.RunID, t.ID, expectedAgent, run.Mode, run.PID)
+			stub := newRecoveredStubRun(r.logger, run.RunID, t.ID, expectedAgent, run.Mode, run.PID, r.liveFn)
 			if r.agent != nil {
 				r.agent.adoptRecoveredRun(t.ID, stub)
 			}
@@ -375,7 +375,7 @@ func (r *RecoveryService) emitFinished(runID, taskID, status string, exitCode in
 // The stub carries enough Agent/Mode context for recordTerminal to
 // write a per-mode-correct finished line when CancelRun (or the
 // monitor on natural exit) reaches that branch.
-func newRecoveredStubRun(logger *slog.Logger, runID, taskID, agentName string, mode agent.Mode, pid int) *activeRun {
+func newRecoveredStubRun(logger *slog.Logger, runID, taskID, agentName string, mode agent.Mode, pid int, verify pidLivenessFunc) *activeRun {
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {
 		if logger != nil {
@@ -389,13 +389,15 @@ func newRecoveredStubRun(logger *slog.Logger, runID, taskID, agentName string, m
 		modeStr = agent.ModeImplement.String()
 	}
 	return &activeRun{
-		RunID:  runID,
-		TaskID: taskID,
-		Agent:  agentName,
-		Mode:   modeStr,
-		Pid:    pid,
-		Pgid:   pgid,
-		Done:   make(chan struct{}),
+		RunID:     runID,
+		TaskID:    taskID,
+		Agent:     agentName,
+		Mode:      modeStr,
+		Pid:       pid,
+		Pgid:      pgid,
+		Done:      make(chan struct{}),
+		VerifyPID: verify,
+		Recovered: true,
 	}
 }
 
@@ -501,6 +503,7 @@ func (r *RecoveryService) pollRecoveredRunMonitor(ctx context.Context, c *cli.Cl
 		return true, nil
 	}
 	if latest.LastFinished != nil {
+		r.releaseRecoveredRun(t.ID, runID)
 		return true, r.syncFinishedStatus(ctx, c, t, latest)
 	}
 
@@ -516,6 +519,18 @@ func (r *RecoveryService) pollRecoveredRunMonitor(ctx context.Context, c *cli.Cl
 		return false, nil
 	}
 	return true, r.reconcileOrphanExit(ctx, c, boardDir, t, runID)
+}
+
+func (r *RecoveryService) releaseRecoveredRun(taskID, runID string) {
+	if r.agent == nil {
+		return
+	}
+	ar := r.agent.getActiveRun(taskID)
+	if ar == nil || ar.RunID != runID {
+		return
+	}
+	ar.closeDone()
+	r.agent.removeActiveRun(taskID, ar)
 }
 
 // reconcileOrphanExit closes out the stub activeRun (if one is

@@ -18,10 +18,12 @@ Read `@board/SKILL.md` for important rules about working with the board and task
 ## Working contract
 
 - read the `AGENTS.md` or `CLAUDE.md` for general guidelines on how to work with current project
+- First confirm the task is already in `in-progress` with `tb show {{TASK_ID}}`.
+  The daemon/auto-implement coordinator or a human `tb pull` owns the `ready` -> `in-progress` move; do not push a ready task forward yourself.
 - The task `.md` file is the source of truth. Use the `tb` CLI to read and
   mutate task state; never edit `BOARD.md` directly.
 - Make small, atomic commits. Run the project's test suite before declaring done.
-- When the work is complete, append a summary line to the task's `## Log` section via `tb`. If the change needs reviewer signoff, set both the human-readable `## Review Target` prose (via `tb review --target`) and the machine-readable `**ReviewRef:**` metadata (via `tb edit --review-ref`) before submitting — TB-235 gates moves into `code-review` on a non-empty `**ReviewRef:**`, and the prose section gives reviewers the context the metadata can't:
+- When the work is complete, append a summary line to the task's `## Log` section via `tb`. Autonomous implementation normally submits to code-review. Set both the human-readable `## Review Target` prose (via `tb review --target`) and the machine-readable `**ReviewRef:**` metadata (via `tb edit --review-ref`) before submitting — TB-235 gates moves into `code-review` on a non-empty `**ReviewRef:**`, and the prose section gives reviewers the context the metadata can't:
   ```sh
   tb review --target {{TASK_ID}} - <<'EOF'
   branch: <feature-branch>
@@ -29,14 +31,14 @@ Read `@board/SKILL.md` for important rules about working with the board and task
   tb edit {{TASK_ID}} --review-ref <branch|PR|commit>
   tb review --submit {{TASK_ID}}
   ```
-  When the change is small and you have authorisation to land it directly, run `tb done {{TASK_ID}}` to move the task to the `done` column.
+  Only run `tb done {{TASK_ID}}` when the task or user explicitly authorizes bypassing review.
 - If you discover follow-up work or bugs durung the work and that is out of scope, create a new task via
   `tb create "<title>" …` rather than expanding this one.
-- validate task against codebase before imlementation: it can be stale or outdated. Just add a comment with your findings and close or move to done.
+- validate task against codebase before imlementation: it can be stale or outdated. If you cannot continue safely, use the User Attention handoff instead of closing or guessing.
 - Verify your work against Acceptance Criteria in the task. 
 - If any criteria are not met, either update the task with what is missing or create new tasks for follow-up work.
 - always check related tasks and parent tasks for blockers. If you find an unresolved blocker that prevents you from making safe progress, do NOT silently un-groom the task back to backlog. Use the `## User Attention handoff` below — `tb edit --user-attention -` with the blocker context, then `tb edit --agent-status needs-user`. The task stays in its current column (groomed work is still groomed) and the user clears it once unblocked.
-- If you need to ask for clarification, add a comment to the task and wait for a response. Do not make assumptions about unclear requirements.
+- Use the User Attention handoff for clarification. Do not make assumptions about unclear requirements.
 
 ## User Attention handoff
 
@@ -70,4 +72,4 @@ Auto-implement and auto-groom skip `needs-user` tasks until that clear.
 - Documentation is updated if needed.
 - Work commited with clear and descriptive commit messages.
 
-Move task in progress `tb start {{TASK_ID}}` and begin.
+Confirm the task is in progress and begin.

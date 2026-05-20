@@ -8,6 +8,7 @@ import {
   getCLIPath,
   getDefaultAgent,
   getMaxWorkers,
+  getMaxWorkersLimit,
   getPeriodicRecoveryEnabled,
   setAgentTimeoutMinutes as apiSetAgentTimeoutMinutes,
   setAutoGroomEnabled as apiSetAutoGroomEnabled,
@@ -29,6 +30,7 @@ export type DefaultAgent = 'none' | 'claude' | 'codex';
 
 export interface PreferencesState {
   maxWorkers: number;
+  maxWorkersLimit: number;
   agentTimeoutMinutes: number;
   defaultAgent: DefaultAgent;
   cliPath: string;
@@ -42,6 +44,7 @@ export interface PreferencesState {
 
 const DEFAULT_STATE: PreferencesState = {
   maxWorkers: 1,
+  maxWorkersLimit: 1,
   agentTimeoutMinutes: 30,
   defaultAgent: 'none',
   cliPath: '',
@@ -66,6 +69,7 @@ export async function loadPreferences(): Promise<void> {
     try {
       const [
         maxWorkers,
+        maxWorkersLimit,
         agentTimeoutMinutes,
         rawDefaultAgent,
         cliPath,
@@ -76,6 +80,7 @@ export async function loadPreferences(): Promise<void> {
         autoImplementQuery,
       ] = await Promise.all([
         getMaxWorkers(),
+        getMaxWorkersLimit(),
         getAgentTimeoutMinutes(),
         getDefaultAgent(),
         getCLIPath(),
@@ -86,8 +91,20 @@ export async function loadPreferences(): Promise<void> {
         getAutoImplementQuery(),
       ]);
 
+      const normalizedMaxWorkersLimit = normalizeStoredInt(
+        maxWorkersLimit,
+        1,
+        Number.MAX_SAFE_INTEGER,
+        DEFAULT_STATE.maxWorkersLimit,
+      );
       preferences.set({
-        maxWorkers: normalizeStoredInt(maxWorkers, 1, 4, DEFAULT_STATE.maxWorkers),
+        maxWorkers: normalizeStoredInt(
+          maxWorkers,
+          1,
+          normalizedMaxWorkersLimit,
+          DEFAULT_STATE.maxWorkers,
+        ),
+        maxWorkersLimit: normalizedMaxWorkersLimit,
         agentTimeoutMinutes: normalizeStoredInt(
           agentTimeoutMinutes,
           1,
@@ -120,7 +137,8 @@ export async function loadPreferences(): Promise<void> {
 }
 
 export async function setMaxWorkers(value: number): Promise<void> {
-  const next = clampSettingInt(value, 1, 4, DEFAULT_STATE.maxWorkers);
+  const limit = get(preferences).maxWorkersLimit;
+  const next = clampSettingInt(value, 1, limit, DEFAULT_STATE.maxWorkers);
   await optimisticWrite('maxWorkers', next, 'max workers', () => apiSetMaxWorkers(next));
 }
 

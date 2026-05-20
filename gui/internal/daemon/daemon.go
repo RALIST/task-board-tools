@@ -205,6 +205,20 @@ func New(opts Options) *Daemon {
 // telemetry and tests.
 func (d *Daemon) MaxWorkers() int { return d.maxWorkers }
 
+// ActiveTaskIDs returns a snapshot of task IDs currently queued or running in
+// this daemon instance. Auto-implement uses it to avoid scheduling more ready
+// work than the worker pool can actually run.
+func (d *Daemon) ActiveTaskIDs() []string {
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+
+	ids := make([]string, 0, len(d.active))
+	for id := range d.active {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // SetPeriodicRecoveryEnabled toggles the steady-state stale-recovery ticker at
 // runtime. Startup recovery still runs during Activate regardless of this
 // setting.

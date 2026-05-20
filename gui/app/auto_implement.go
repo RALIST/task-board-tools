@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -46,8 +49,10 @@ type AutoImplementCoordinator struct {
 	settings *SettingsService
 	emitter  Emitter
 	logger   *slog.Logger
+	budget   AutoImplementWorkerBudget
 
-	now func() time.Time
+	now                  func() time.Time
+	beforePullForTesting func(taskID string)
 
 	mu             sync.Mutex
 	boardDir       string
@@ -63,12 +68,25 @@ type AutoImplementCoordinator struct {
 
 // AutoImplementCoordinatorOptions configures NewAutoImplementCoordinator.
 type AutoImplementCoordinatorOptions struct {
-	Board    *BoardService
-	Agent    *AgentService
-	Settings *SettingsService
-	Emitter  Emitter
-	Logger   *slog.Logger
-	Now      func() time.Time
+	Board        *BoardService
+	Agent        *AgentService
+	Settings     *SettingsService
+	Emitter      Emitter
+	Logger       *slog.Logger
+	Now          func() time.Time
+	WorkerBudget AutoImplementWorkerBudget
+}
+
+// AutoImplementWorkerBudget is the daemon worker budget surface the
+// coordinator needs for preflight scheduling. The production daemon
+// implements it; tests use small fakes.
+type AutoImplementWorkerBudget interface {
+	MaxWorkers() int
+	ActiveTaskIDs() []string
+}
+
+type activeTaskLister interface {
+	ActiveTaskIDs() []string
 }
 
 // NewAutoImplementCoordinator constructs the coordinator. Activate must
@@ -89,6 +107,7 @@ func NewAutoImplementCoordinator(opts AutoImplementCoordinatorOptions) *AutoImpl
 		settings:       opts.Settings,
 		emitter:        opts.Emitter,
 		logger:         logger.With("component", "auto-implement"),
+		budget:         opts.WorkerBudget,
 		now:            clock,
 		lastSkip:       map[string]string{},
 		resumeAttempts: map[string]time.Time{},
@@ -344,8 +363,8 @@ func (c *AutoImplementCoordinator) scan(ctx context.Context, boardDir string) {
 	}
 	var candidates []candidate
 	for _, t := range readyCandidates {
-		if t.AgentStatus != "" {
-			c.recordSkip(t.ID, "agent-status "+t.AgentStatus)
+		if reason := implementGateBlocker(t); reason != "" {
+			c.recordSkip(t.ID, reason)
 			continue
 		}
 		if _, flagged := triage[t.ID]; flagged {
@@ -391,16 +410,39 @@ func (c *AutoImplementCoordinator) scan(ctx context.Context, boardDir string) {
 		return ni < nj
 	})
 
+	remainingWorkers := c.remainingWorkerCapacity()
+	inProgressCount := snap.WipCounts["in-progress"]
+	inProgressLimit := c.explicitInProgressWIPLimit(snap)
+
 	for _, cand := range candidates {
-		c.startCandidate(ctx, boardDir, cand.task, defaultAgent)
+		if remainingWorkers <= 0 {
+			c.recordSkip(cand.task.ID, "worker capacity full")
+			continue
+		}
+		if inProgressLimit > 0 && inProgressCount >= inProgressLimit {
+			c.recordSkip(cand.task.ID, "in-progress WIP limit full")
+			continue
+		}
+		started := c.startCandidate(ctx, boardDir, cand.task, defaultAgent)
+		if started.pulled && inProgressLimit > 0 {
+			inProgressCount++
+		}
+		if started.queued {
+			remainingWorkers--
+		}
 	}
 	c.emit("auto-implement:scan-complete", map[string]any{})
+}
+
+type autoImplementStartResult struct {
+	pulled bool
+	queued bool
 }
 
 // startCandidate runs the per-task move-then-queue pipeline. Records
 // skip reasons (with diagnostics) on every failure path so the
 // frontend can surface what happened.
-func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir string, task Task, defaultAgent string) {
+func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir string, task Task, defaultAgent string) autoImplementStartResult {
 	_ = boardDir
 
 	// Set the Agent first if blank, before the canonical move. The
@@ -412,20 +454,29 @@ func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir 
 		if c2 == nil {
 			c.logger.Warn("auto-implement: board has no CLI client", "task", task.ID)
 			c.recordSkip(task.ID, "no CLI client")
-			return
+			return autoImplementStartResult{}
 		}
 		if err := c2.Edit(ctx, task.ID, cli.EditInput{Agent: defaultAgent}); err != nil {
 			c.logger.Warn("auto-implement: set agent failed", "task", task.ID, "agent", defaultAgent, "err", err)
 			c.recordSkip(task.ID, "set-agent-failed: "+err.Error())
-			return
+			return autoImplementStartResult{}
 		}
 		agentName = defaultAgent
+	}
+
+	if _, err := c.agent.runnerFor(agentName); err != nil {
+		c.logger.Warn("auto-implement: agent unsupported", "task", task.ID, "agent", agentName, "err", err)
+		c.recordSkip(task.ID, "agent-unsupported: "+err.Error())
+		return autoImplementStartResult{}
 	}
 
 	// Canonical pull: respects WIP limits per CLAUDE.md. If WIP strict
 	// blocks the move, the underlying tb CLI returns a non-zero exit
 	// and our wrapper surfaces an error. Record skip + emit so the
 	// frontend can render the WIP-blocked diagnostic.
+	if c.beforePullForTesting != nil {
+		c.beforePullForTesting(task.ID)
+	}
 	if err := c.board.PullTask(ctx, task.ID); err != nil {
 		c.logger.Info("auto-implement: pull failed", "task", task.ID, "err", err)
 		c.recordSkip(task.ID, "pull-failed: "+err.Error())
@@ -433,8 +484,9 @@ func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir 
 			"task_id": task.ID,
 			"error":   err.Error(),
 		})
-		return
+		return autoImplementStartResult{}
 	}
+	result := autoImplementStartResult{pulled: true}
 
 	runID, err := c.agent.RunAgentAs(ctx, task.ID, agent.InitiatorAutoImplement)
 	if err != nil {
@@ -444,8 +496,9 @@ func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir 
 			"task_id": task.ID,
 			"error":   err.Error(),
 		})
-		return
+		return result
 	}
+	result.queued = true
 	c.mu.Lock()
 	delete(c.lastSkip, task.ID)
 	c.mu.Unlock()
@@ -454,11 +507,12 @@ func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir 
 		"run_id":  runID,
 		"agent":   agentName,
 	})
+	return result
 }
 
 // pruneResumeAttempts ages out cooldown entries past their useful life so
 // the map can't grow indefinitely across many distinct tasks that each
-// failed resume once and then left the interrupted state.
+// failed resume once and then left a resumable terminal state.
 func (c *AutoImplementCoordinator) pruneResumeAttempts() {
 	cutoff := c.now().Add(-2 * resumeAttemptCooldown)
 	c.mu.Lock()
@@ -631,7 +685,6 @@ func epicTaskFromBoardTask(t Task) epicorder.Task {
 	}
 }
 
-
 // priorityRank maps a priority string to an int where lower is more
 // urgent. Unknown / empty priorities sort lowest (largest rank) so they
 // trail explicit priorities, matching the CLI's resolveStatusFilter
@@ -651,11 +704,110 @@ func priorityRank(p string) int {
 	}
 }
 
-func tagListContains(tags []string, target string) bool {
-	for _, tag := range tags {
-		if tag == target {
+// implementGateBlocker reports whether a ready task should be skipped by
+// the auto-implement candidate pass and why. It distinguishes between
+// "an implement run is in-flight / about to start" (block) and "the
+// generic AgentStatus cursor reflects a previous run in a different
+// mode" (allow). The latter is the leak path the original `t.AgentStatus
+// != ""` gate stranded — auto-groom's `success` would persist into the
+// cursor without ImplementStatus ever being touched, blocking pickup.
+//
+// Block rules:
+//   - AgentStatus == cancelled — user-initiated cancel; respect intent.
+//   - AgentStatus == needs-user — explicit human handoff (any mode).
+//   - ImplementStatus in {queued, running} — implement run is in-flight
+//     even if the generic AgentStatus shows a different mode's terminal
+//     state. Defense-in-depth: the in-process HasActiveRun guard covers
+//     the same-daemon race, this covers cross-restart durable state.
+func implementGateBlocker(t Task) string {
+	switch t.AgentStatus {
+	case "cancelled", "needs-user":
+		return "agent-status " + t.AgentStatus
+	}
+	switch t.ImplementStatus {
+	case "queued", "running":
+		return "implement-status " + t.ImplementStatus
+	}
+	return ""
+}
+
+func (c *AutoImplementCoordinator) remainingWorkerCapacity() int {
+	maxWorkers := 1
+	active := map[string]struct{}{}
+
+	if c.budget != nil {
+		if max := c.budget.MaxWorkers(); max > 0 {
+			maxWorkers = max
+		}
+		for _, id := range c.budget.ActiveTaskIDs() {
+			if strings.TrimSpace(id) != "" {
+				active[id] = struct{}{}
+			}
+		}
+	} else if c.settings != nil {
+		if max := c.settings.GetMaxWorkers(); max > 0 {
+			maxWorkers = max
+		}
+	}
+
+	if lister, ok := any(c.agent).(activeTaskLister); ok {
+		for _, id := range lister.ActiveTaskIDs() {
+			if strings.TrimSpace(id) != "" {
+				active[id] = struct{}{}
+			}
+		}
+	}
+
+	remaining := maxWorkers - len(active)
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+func (c *AutoImplementCoordinator) explicitInProgressWIPLimit(snap BoardSnapshot) int {
+	if !c.hasExplicitInProgressWIPConfig() {
+		return 0
+	}
+	return snap.WipLimits["in-progress"]
+}
+
+func (c *AutoImplementCoordinator) hasExplicitInProgressWIPConfig() bool {
+	if c.board == nil {
+		return false
+	}
+	client := c.board.snapshot()
+	if client == nil {
+		return false
+	}
+	root := client.Cwd()
+	if strings.TrimSpace(root) == "" {
+		c.mu.Lock()
+		boardDir := c.boardDir
+		c.mu.Unlock()
+		root = filepath.Dir(boardDir)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".tb.yaml"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		key, _, ok := strings.Cut(trimmed, ":")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(key) {
+		case "wip_limit", "wip_limit_in_progress":
 			return true
 		}
 	}
 	return false
+}
+
+func tagListContains(tags []string, target string) bool {
+	return slices.Contains(tags, target)
 }

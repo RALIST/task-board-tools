@@ -36,7 +36,7 @@ type Task struct {
 	Agent       string `json:"agent"`
 	AgentStatus string `json:"agentStatus"`
 	// AgentResumable is true when the latest run has a captured session id
-	// and the task is in the interrupted state that permits Resume.
+	// and the task is in a terminal state that permits Resume.
 	AgentResumable bool `json:"agentResumable"`
 	// TB-237: per-mode attribution. Each pair mirrors the (Agent,
 	// AgentStatus) shape but scoped to one kanban action; the legacy pair
@@ -306,7 +306,7 @@ func (b *BoardService) GetTask(ctx context.Context, id string) (TaskDetail, erro
 
 func (b *BoardService) populateAgentResumable(ctx context.Context, t *Task) {
 	_ = ctx
-	if t == nil || t.AgentStatus != "interrupted" {
+	if t == nil || !isResumeTerminalStatus(t.AgentStatus) {
 		if t != nil {
 			t.AgentResumable = false
 		}

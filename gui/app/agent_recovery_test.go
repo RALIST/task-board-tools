@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -913,6 +914,43 @@ func readJSONL(t *testing.T, path string) []agent.Event {
 	return out
 }
 
+func cleanupAuditEvents(t *testing.T, path, runID string) []map[string]any {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer f.Close()
+
+	var out []map[string]any
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		var ev map[string]any
+		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+			t.Fatalf("decode %q: %v", sc.Text(), err)
+		}
+		if ev["event"] == "cleanup" && ev["run_id"] == runID {
+			out = append(out, ev)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("scan %s: %v", path, err)
+	}
+	return out
+}
+
+func requireCleanupAudit(t *testing.T, path, runID string, pid int, signal, target, reason string) {
+	t.Helper()
+	for _, ev := range cleanupAuditEvents(t, path, runID) {
+		gotPID, _ := ev["pid"].(float64)
+		if int(gotPID) == pid && ev["signal"] == signal && ev["target"] == target && ev["reason"] == reason {
+			return
+		}
+	}
+	t.Fatalf("missing cleanup audit event run=%s pid=%d signal=%s target=%s reason=%q in %s; got %+v",
+		runID, pid, signal, target, reason, path, cleanupAuditEvents(t, path, runID))
+}
+
 func countFinished(events []agent.Event) int {
 	n := 0
 	for _, ev := range events {
@@ -936,6 +974,22 @@ func waitForCondition(t *testing.T, timeout time.Duration, ok func() bool) {
 		return
 	}
 	t.Fatalf("condition not met within %s", timeout)
+}
+
+func startSleepProcessGroup(t *testing.T) (*exec.Cmd, int, <-chan struct{}) {
+	t.Helper()
+	cmd := exec.Command("/bin/sh", "-c", "sleep 60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("spawn sleep: %v", err)
+	}
+	pid := cmd.Process.Pid
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = cmd.Wait()
+	}()
+	return cmd, pid, done
 }
 
 // --- TB-130: resumableSessionID tests ---
@@ -1212,6 +1266,7 @@ func TestCancelRun_RecoveredLivePID_KillsAndWritesCancelled(t *testing.T) {
 	if finished != 1 {
 		t.Errorf("got %d finished events for r_live, want exactly 1", finished)
 	}
+	requireCleanupAudit(t, agent.StatePath(boardDir, "TB-1"), "r_live", pid, "SIGTERM", "pid", "user cancelled")
 
 	out, err := c.Run(context.Background(), "show", "TB-1")
 	if err != nil {
@@ -1225,6 +1280,131 @@ func TestCancelRun_RecoveredLivePID_KillsAndWritesCancelled(t *testing.T) {
 	if err := rec.agent.CancelRun(context.Background(), "TB-1"); err == nil {
 		t.Errorf("second CancelRun expected error, got nil")
 	}
+}
+
+func TestCancelRun_RecoveredLivePID_RechecksIdentityBeforeKilling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only signals")
+	}
+	cmd, pid, waitDone := startSleepProcessGroup(t)
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		<-waitDone
+	})
+
+	events := []agent.Event{
+		{TS: "2026-05-20T10:00:00Z", RunID: "r_identity", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeImplement.String()},
+		{TS: "2026-05-20T10:00:01Z", RunID: "r_identity", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", Mode: agent.ModeImplement.String(), PID: pid},
+	}
+	rec, _, boardDir, _ := recoveryFixture(t, "TB-1", "claude", events)
+	rec.monitorPollInterval = 10 * time.Millisecond
+	var identityOK atomic.Bool
+	identityOK.Store(true)
+	rec.liveFn = func(probePid int, expected string) bool {
+		return probePid == pid && expected == "claude" && identityOK.Load()
+	}
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	if rec.agent.getActiveRun("TB-1") == nil {
+		t.Fatalf("recovery did not adopt a stub for the live PID")
+	}
+
+	identityOK.Store(false)
+	if err := rec.agent.CancelRun(context.Background(), "TB-1"); err == nil {
+		t.Fatalf("CancelRun succeeded after identity mismatch; want refusal without signalling")
+	}
+	if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("process was signalled despite identity mismatch: %v", err)
+	}
+	if got := cleanupAuditEvents(t, agent.StatePath(boardDir, "TB-1"), "r_identity"); len(got) != 0 {
+		t.Fatalf("identity mismatch should not write cleanup audit events: %+v", got)
+	}
+}
+
+func TestCancelRun_RecoveredLivePID_DoesNotKillRunWithTerminalEvent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only signals")
+	}
+	cmd, pid, waitDone := startSleepProcessGroup(t)
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		<-waitDone
+	})
+
+	events := []agent.Event{
+		{TS: "2026-05-20T10:10:00Z", RunID: "r_terminal_live", TaskID: "TB-1", Event: agent.EvQueued, Agent: "codex", Mode: agent.ModeImplement.String()},
+		{TS: "2026-05-20T10:10:01Z", RunID: "r_terminal_live", TaskID: "TB-1", Event: agent.EvStarted, Agent: "codex", Mode: agent.ModeImplement.String(), PID: pid},
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "codex", events)
+	rec.monitorPollInterval = 10 * time.Millisecond
+	rec.liveFn = func(probePid int, expected string) bool {
+		return probePid == pid && expected == "codex"
+	}
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:       "2026-05-20T10:10:02Z",
+		RunID:    "r_terminal_live",
+		TaskID:   "TB-1",
+		Event:    agent.EvFinished,
+		Status:   agent.StatusSuccess,
+		ExitCode: 0,
+	}); err != nil {
+		t.Fatalf("append finished: %v", err)
+	}
+	waitForCondition(t, time.Second, func() bool {
+		out, err := c.Run(context.Background(), "show", "TB-1")
+		return err == nil && strings.Contains(string(out), "**AgentStatus:** success")
+	})
+
+	if err := rec.agent.CancelRun(context.Background(), "TB-1"); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("CancelRun after terminal event: got %v, want ErrNotRunning", err)
+	}
+	if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("terminal run process should not be signalled by cleanup: %v", err)
+	}
+	if got := cleanupAuditEvents(t, agent.StatePath(boardDir, "TB-1"), "r_terminal_live"); len(got) != 0 {
+		t.Fatalf("terminal run should not get cleanup audit events: %+v", got)
+	}
+}
+
+func TestCancelRun_RecoveredLivePID_DoneTaskWritesCleanupAudit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only signals")
+	}
+	_, pid, waitDone := startSleepProcessGroup(t)
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		<-waitDone
+	})
+
+	rec, _, boardDir, _ := recoveryFixtureWithTasks(t, []recoveryTaskFixture{{
+		id:          "TB-1",
+		agentField:  "claude",
+		agentStatus: "running",
+		statusDir:   "done",
+		form:        "folder",
+		events: []agent.Event{
+			{TS: "2026-05-20T10:20:00Z", RunID: "r_done_orphan", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude", Mode: agent.ModeImplement.String()},
+			{TS: "2026-05-20T10:20:01Z", RunID: "r_done_orphan", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", Mode: agent.ModeImplement.String(), PID: pid},
+		},
+	}})
+	rec.monitorPollInterval = 10 * time.Millisecond
+	rec.liveFn = func(probePid int, expected string) bool {
+		return probePid == pid && expected == "claude"
+	}
+
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	if err := rec.agent.CancelRun(context.Background(), "TB-1"); err != nil {
+		t.Fatalf("CancelRun on done orphan: %v", err)
+	}
+	requireCleanupAudit(t, agent.StatePath(boardDir, "TB-1"), "r_done_orphan", pid, "SIGTERM", "pid", "user cancelled")
 }
 
 // TB-176: same end-to-end cancel-kill-terminal contract, but for a

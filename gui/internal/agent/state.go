@@ -25,6 +25,7 @@ const (
 	EvStdout   EventName = "stdout"
 	EvStderr   EventName = "stderr"
 	EvFinished EventName = "finished"
+	EvCleanup  EventName = "cleanup"
 	// EvSession captures the agent-side conversation id immediately
 	// after EvStarted (TB-130). One per run, always preceded by EvStarted
 	// so recovery's pidAlive cross-check stays meaningful.
@@ -65,6 +66,7 @@ const (
 //	stdout   {ts, run_id, task_id, event:"stdout",   mode, line}
 //	stderr   {ts, run_id, task_id, event:"stderr",   mode, line}
 //	finished {ts, run_id, task_id, event:"finished", agent, mode, status, exit_code, reason?, triage_hash?}
+//	cleanup  {ts, run_id, task_id, event:"cleanup", agent, mode, pid, signal, target, reason?}
 //
 // TB-174: `triage_hash` is set only on `mode=groom` `queued` and `finished`
 // events emitted by the auto-groom coordinator. Manual groom runs from the
@@ -95,6 +97,8 @@ type Event struct {
 	Cwd            string            `json:"cwd,omitempty"`
 	RunEnv         map[string]string `json:"run_env,omitempty"`
 	TriageHash     string            `json:"triage_hash,omitempty"`
+	Signal         string            `json:"signal,omitempty"`
+	Target         string            `json:"target,omitempty"`
 	// Initiator names who queued the run. Empty (= "user") for runs
 	// queued from the GUI or `tb` CLI. Coordinator-driven runs set
 	// "auto-groom" / "auto-implement" so the resume sweep can tell

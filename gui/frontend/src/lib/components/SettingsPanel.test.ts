@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
   disableClaudeUsageTap: vi.fn<() => Promise<unknown>>(),
   getClaudeUsageTap: vi.fn<() => Promise<unknown>>(),
   openFile: vi.fn<() => Promise<string | string[]>>(),
-  requestFocusFilterBar: vi.fn(),
 }));
 
 vi.mock('@wailsio/runtime', () => ({
@@ -59,6 +58,7 @@ const fakeStore = vi.hoisted(() => {
   type Listener = (state: unknown) => void;
   let state: Record<string, unknown> = {
     maxWorkers: 1,
+    maxWorkersLimit: 8,
     agentTimeoutMinutes: 30,
     defaultAgent: 'claude',
     cliPath: '',
@@ -111,10 +111,6 @@ vi.mock('$lib/stores/preferences', () => ({
   },
 }));
 
-vi.mock('$lib/stores/filter', () => ({
-  requestFocusFilterBar: () => mocks.requestFocusFilterBar(),
-}));
-
 import SettingsPanel from './SettingsPanel.svelte';
 
 let component: ReturnType<typeof mount> | null = null;
@@ -128,6 +124,7 @@ beforeEach(() => {
     autoImplementEnabled: false,
     autoImplementQuery: { ...emptyAutoImplementFilter },
     defaultAgent: 'claude',
+    maxWorkersLimit: 8,
   });
 });
 
@@ -160,6 +157,14 @@ function visibleText(): string {
 }
 
 describe('SettingsPanel auto-implement', () => {
+  it('renders the backend-provided max worker range', async () => {
+    mountPanel();
+    await tick();
+    const input = document.querySelector<HTMLInputElement>('input[type="number"]');
+    expect(input?.getAttribute('max')).toBe('8');
+    expect(visibleText()).toContain('1-8');
+  });
+
   it('shows needs-filter warning when enabled with empty saved filter', async () => {
     mountPanel();
     await tick();
@@ -204,7 +209,7 @@ describe('SettingsPanel auto-implement', () => {
     expect(visibleText()).not.toContain('Set a default agent before auto-implement');
   });
 
-  it('renders a read-only summary of the persisted filter (no text input)', async () => {
+  it('does not render saved-filter controls in Settings', async () => {
     fakeStore.set({
       autoImplementQuery: {
         ...emptyAutoImplementFilter,
@@ -215,37 +220,12 @@ describe('SettingsPanel auto-implement', () => {
     });
     mountPanel();
     await tick();
-    // Summary contains the persisted categories.
-    const summary = document.querySelector('[data-testid="auto-implement-filter-summary"]');
-    expect(summary).not.toBeNull();
-    const text = summary!.textContent || '';
-    expect(text).toContain('Type: bug, improvement');
-    expect(text).toContain('Module: gui');
-    expect(text).toContain('Tags: macos');
-    // The old text input is gone.
+    expect(document.querySelector('[data-testid="auto-implement-filter-summary"]')).toBeNull();
+    expect(document.querySelector('[data-testid="auto-implement-edit-filter"]')).toBeNull();
     expect(document.querySelector('[data-testid="auto-implement-query"]')).toBeNull();
-  });
-
-  it('renders the "No filter saved" placeholder when the filter is empty', async () => {
-    mountPanel();
-    await tick();
-    const summary = document.querySelector('[data-testid="auto-implement-filter-summary"]');
-    expect(summary?.textContent || '').toContain('No filter saved');
-  });
-
-  it('Edit in board filter button bumps focus token and closes the panel', async () => {
-    const onClose = vi.fn();
-    component = mount(SettingsPanel, {
-      target: document.body,
-      props: { open: true, onClose },
-    });
-    await tick();
-    const edit = document.querySelector(
-      '[data-testid="auto-implement-edit-filter"]',
-    ) as HTMLButtonElement | null;
-    expect(edit).not.toBeNull();
-    edit!.click();
-    expect(mocks.requestFocusFilterBar).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(visibleText()).not.toContain('Auto-implement filter');
+    expect(visibleText()).not.toContain('No filter saved');
+    expect(visibleText()).not.toContain('Edit in board filter');
+    expect(visibleText()).not.toContain('Build the filter on the board');
   });
 });

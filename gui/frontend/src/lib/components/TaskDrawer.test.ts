@@ -926,7 +926,12 @@ describe('TaskDrawer user-attention UI (TB-182)', () => {
 });
 
 describe('TaskDrawer resume gating (TB-241)', () => {
-  it('disables Resume when interrupted without a captured session', async () => {
+  function resumeButton() {
+    return Array.from(document.querySelectorAll<HTMLButtonElement>('.agent-buttons button'))
+      .find((b) => b.textContent?.trim().toLowerCase().startsWith('resume'));
+  }
+
+  it('hides Resume when interrupted without a captured session', async () => {
     apiMocks.getTask.mockResolvedValue(makeDetail({ agent: 'claude', agentStatus: 'interrupted', agentResumable: false }));
     apiMocks.listAttachments.mockResolvedValue([]);
 
@@ -938,14 +943,7 @@ describe('TaskDrawer resume gating (TB-241)', () => {
     await flushMicrotasks();
     await tick();
 
-    const resume = Array.from(document.querySelectorAll<HTMLButtonElement>('.agent-buttons button'))
-      .find((b) => b.textContent?.trim() === 'Resume');
-    expect(resume).toBeDefined();
-    expect(resume?.disabled).toBe(true);
-    expect(resume?.title ?? '').toMatch(/no captured session/i);
-    resume?.click();
-    await tick();
-
+    expect(resumeButton()).toBeUndefined();
     expect(apiMocks.resumeAgent).not.toHaveBeenCalled();
   });
 
@@ -962,14 +960,53 @@ describe('TaskDrawer resume gating (TB-241)', () => {
     await flushMicrotasks();
     await tick();
 
-    const resume = Array.from(document.querySelectorAll<HTMLButtonElement>('.agent-buttons button'))
-      .find((b) => b.textContent?.trim() === 'Resume');
+    const resume = resumeButton();
     expect(resume).toBeDefined();
     expect(resume?.disabled).toBe(false);
+    expect(resume?.textContent?.trim()).toBe('Resume interrupted run');
     resume?.click();
     await tick();
 
     expect(apiMocks.resumeAgent).toHaveBeenCalledWith('TB-99');
+  });
+
+  it('renders Resume for failed runs with a captured session', async () => {
+    apiMocks.getTask.mockResolvedValue(makeDetail({ agent: 'claude', agentStatus: 'failed', agentResumable: true }));
+    apiMocks.listAttachments.mockResolvedValue([]);
+    apiMocks.resumeAgent.mockResolvedValue('r_resume');
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    const resume = resumeButton();
+    expect(resume).toBeDefined();
+    expect(resume?.disabled).toBe(false);
+    expect(resume?.textContent?.trim()).toBe('Resume failed run');
+    resume?.click();
+    await tick();
+
+    expect(apiMocks.resumeAgent).toHaveBeenCalledWith('TB-99');
+  });
+
+  it('hides Resume for failed runs without a captured session', async () => {
+    apiMocks.getTask.mockResolvedValue(makeDetail({ agent: 'claude', agentStatus: 'failed', agentResumable: false }));
+    apiMocks.listAttachments.mockResolvedValue([]);
+
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: 'TB-99' },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+
+    expect(resumeButton()).toBeUndefined();
+    expect(apiMocks.resumeAgent).not.toHaveBeenCalled();
   });
 });
 

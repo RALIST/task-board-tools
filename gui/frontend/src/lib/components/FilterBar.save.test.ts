@@ -4,37 +4,33 @@
 // surface stays small.
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  filter,
-  focusFilterBarToken,
-  initialFilter,
-  requestFocusFilterBar,
-} from '$lib/stores/filter';
+import { filter, initialFilter } from '$lib/stores/filter';
 import type { BoardSnapshot, Task } from '$lib/api';
 
 const mocks = vi.hoisted(() => ({
   setAutoImplementQuery: vi.fn(),
   pushToast: vi.fn(),
+  preferencesState: {
+    autoImplementQuery: {
+      search: '',
+      types: [] as string[],
+      priorities: [] as string[],
+      modules: [] as string[],
+      sizes: [] as string[],
+      tags: [] as string[],
+      agents: [] as string[],
+      parents: [] as string[],
+    },
+  },
 }));
 
 // preferencesStore is shaped to satisfy the FilterBar's reads + the
-// saveAsAutoImplement click handler. autoImplementQuery is the
-// "empty" filter so the "Saved" affordance starts off.
+// saveAsAutoImplement click handler.
 vi.mock('$lib/stores/preferences', () => {
-  const empty = {
-    search: '',
-    types: [] as string[],
-    priorities: [] as string[],
-    modules: [] as string[],
-    sizes: [] as string[],
-    tags: [] as string[],
-    agents: [] as string[],
-    parents: [] as string[],
-  };
   return {
     preferencesStore: {
       subscribe(fn: (v: unknown) => void) {
-        fn({ autoImplementQuery: empty });
+        fn(mocks.preferencesState);
         return () => {};
       },
       setAutoImplementQuery: (v: unknown) => mocks.setAutoImplementQuery(v),
@@ -101,7 +97,16 @@ function saveButton(): HTMLButtonElement {
 
 beforeEach(() => {
   filter.set({ ...initialFilter });
-  focusFilterBarToken.set(0);
+  mocks.preferencesState.autoImplementQuery = {
+    search: '',
+    types: [],
+    priorities: [],
+    modules: [],
+    sizes: [],
+    tags: [],
+    agents: [],
+    parents: [],
+  };
   vi.clearAllMocks();
   mocks.setAutoImplementQuery.mockResolvedValue(undefined);
 });
@@ -136,21 +141,6 @@ describe('FilterBar Save as auto-implement', () => {
     expect(saveButton().disabled).toBe(false);
   });
 
-  it('focuses the search input when focusFilterBarToken is bumped', async () => {
-    const snap = snapshot([
-      task('TB-1', { type: 'bug' }),
-      task('TB-2', { type: 'feature' }),
-    ]);
-    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
-    await tick();
-    const search = document.querySelector<HTMLInputElement>('input.search');
-    expect(search).not.toBeNull();
-    expect(document.activeElement).not.toBe(search);
-    requestFocusFilterBar();
-    await tick();
-    expect(document.activeElement).toBe(search);
-  });
-
   it('persists the current filter as an AutoImplementFilter on click', async () => {
     const snap = snapshot([
       task('TB-1', { type: 'bug' }),
@@ -181,5 +171,35 @@ describe('FilterBar Save as auto-implement', () => {
       parents: ['TB-1'],
     });
     expect(mocks.pushToast).toHaveBeenCalledWith('Saved as auto-implement query');
+  });
+
+  it('shows the saved affordance when the current filter matches the persisted query', async () => {
+    mocks.preferencesState.autoImplementQuery = {
+      search: 'router',
+      types: ['bug'],
+      priorities: [],
+      modules: ['gui'],
+      sizes: ['S'],
+      tags: [],
+      agents: [],
+      parents: ['TB-1'],
+    };
+    filter.set({
+      ...initialFilter,
+      search: 'router',
+      types: ['bug'],
+      modules: ['gui'],
+      sizes: ['S'],
+      parentEpic: 'TB-1',
+    });
+    const snap = snapshot([
+      task('TB-1', { type: 'bug' }),
+      task('TB-2', { type: 'feature' }),
+    ]);
+    component = mount(FilterBar, { target: document.body, props: { snapshot: snap } });
+    await tick();
+    expect(saveButton().textContent || '').toContain('Saved');
+    expect(saveButton().title).toBe('Auto-implement query matches the current filter');
+    expect(saveButton().classList.contains('saved')).toBe(true);
   });
 });

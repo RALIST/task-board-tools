@@ -363,10 +363,13 @@
   let canSubmitReview = $derived(detail?.metadata.status === 'in-progress');
   let canRunReview = $derived(detail?.metadata.status === 'code-review');
   let needsUser = $derived(taskAgentStatus === 'needs-user');
-  let canResume = $derived(taskAgentStatus === 'interrupted' && taskAgentResumable && !runBusy);
-  let resumeDisabledTitle = $derived(!taskAgentResumable
-    ? 'No captured session for this interrupted run - use Run to start fresh.'
-    : (runBusy ? 'Another run is in progress for this task' : 'Continue the previous agent session'));
+  let showResume = $derived(taskAgentResumable);
+  let canResume = $derived(showResume && !runBusy && !needsUser);
+  let resumeSourceStatus = $derived(taskAgentStatus || 'previous');
+  let resumeLabel = $derived(resumeStarting ? 'Resuming...' : `Resume ${resumeSourceStatus} run`);
+  let resumeDisabledTitle = $derived(runBusy
+    ? 'Another run is in progress for this task'
+    : `Resume the captured ${resumeSourceStatus} session`);
   // TB-182: parse the ## User Attention section out of the task body so the
   // drawer can surface the ask near the agent controls. Returns the raw
   // section body (Markdown) or null when the section isn't present.
@@ -1696,16 +1699,16 @@
                   onclick={onRunClick}>
                   {runStarting ? 'Starting…' : 'Run'}
                 </button>
-                {#if taskAgentStatus === 'interrupted'}
+                {#if showResume}
                   <button
                     class="primary compact resume"
                     type="button"
                     disabled={!canResume}
                     title={canResume
-                      ? 'Continue the previous agent session'
+                      ? `Resume the captured ${resumeSourceStatus} session`
                       : resumeDisabledTitle}
                     onclick={onResumeClick}>
-                    {resumeStarting ? 'Resuming…' : 'Resume'}
+                    {resumeLabel}
                   </button>
                 {/if}
                 <button

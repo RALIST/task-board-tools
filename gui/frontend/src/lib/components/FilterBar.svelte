@@ -3,7 +3,6 @@
   import {
     clearFilter,
     filter,
-    focusFilterBarToken,
     type BoardFilter,
   } from '$lib/stores/filter';
   import { observedEpics, observedTags, observedValues } from '$lib/filtering';
@@ -22,8 +21,6 @@
     onShowArchiveChange?: (show: boolean) => void;
   }
   let { snapshot, onShowArchiveChange }: Props = $props();
-
-  let searchInput: HTMLInputElement | null = $state(null);
 
   let types = $derived(observedValues(snapshot, 'type'));
   let priorities = $derived(observedValues(snapshot, 'priority'));
@@ -106,18 +103,10 @@
     }
   }
 
-  // SettingsPanel's "Edit in board filter" button bumps focusFilterBarToken;
-  // refocus the search input so the user lands cursor-ready.
-  $effect(() => {
-    const token = $focusFilterBarToken;
-    if (token === 0) return;
-    searchInput?.focus();
-  });
 </script>
 
 <section class="filter" aria-label="Filters">
   <input
-    bind:this={searchInput}
     class="search"
     type="search"
     placeholder="Search id or title…"

@@ -1141,12 +1141,16 @@ func TestMapRunnerOutcome(t *testing.T) {
 // CLI client (for `tb show` post-conditions), the boardDir, and the
 // ResumeCandidate fields the caller will assert against.
 func resumeFixture(t *testing.T, agentName string, stub *stubRunner) (svc *AgentService, c *cli.Client, boardDir string, candidate ResumeCandidate) {
+	return resumeFixtureWithStatus(t, agentName, stub, agent.StatusInterrupted)
+}
+
+func resumeFixtureWithStatus(t *testing.T, agentName string, stub *stubRunner, parentStatus agent.Status) (svc *AgentService, c *cli.Client, boardDir string, candidate ResumeCandidate) {
 	t.Helper()
 	svc, boardDir = realTbBoardForRun(t, agentName, stub)
 	c = svc.board.snapshot()
 
-	// Append synthetic queued/started/session/finished{interrupted}
-	// events so resumableSessionID has something to find.
+	// Append synthetic queued/started/session/finished events so
+	// resumableSessionID has something to find.
 	candidate = ResumeCandidate{
 		SessionID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
 		RunID:     "r_parent",
@@ -1163,23 +1167,22 @@ func resumeFixture(t *testing.T, agentName string, stub *stubRunner) (svc *Agent
 			RunEnv:    candidate.Env,
 		},
 		{TS: "2026-05-14T10:00:03Z", RunID: candidate.RunID, TaskID: "TB-1", Event: agent.EvFinished,
-			Status: agent.StatusInterrupted, ExitCode: -1, Reason: "interrupted by daemon restart"},
+			Status: parentStatus, ExitCode: -1, Reason: string(parentStatus)},
 	}
 	for _, ev := range events {
 		if err := agent.AppendEvent(boardDir, "TB-1", ev); err != nil {
 			t.Fatalf("AppendEvent: %v", err)
 		}
 	}
-	// Flip the task's AgentStatus to interrupted via the same CLI path
-	// recovery uses — also confirms the validator (TB-131) accepts the
-	// value.
-	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "interrupted"}); err != nil {
-		t.Fatalf("seed interrupted status: %v", err)
+	// Flip the task's AgentStatus through the same CLI path recovery and
+	// the runner use — also confirms the validator accepts the value.
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: string(parentStatus)}); err != nil {
+		t.Fatalf("seed %s status: %v", parentStatus, err)
 	}
 	return svc, c, boardDir, candidate
 }
 
-func TestResumeAgent_RejectsWhenStatusNotInterrupted(t *testing.T) {
+func TestResumeAgent_RejectsWhenNoCapturedSession(t *testing.T) {
 	stub := &stubRunner{name: "claude", exitCode: 0}
 	svc, _ := realTbBoardForRun(t, "claude", stub)
 
@@ -1199,8 +1202,79 @@ func TestResumeAgent_RejectsWhenNoSession(t *testing.T) {
 		t.Fatalf("seed interrupted: %v", err)
 	}
 	_, err := svc.ResumeAgent(context.Background(), "TB-1")
-	if !errors.Is(err, ErrNotResumable) {
-		t.Fatalf("ResumeAgent: got %v, want ErrNotResumable", err)
+	if !errors.Is(err, ErrCannotResume) {
+		t.Fatalf("ResumeAgent: got %v, want ErrCannotResume", err)
+	}
+}
+
+func TestResumeAgent_RejectsNonTerminalStatusesWithSession(t *testing.T) {
+	cases := []string{
+		"queued",
+		"running",
+	}
+
+	for _, status := range cases {
+		t.Run(status, func(t *testing.T) {
+			stub := &stubRunner{name: "claude", exitCode: 0}
+			svc, c, boardDir, candidate := resumeFixtureWithStatus(t, "claude", stub, agent.StatusInterrupted)
+			if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: status}); err != nil {
+				t.Fatalf("seed %s status: %v", status, err)
+			}
+
+			runID, err := svc.ResumeAgent(context.Background(), "TB-1")
+			if !errors.Is(err, ErrCannotResume) {
+				t.Fatalf("ResumeAgent: got run=%q err=%v, want ErrCannotResume", runID, err)
+			}
+			events := readEvents(t, boardDir, "TB-1")
+			for _, ev := range events {
+				if ev.RunID != candidate.RunID && ev.Event == agent.EvQueued {
+					t.Fatalf("unexpected resume queued event after blocked %s resume: %+v", status, ev)
+				}
+			}
+		})
+	}
+}
+
+func TestResumeAgent_AllowsTerminalStatusesWithSession(t *testing.T) {
+	cases := []agent.Status{
+		agent.StatusLost,
+		agent.StatusFailed,
+		agent.StatusCancelled,
+		agent.StatusSuccess,
+	}
+
+	for _, status := range cases {
+		t.Run(string(status), func(t *testing.T) {
+			stub := &stubRunner{name: "claude", stdoutLines: []string{"resumed"}, exitCode: 0}
+			svc, _, boardDir, candidate := resumeFixtureWithStatus(t, "claude", stub, status)
+
+			runID, err := svc.ResumeAgent(context.Background(), "TB-1")
+			if err != nil {
+				t.Fatalf("ResumeAgent: %v", err)
+			}
+			if runID == candidate.RunID {
+				t.Fatalf("new run id equals parent (%s) — must be fresh", runID)
+			}
+			waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+			events := readEvents(t, boardDir, "TB-1")
+			var queued *agent.Event
+			for i := range events {
+				if events[i].RunID == runID && events[i].Event == agent.EvQueued {
+					queued = &events[i]
+					break
+				}
+			}
+			if queued == nil {
+				t.Fatalf("no queued event for resumed run %s", runID)
+			}
+			if queued.ResumedFrom != candidate.SessionID {
+				t.Errorf("queued.ResumedFrom = %q, want %q", queued.ResumedFrom, candidate.SessionID)
+			}
+			if queued.ResumedFromRun != candidate.RunID {
+				t.Errorf("queued.ResumedFromRun = %q, want %q", queued.ResumedFromRun, candidate.RunID)
+			}
+		})
 	}
 }
 

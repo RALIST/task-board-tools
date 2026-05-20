@@ -40,16 +40,18 @@ var ErrAlreadyRunning = errors.New("agent run already in progress")
 // returns this cleanly.
 var ErrNotRunning = errors.New("no agent run in progress")
 
-// ErrNotResumable is returned by ResumeAgent when the latest run for
-// the task has no captured session id (the run failed before TB-130's
-// post-`started` session-write hook fired, or the agent never reported
-// one).
-var ErrNotResumable = errors.New("task has no resumable session")
+// ErrRunIdentityMismatch is returned by CancelRun when a recovered orphan's
+// PID no longer matches the agent identity recorded at recovery time.
+var ErrRunIdentityMismatch = errors.New("agent run identity mismatch")
 
-// ErrCannotResume is returned by ResumeAgent when the task's
-// AgentStatus is not `interrupted`. M1 scope: resume from finished
-// runs is documented as a follow-up.
-var ErrCannotResume = errors.New("task is not in interrupted state")
+// ErrCannotResume is returned by ResumeAgent when the latest run has no
+// captured session id, or when the task is not in a terminal status that
+// may intentionally resume a captured session.
+var ErrCannotResume = errors.New("task has no captured terminal session to resume")
+
+// ErrNotResumable is kept as a compatibility alias for older callers that
+// checked the pre-TB-252 no-session error name.
+var ErrNotResumable = ErrCannotResume
 
 // ErrNeedsUserAttention is returned by RunAgent / GroomTask / ResumeAgent
 // when the task's AgentStatus is `needs-user` (TB-182). The agent stopped
@@ -222,6 +224,15 @@ type activeRun struct {
 	// Pgid if the process doesn't go quietly.
 	Cancel context.CancelFunc
 
+	// VerifyPID rechecks a recovered orphan's PID/agent identity immediately
+	// before CancelRun signals it. Fresh runs leave this nil because this
+	// process owns their os.Process handle directly.
+	VerifyPID pidLivenessFunc
+
+	// Recovered is true for orphaned processes adopted from JSONL after a
+	// GUI/daemon restart. They have no runner goroutine to close Done.
+	Recovered bool
+
 	// Cancelled is set by CancelRun before it kills the process, so the
 	// post-run handler can skip its own finished/Wails/AgentStatus writes.
 	// Guarded by mu.
@@ -260,6 +271,24 @@ func (r *activeRun) wasCancelled() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.Cancelled
+}
+
+func (r *activeRun) verifyPIDIdentity() bool {
+	r.mu.Lock()
+	pid := r.Pid
+	agentName := r.Agent
+	verify := r.VerifyPID
+	r.mu.Unlock()
+	if verify == nil || pid <= 0 {
+		return true
+	}
+	return verify(pid, agentName)
+}
+
+func (r *activeRun) isRecovered() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.Recovered
 }
 
 // closeDone closes Done at most once, regardless of how many goroutines

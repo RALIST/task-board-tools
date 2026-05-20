@@ -132,17 +132,18 @@
     onSelect?.(task.id);
   }
 
-  // TB-130: Resume icon-button on the card surface — saves the user
-  // from opening the drawer when they spot an interrupted task on the
-  // kanban. Visibility is gated on agentStatus === 'interrupted' (the
-  // task-level status, written by RecoverStale), a captured resumable
-  // session, and an agent that resolves to a runnable name.
+  // Resume is driven by the backend's latest-run session lookup instead of
+  // a frontend status string. The task status still appears in the tooltip
+  // so resuming a failed/cancelled/successful run is an intentional action.
   let resumeBusy = $state(false);
   let hasRunnableAgent = $derived(!!task.agent);
-  let canResumeOnCard = $derived(task.agentStatus === 'interrupted' && task.agentResumable && hasRunnableAgent && !resumeBusy);
-  let resumeDisabledTitle = $derived(!task.agentResumable
-    ? 'No captured session for this interrupted run - use Run to start fresh.'
-    : (!hasRunnableAgent ? 'No runnable agent assigned' : `Resume agent session for ${task.id}`));
+  let showResumeOnCard = $derived(task.agentResumable);
+  let resumeSourceStatus = $derived(task.agentStatus || 'previous');
+  let canResumeOnCard = $derived(showResumeOnCard && hasRunnableAgent && !resumeBusy);
+  let resumeTitle = $derived(`Resume ${resumeSourceStatus} run for ${task.id}`);
+  let resumeDisabledTitle = $derived(!hasRunnableAgent
+    ? 'No runnable agent assigned'
+    : resumeTitle);
 
   async function onCardResume(ev: MouseEvent | KeyboardEvent) {
     ev.stopPropagation();
@@ -310,12 +311,12 @@
         <span class="auto-groom-settle" aria-label="Auto-groom waiting on settle window">⏳</span>
       {/if}
     </span>
-    {#if task.agentStatus === 'interrupted'}
+    {#if showResumeOnCard}
       <button
         class="resume-indicator"
         type="button"
-        title={canResumeOnCard ? `Resume agent session for ${task.id}` : resumeDisabledTitle}
-        aria-label={`Resume agent session for ${task.id}`}
+        title={canResumeOnCard ? resumeTitle : resumeDisabledTitle}
+        aria-label={resumeTitle}
         disabled={!canResumeOnCard}
         onclick={onCardResume}>↻</button>
     {/if}
