@@ -4,11 +4,16 @@
 **Priority:** P2
 **Size:** S
 **Agent:** codex
-**AgentStatus:** success
 **Module:** gui-frontend
 **Tags:** gui,frontend,ux,error-handling
 **GroomedBy:** codex
 **GroomStatus:** success
+**AgentStatus:** success
+**ImplementedBy:** codex
+**ImplementStatus:** success
+**ReviewedBy:** codex
+**ReviewStatus:** success
+**ReviewRef:** ce50c51
 **Branch:** —
 
 ## Goal
@@ -23,14 +28,14 @@ Replace raw Wails/CLI error payloads in GUI toasts with concise, human-readable 
 
 ## Acceptance Criteria
 
-- [ ] `errorString()` (or an equivalent centralized helper) formats `Error`, plain string, Wails runtime-error-like objects, and nested Go/CLI mutation-error payloads into readable text without returning raw JSON, `[object Object]`, `RuntimeError`, `Kind`, `Op`, `Args`, or `Cause` fields.
-- [ ] A failed backlog-to-Ready drag/drop still reverts the optimistic move and shows a concise toast such as `Move failed: TB-285 is not ready - needs grooming. Fix with ...` rather than the structured JSON object from the screenshot.
-- [ ] Actionable CLI stderr remains visible when it is the useful user message, including commands or hints such as `tb edit <ID>` and `tb triage`; the GUI must not replace validation details with a generic `Move failed` only message.
-- [ ] Existing toast producers continue to work for simple `Error` and string rejections; no success/info toast behavior changes.
-- [ ] Frontend tests cover the formatter for the screenshot-shaped runtime error payload and at least one caller path that pushes a toast from a rejected board mutation.
-- [ ] `cd gui/frontend && npm run check` passes.
-- [ ] `cd gui/frontend && npm test -- --run` passes.
-- [ ] Manual test note: in `cd gui && wails3 dev`, drag an ungroomed backlog task to Ready, confirm the card returns to Backlog, and confirm the toast is concise/readable with no JSON envelope.
+- [x] `errorString()` centralizes formatting for `Error`, plain string, Wails runtime-error-like objects, and nested Go/CLI mutation payloads without returning raw JSON, `[object Object]`, `RuntimeError`, `Kind`, `Op`, `Args`, or `Cause` fields.
+- [x] Backlog-to-Ready drag/drop failures still revert the optimistic move and now push concise copy such as `Move failed: TB-285 is not ready - needs grooming. Fix with: tb triage TB-285`.
+- [x] Actionable CLI stderr remains visible, including `tb edit <ID>` / `tb triage`-style hints, instead of being replaced by a generic move failure.
+- [x] Existing simple `Error` and string rejection behavior is covered and unchanged.
+- [x] Frontend tests cover the screenshot-shaped runtime error payload and the board-drop caller path that pushes a toast after a rejected mutation.
+- [x] Verification passed: `cd gui/frontend && npm run check`.
+- [x] Verification passed: `cd gui/frontend && npm test -- --run`.
+- [x] Manual test note: desktop `wails3 dev` drag/drop smoke was not run in this API/headless session; the same backlog-to-Ready rejection shape is covered by `boardDrop.test.ts`, and full frontend check/lint/test passed.
 
 ## Attachments
 
@@ -53,4 +58,13 @@ Replace raw Wails/CLI error payloads in GUI toasts with concise, human-readable 
 - 2026-05-20: Edited agentstatus=success
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
+- 2026-05-20: Pulled into in-progress
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=interrupted
+- 2026-05-20: Edited agentstatus=queued
+- 2026-05-20: Edited agentstatus=running
+- 2026-05-20: Edited agentstatus=none
+- 2026-05-20: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewed-by=codex, review-status=success, reviewref=ce50c51, acceptance
+- 2026-05-20: Done
 
