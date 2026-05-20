@@ -122,6 +122,8 @@ Daemon housekeeping for autonomous stages is soft and deterministic. It may repa
 | `+"`lost`"+` | Recovery-initiated; daemon lost the terminal run result and no resumable session was captured. |
 | `+"`needs-user`"+` | Agent stopped because user input is required. Automation should skip the task until a human clears it. |
 
+Resume is offered when the backend reports that the latest run has a captured session id and the task is in a terminal status (`+"`interrupted`"+`, `+"`lost`"+`, `+"`failed`"+`, `+"`cancelled`"+`, or `+"`success`"+`). `+"`queued`"+`, `+"`running`"+`, and `+"`needs-user`"+` remain blocked; the UI labels the source status so the user intentionally resumes failed, cancelled, or successful runs.
+
 Autonomous agents that cannot continue safely use the `+"`needs-user`"+` handoff. The task should include a `+"`User Attention`"+` section with:
 
 - Reason: short category such as unclear requirement, external blocker, conflict, failed verification, or stale task.
