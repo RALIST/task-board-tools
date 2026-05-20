@@ -67,7 +67,7 @@ func (r *StageReconciler) ReconcileActive(ctx context.Context) error {
 		}
 	}
 	for _, id := range ids {
-		if err := r.ReconcileTask(ctx, id); err != nil {
+		if err := r.reconcileTask(ctx, id, snap); err != nil {
 			r.logger.Debug("stage reconciliation skipped task after error", "task", id, "err", err)
 		}
 	}

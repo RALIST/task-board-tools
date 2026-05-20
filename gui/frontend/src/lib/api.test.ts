@@ -65,6 +65,7 @@ vi.mock('../../bindings/tools/tb-gui/app/settingsservice', () => ({
 
 const {
   pickBoardDialog,
+  suggestBoardDialogDirectory,
   addAttachments,
   removeAttachments,
   openAttachment,
@@ -104,6 +105,37 @@ describe('pickBoardDialog', () => {
     mocks.runtimeOpenFile.mockResolvedValueOnce(['/Users/ralist/projects/task-board-tools']);
 
     await expect(pickBoardDialog()).resolves.toBe('/Users/ralist/projects/task-board-tools');
+  });
+
+  it('starts in the supplied directory instead of reusing the native picker location', async () => {
+    mocks.runtimeOpenFile.mockResolvedValueOnce('/Users/ralist/projects/books/writer-studio');
+
+    await expect(pickBoardDialog('/Users/ralist/projects/books')).resolves.toBe(
+      '/Users/ralist/projects/books/writer-studio',
+    );
+
+    expect(mocks.runtimeOpenFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Directory: '/Users/ralist/projects/books',
+      }),
+    );
+  });
+
+  it('suggests the parent of a different recent project for board switching', () => {
+    expect(
+      suggestBoardDialogDirectory('/Users/ralist/projects/task-board-tools', [
+        { projectRoot: '/Users/ralist/projects/task-board-tools' },
+        { projectRoot: '/Users/ralist/projects/books/writer-studio' },
+      ] as any),
+    ).toBe('/Users/ralist/projects/books');
+  });
+
+  it('falls back to the active project parent when no different recent exists', () => {
+    expect(
+      suggestBoardDialogDirectory('/Users/ralist/projects/task-board-tools/', [
+        { projectRoot: '/Users/ralist/projects/task-board-tools' },
+      ] as any),
+    ).toBe('/Users/ralist/projects');
   });
 });
 

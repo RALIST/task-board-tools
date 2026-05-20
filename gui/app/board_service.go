@@ -118,9 +118,18 @@ type BoardService struct {
 	boardDir string // populated by SetBoardDir; used by direct-write paths
 	openFile attachmentOpener
 
+	loadMu       sync.Mutex
+	loadInFlight map[string]*boardLoadCall
+
 	triageMu    sync.RWMutex
 	triageCache map[string][]string
 	triageGen   uint64
+}
+
+type boardLoadCall struct {
+	done chan struct{}
+	snap BoardSnapshot
+	err  error
 }
 
 // NewBoardService returns a service with no client attached. The caller (a
@@ -167,6 +176,51 @@ func (b *BoardService) LoadBoardWithMode(ctx context.Context, mode string) (Boar
 		statusArg = "all"
 	}
 
+	key := fmt.Sprintf("%p:%s", c, statusArg)
+	return b.singleBoardLoad(ctx, key, func() (BoardSnapshot, error) {
+		return b.loadBoardSnapshot(ctx, c, statusArg)
+	})
+}
+
+func (b *BoardService) singleBoardLoad(
+	ctx context.Context,
+	key string,
+	load func() (BoardSnapshot, error),
+) (BoardSnapshot, error) {
+	b.loadMu.Lock()
+	if b.loadInFlight == nil {
+		b.loadInFlight = make(map[string]*boardLoadCall)
+	}
+	if call := b.loadInFlight[key]; call != nil {
+		done := call.done
+		b.loadMu.Unlock()
+		select {
+		case <-done:
+			return call.snap, call.err
+		case <-ctx.Done():
+			return BoardSnapshot{}, ctx.Err()
+		}
+	}
+
+	call := &boardLoadCall{done: make(chan struct{})}
+	b.loadInFlight[key] = call
+	b.loadMu.Unlock()
+
+	call.snap, call.err = load()
+
+	b.loadMu.Lock()
+	delete(b.loadInFlight, key)
+	close(call.done)
+	b.loadMu.Unlock()
+
+	return call.snap, call.err
+}
+
+func (b *BoardService) loadBoardSnapshot(
+	ctx context.Context,
+	c *cli.Client,
+	statusArg string,
+) (BoardSnapshot, error) {
 	var tasks []Task
 	if err := c.RunJSON(ctx, &tasks, "ls", "--json", "--status", statusArg); err != nil {
 		return BoardSnapshot{}, boardLoadError(err, statusArg)

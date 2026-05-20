@@ -38,11 +38,11 @@
 |----|-------|----------|--------|--------|
 | — | — | — | — | — |
 
-## Code Review (0/3)
+## Code Review (1/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-312 | GUI: Open project selection does not switch board | P1 | gui | — |
 
 ## Ready (10/10 ⚠)
 
@@ -105,6 +105,8 @@
 | TB-309 | Frontend: remove generic AgentStatus display dependency | improvement | P2 | M | gui-frontend |
 | TB-310 | Docs and board cleanup for AgentStatus removal | tech-debt | P2 | M | docs |
 | TB-311 | Manual smoke board-switch cancellation in desktop GUI | spike | P2 | S | gui |
+| TB-313 | GUI: virtualize large kanban columns | improvement | P2 | M | gui |
+| TB-314 | GUI: opening a board can start queued agent runs during smoke/load tests | bug | P1 | M | gui |
 
 ## Recently Done
 

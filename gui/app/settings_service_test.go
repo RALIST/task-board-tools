@@ -180,6 +180,36 @@ func TestOpenBoard_HappyPath(t *testing.T) {
 	}
 }
 
+func TestOpenBoard_SameRootIsNoop(t *testing.T) {
+	root := fixtureBoard(t, "TB")
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "stub.log")
+	stub := stubTbBinaryWithMarker(t, "open", logPath)
+
+	board := NewBoardService()
+	sw := &fakeSwitcher{}
+	svc := NewSettingsService(SettingsOptions{
+		Board:       board,
+		Watcher:     sw,
+		CLIPath:     stub,
+		RecentsPath: filepath.Join(dir, "recent.json"),
+	})
+
+	if err := svc.OpenBoard(context.Background(), root); err != nil {
+		t.Fatalf("OpenBoard first: %v", err)
+	}
+	if err := svc.OpenBoard(context.Background(), root); err != nil {
+		t.Fatalf("OpenBoard same root: %v", err)
+	}
+
+	if got := readMarkerLog(t, logPath); got != "open\n" {
+		t.Fatalf("stub log: got %q, want one validation for the first open only", got)
+	}
+	if calls := sw.calls(); len(calls) != 1 {
+		t.Fatalf("watcher.Switch calls: got %d (%v), want one", len(calls), calls)
+	}
+}
+
 func TestOpenBoard_UsesPersistedCLIPath(t *testing.T) {
 	root := fixtureBoard(t, "TB")
 	dir := t.TempDir()

@@ -20,6 +20,7 @@
     pickBoardDialog,
     pullTask,
     readyTask,
+    suggestBoardDialogDirectory,
     type RecentBoard,
   } from '$lib/api';
   import {
@@ -206,7 +207,7 @@
   async function pickAndOpen() {
     let path = '';
     try {
-      path = await pickBoardDialog();
+      path = await pickBoardDialog(suggestBoardDialogDirectory(projectRoot, recents));
       if (!path) return;
       await openBoard(path);
       projectRoot = path;

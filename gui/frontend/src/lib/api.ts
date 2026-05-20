@@ -293,11 +293,41 @@ export async function initBoard(
   await SettingsService.InitBoard(projectRoot, boardPath, prefix);
 }
 
-export async function pickBoardDialog(): Promise<string> {
+function normalizeProjectPath(path: string): string {
+  const trimmed = path.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  if (trimmed === '' && path.startsWith('/')) return '/';
+  return trimmed;
+}
+
+function parentDirectory(path: string): string {
+  const normalized = normalizeProjectPath(path);
+  if (!normalized || normalized === '/') return '';
+  const idx = normalized.lastIndexOf('/');
+  if (idx < 0) return '';
+  if (idx === 0) return '/';
+  return normalized.slice(0, idx);
+}
+
+export function suggestBoardDialogDirectory(
+  projectRoot: string,
+  recents: RecentBoard[] = [],
+): string | undefined {
+  const activeRoot = normalizeProjectPath(projectRoot);
+  for (const recent of recents) {
+    const recentRoot = normalizeProjectPath(recent.projectRoot ?? '');
+    if (!recentRoot || recentRoot === activeRoot) continue;
+    const parent = parentDirectory(recentRoot);
+    if (parent) return parent;
+  }
+
+  return parentDirectory(activeRoot) || undefined;
+}
+
+export async function pickBoardDialog(directory?: string): Promise<string> {
   // Use the runtime dialog from the click handler so Wails attaches each fresh
   // picker to the active window; the Go service method remains for native menu
   // actions that already run outside the webview.
-  const result = await Dialogs.OpenFile({
+  const options: Parameters<typeof Dialogs.OpenFile>[0] & { Directory?: string } = {
     CanChooseDirectories: true,
     CanChooseFiles: false,
     CanCreateDirectories: false,
@@ -305,7 +335,11 @@ export async function pickBoardDialog(): Promise<string> {
     Title: 'Open tb board',
     Message: 'Pick a directory that contains .tb.yaml',
     ButtonText: 'Open',
-  });
+  };
+  const startDirectory = normalizeProjectPath(directory ?? '');
+  if (startDirectory) options.Directory = startDirectory;
+
+  const result = await Dialogs.OpenFile(options);
   return Array.isArray(result) ? (result[0] ?? '') : result;
 }
 

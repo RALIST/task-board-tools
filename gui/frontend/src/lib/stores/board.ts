@@ -24,7 +24,8 @@ const emptySnapshot: BoardSnapshot = {
 export const loaded = writable<boolean>(false);
 export const board = writable<BoardSnapshot>(emptySnapshot);
 export const loadError = writable<string | null>(null);
-let refreshSeq = 0;
+let refreshInFlight: Promise<void> | null = null;
+let refreshQueued = false;
 
 // statusMode controls whether refresh() requests the archive bucket. The
 // FilterBar's "Show archived" toggle writes this; callers shouldn't poke
@@ -32,16 +33,34 @@ let refreshSeq = 0;
 export const statusMode = writable<StatusMode>('active');
 
 export async function refresh(): Promise<void> {
-  const seq = ++refreshSeq;
+  if (refreshInFlight) {
+    refreshQueued = true;
+    return refreshInFlight;
+  }
+
+  refreshInFlight = drainRefreshQueue();
+  try {
+    await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
+async function drainRefreshQueue(): Promise<void> {
+  do {
+    refreshQueued = false;
+    await refreshOnce();
+  } while (refreshQueued);
+}
+
+async function refreshOnce(): Promise<void> {
   try {
     const mode = get(statusMode);
     const snap = await loadBoard(mode);
-    if (seq !== refreshSeq) return;
     board.set(snap);
     loadError.set(null);
     loaded.set(true);
   } catch (err) {
-    if (seq !== refreshSeq) return;
     // Clearing the snapshot prevents the previously-opened board's cards
     // from rendering under the newly selected project root when a board
     // switch fails (TB-145). Use a fresh object so mutators (e.g.

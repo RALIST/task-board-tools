@@ -1,7 +1,15 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Task } from '$lib/api';
   import Card from './Card.svelte';
   import { dndzone, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
+  import {
+    COLUMN_TASK_BATCH_SIZE,
+    hiddenTaskCount,
+    nextVisibleTaskLimit,
+    shouldBatchRenderColumn,
+    visibleTaskCount,
+  } from '$lib/columnVisibility';
 
   export type DropTarget = 'backlog' | 'ready' | 'in-progress' | 'code-review' | 'done';
 
@@ -21,6 +29,20 @@
 
   let dragOver = $state(false);
   let dragging = $state(false);
+  let visibleLimit = $state(COLUMN_TASK_BATCH_SIZE);
+  let lastTasks = $state<Task[] | null>(null);
+  let batchRender = $derived(shouldBatchRenderColumn(status));
+  let visibleCount = $derived(batchRender ? visibleTaskCount(tasks.length, visibleLimit) : tasks.length);
+  let hiddenCount = $derived(batchRender ? hiddenTaskCount(tasks.length, visibleLimit) : 0);
+  let visibleTasks = $derived(tasks.slice(0, visibleCount));
+
+  $effect(() => {
+    const previousTasks = untrack(() => lastTasks);
+    if (tasks !== previousTasks) {
+      visibleLimit = COLUMN_TASK_BATCH_SIZE;
+      lastTasks = tasks;
+    }
+  });
 
   // svelte-dnd-action requires the SAME array IDENTITY across the consider →
   // finalize lifecycle. We keep a $state-backed `items` array and refresh it
@@ -34,8 +56,14 @@
   // index against the array we hand it).
   $effect(() => {
     if (dragging) return;
-    items = tasks.map((t) => ({ id: t.id, task: t }));
+    if (sameItemIDs(untrack(() => items), visibleTasks)) return;
+    items = visibleTasks.map((t) => ({ id: t.id, task: t }));
   });
+
+  function sameItemIDs(current: Array<{ id: string }>, next: Task[]): boolean {
+    if (current.length !== next.length) return false;
+    return current.every((item, i) => item.id === next[i]?.id);
+  }
 
   function handleConsider(e: CustomEvent<DndEvent<{ id: string; task: Task }>>) {
     dragging = true;
@@ -63,6 +91,10 @@
     if (incoming) {
       onDrop(incoming.id, status as DropTarget);
     }
+  }
+
+  function showMore() {
+    visibleLimit = nextVisibleTaskLimit(visibleLimit, tasks.length);
   }
 </script>
 
@@ -96,11 +128,16 @@
       <p class="empty">No tasks</p>
     {:else}
       <ul class="static">
-        {#each tasks as t (t.id)}
+        {#each visibleTasks as t (t.id)}
           <li><Card task={t} {onSelect} /></li>
         {/each}
       </ul>
     {/if}
+  {/if}
+  {#if hiddenCount > 0}
+    <button type="button" class="show-more" onclick={showMore}>
+      Show {Math.min(COLUMN_TASK_BATCH_SIZE, hiddenCount)} more
+    </button>
   {/if}
 </article>
 
@@ -164,5 +201,23 @@
     margin: 16px 0;
     font-size: 11px;
     font-style: italic;
+  }
+  .show-more {
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--fg-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    padding: 8px 10px;
+    text-align: center;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .show-more:hover,
+  .show-more:focus-visible {
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--fg);
+    outline: none;
   }
 </style>

@@ -21,7 +21,7 @@ describe('board store refresh ordering', () => {
     statusMode.set('active');
   });
 
-  it('keeps the switch-back board when an older refresh finishes late', async () => {
+  it('runs one follow-up load for a burst of refresh requests', async () => {
     const writerStudio = deferred<BoardSnapshot>();
     const taskBoardInitial = snapshot('TB-90', 'Board switching is not working');
     const taskBoardSwitchBack = snapshot('TB-92', 'Limit showed tags in header to 10');
@@ -37,14 +37,13 @@ describe('board store refresh ordering', () => {
 
     const writerRefresh = refresh();
     const switchBackRefresh = refresh();
-    await switchBackRefresh;
-
-    expect(get(board).backlog[0]?.id).toBe('TB-92');
+    expect(loadBoard).toHaveBeenCalledTimes(2);
 
     writerStudio.resolve(writerSnapshot);
-    await writerRefresh;
+    await Promise.all([writerRefresh, switchBackRefresh]);
 
     expect(get(board).backlog[0]?.id).toBe('TB-92');
+    expect(loadBoard).toHaveBeenCalledTimes(3);
   });
 
   it('clears the previous board when a switch refresh fails (TB-145)', async () => {
@@ -89,13 +88,13 @@ describe('board store refresh ordering', () => {
 
     const staleRefresh = refresh();
     const newRefresh = refresh();
-    await newRefresh;
-    expect(get(board).backlog[0]?.id).toBe('TB-92');
+    expect(loadBoard).toHaveBeenCalledTimes(2);
 
     staleErr.reject(new Error('stale failure'));
-    await staleRefresh;
+    await Promise.all([staleRefresh, newRefresh]);
     expect(get(board).backlog[0]?.id).toBe('TB-92');
     expect(get(loadError)).toBeNull();
+    expect(loadBoard).toHaveBeenCalledTimes(3);
   });
 });
 

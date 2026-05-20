@@ -237,6 +237,13 @@ func (s *SettingsService) OpenBoard(ctx context.Context, projectRoot string) err
 		return fmt.Errorf("resolve abs path: %w", err)
 	}
 
+	s.mu.RLock()
+	if s.info.ProjectRoot == absRoot {
+		s.mu.RUnlock()
+		return nil
+	}
+	s.mu.RUnlock()
+
 	info, err := readBoardInfo(absRoot)
 	if err != nil {
 		return err

@@ -360,6 +360,45 @@ func TestLoadBoardWithMode_DefaultsToActive(t *testing.T) {
 	}
 }
 
+func TestLoadBoardWithMode_CoalescesConcurrentSameBoardLoads(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "calls.log")
+	stub := makeStub(t, fmt.Sprintf(`
+printf '%%s\n' "$*" >> %q
+sleep 0.1
+case "$1" in
+  board) echo '{}' ;;
+  *) echo '[{"id":"TB-1","title":"A","status":"backlog","tags":[]}]' ;;
+esac
+`, logPath))
+	svc := NewBoardService()
+	svc.setClient(newClient(t, stub))
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			_, err := svc.LoadBoardWithMode(context.Background(), "active")
+			errs <- err
+		}()
+	}
+	close(start)
+
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("LoadBoardWithMode: %v", err)
+		}
+	}
+
+	gotBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read call log: %v", err)
+	}
+	if got := string(gotBytes); got != "ls --json --status active\nboard --json\n" {
+		t.Fatalf("stub calls:\n%s", got)
+	}
+}
+
 func TestLoadBoard_DuplicateCanonicalPathsAreActionable(t *testing.T) {
 	first := filepath.Join(t.TempDir(), "board", "backlog", "WS-1486.md")
 	second := filepath.Join(t.TempDir(), "board", "done", "WS-1486.md")

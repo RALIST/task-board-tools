@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,53 @@ import (
 	"tools/tb-gui/internal/agent"
 	"tools/tb-gui/internal/cli"
 )
+
+func TestReconcileActiveReusesInitialSnapshot(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "calls.log")
+	boardDir := t.TempDir()
+	stub := makeStub(t, fmt.Sprintf(`
+printf '%%s\n' "$*" >> %q
+case "$1" in
+  ls)
+    cat <<JSON
+[
+  {"id":"TB-1","title":"A","status":"backlog","tags":[]},
+  {"id":"TB-2","title":"B","status":"backlog","tags":[]}
+]
+JSON
+    ;;
+  board)
+    echo '{}'
+    ;;
+  show)
+    id="$2"
+    cat <<JSON
+{"metadata":{"id":"$id","title":"A","status":"backlog","tags":[]},"body":""}
+JSON
+    ;;
+  *)
+    echo '{}'
+    ;;
+esac
+`, logPath))
+	c := newClient(t, stub)
+	board := NewBoardService()
+	board.setClient(c)
+	board.setBoardDir(boardDir)
+	rec := NewStageReconciler(board, nil)
+
+	if err := rec.ReconcileActive(context.Background()); err != nil {
+		t.Fatalf("ReconcileActive: %v", err)
+	}
+
+	gotBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read call log: %v", err)
+	}
+	if got := strings.Count(string(gotBytes), "ls --json --status active\n"); got != 1 {
+		t.Fatalf("active board loads = %d, want 1; calls:\n%s", got, gotBytes)
+	}
+}
 
 type stageReconcileFixture struct {
 	t        *testing.T
