@@ -29,6 +29,12 @@ const scanDebounce = 250 * time.Millisecond
 // in lockstep don't both wake the coordinator on the same nanosecond.
 const settleJitter = 50 * time.Millisecond
 
+// resumeAttemptCooldown caps how often a single task can be auto-resumed
+// when ResumeAgent keeps failing (e.g., a corrupt session). Successful
+// resumes flip AgentStatus to "queued" atomically, so they're filtered out
+// by the AgentStatus guard on the next scan and don't need the cooldown.
+const resumeAttemptCooldown = 30 * time.Second
+
 // AutoGroomStatus is the snapshot the Wails-bound Status() returns. The
 // frontend uses it to render the no-default-agent warning and the
 // per-task settle countdown without polling the JSONL files itself.
@@ -65,15 +71,16 @@ type AutoGroomCoordinator struct {
 	// override it to advance a virtual clock without sleeping.
 	now func() time.Time
 
-	mu            sync.Mutex
-	boardDir      string
-	activated     bool
-	lastNeedsDef  bool
-	lastScanAt    time.Time
-	lastSkip      map[string]string
-	settleTargets map[string]time.Time
-	settleTimers  map[string]*time.Timer
-	debounceTimer *time.Timer
+	mu             sync.Mutex
+	boardDir       string
+	activated      bool
+	lastNeedsDef   bool
+	lastScanAt     time.Time
+	lastSkip       map[string]string
+	settleTargets  map[string]time.Time
+	settleTimers   map[string]*time.Timer
+	debounceTimer  *time.Timer
+	resumeAttempts map[string]time.Time
 	// closed signals Deactivate has been called; goroutines spawned by the
 	// coordinator should check this before re-arming timers.
 	closed chan struct{}
@@ -105,16 +112,17 @@ func NewAutoGroomCoordinator(opts AutoGroomCoordinatorOptions) *AutoGroomCoordin
 		clock = time.Now
 	}
 	return &AutoGroomCoordinator{
-		board:         opts.Board,
-		agent:         opts.Agent,
-		settings:      opts.Settings,
-		emitter:       opts.Emitter,
-		logger:        logger.With("component", "auto-groom"),
-		now:           clock,
-		lastSkip:      map[string]string{},
-		settleTargets: map[string]time.Time{},
-		settleTimers:  map[string]*time.Timer{},
-		closed:        make(chan struct{}),
+		board:          opts.Board,
+		agent:          opts.Agent,
+		settings:       opts.Settings,
+		emitter:        opts.Emitter,
+		logger:         logger.With("component", "auto-groom"),
+		now:            clock,
+		lastSkip:       map[string]string{},
+		settleTargets:  map[string]time.Time{},
+		settleTimers:   map[string]*time.Timer{},
+		resumeAttempts: map[string]time.Time{},
+		closed:         make(chan struct{}),
 	}
 }
 
@@ -155,6 +163,7 @@ func (c *AutoGroomCoordinator) Activate(ctx context.Context, boardDir string) er
 	// LastGroomTriageHash provides the durable dedupe across activations.
 	c.lastSkip = map[string]string{}
 	c.settleTargets = map[string]time.Time{}
+	c.resumeAttempts = map[string]time.Time{}
 	c.lastNeedsDef = false
 	c.cancelTimersLocked()
 	if c.closed == nil {
@@ -363,6 +372,12 @@ func (c *AutoGroomCoordinator) scan(ctx context.Context, boardDir string) {
 	}
 	c.transitionNeedsDefault(false)
 
+	// Resume sweep: any backlog task left `interrupted` by stale-recovery
+	// (daemon crash with a captured session_id) gets auto-resumed before
+	// we evaluate triage candidates. ResumeAgent flips AgentStatus to
+	// "queued" atomically, so subsequent passes won't re-trigger it.
+	c.sweepInterrupted(ctx)
+
 	reasons, err := c.board.Triage(ctx)
 	if err != nil {
 		c.logger.Warn("auto-groom: triage failed", "err", err)
@@ -417,6 +432,16 @@ func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string
 	case "queued", "running", "needs-user":
 		c.recordSkip(id, "agent-status "+task.Metadata.AgentStatus)
 		return
+	case "interrupted":
+		// sweepInterrupted owns this path; if it slipped through (e.g.,
+		// cooldown active), don't fall through to a fresh groom run.
+		c.recordSkip(id, "agent-status interrupted")
+		return
+	case "lost":
+		// No resumable session — a fresh groom run would discard whatever
+		// the previous run did. Leave it for a human to triage.
+		c.recordSkip(id, "agent-status lost")
+		return
 	}
 	if c.agent.HasActiveRun(id) {
 		c.recordSkip(id, "active run")
@@ -461,18 +486,136 @@ func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string
 		}
 	}
 
-	runID, err := c.agent.StartGroomWithTriageHash(ctx, id, hash)
+	runID, err := c.agent.StartGroomWithTriageHashAs(ctx, id, hash, agent.InitiatorAutoGroom)
 	if err != nil {
-		c.logger.Warn("auto-groom: StartGroomWithTriageHash failed", "task", id, "err", err)
+		c.logger.Warn("auto-groom: StartGroomWithTriageHashAs failed", "task", id, "err", err)
 		return
 	}
 	c.mu.Lock()
 	delete(c.lastSkip, id)
 	c.mu.Unlock()
 	c.emit("auto-groom:queued", map[string]any{
-		"task_id":      id,
-		"run_id":       runID,
-		"triage_hash":  hash,
+		"task_id":     id,
+		"run_id":      runID,
+		"triage_hash": hash,
+	})
+}
+
+// sweepInterrupted finds backlog tasks left `interrupted` or `lost` by
+// stale-recovery and reanimates the daemon-owned ones. The initiator
+// filter scopes auto-resume/restart to tasks that the auto-groom
+// coordinator itself originally queued — user-triggered groom runs that
+// crashed are left for the user to deal with via the GUI.
+func (c *AutoGroomCoordinator) sweepInterrupted(ctx context.Context) {
+	if c.board == nil || c.agent == nil {
+		return
+	}
+	snap, err := c.board.LoadBoard(ctx)
+	if err != nil {
+		c.logger.Debug("auto-groom: LoadBoard for resume sweep failed", "err", err)
+		return
+	}
+	c.pruneResumeAttempts()
+	for _, t := range snap.Backlog {
+		if t.AgentStatus != "interrupted" && t.AgentStatus != "lost" {
+			continue
+		}
+		initiator, err := agent.LatestQueuedInitiator(c.boardDirLocked(), t.ID)
+		if err != nil {
+			c.logger.Debug("auto-groom: LatestQueuedInitiator failed", "task", t.ID, "err", err)
+			continue
+		}
+		if initiator != agent.InitiatorAutoGroom {
+			c.recordSkip(t.ID, "user-initiated; auto-resume skipped")
+			continue
+		}
+		c.tryAutoResume(ctx, t.ID, t.AgentStatus)
+	}
+}
+
+// boardDirLocked snapshots c.boardDir under the coordinator mutex so the
+// sweep doesn't race a Deactivate that clears it.
+func (c *AutoGroomCoordinator) boardDirLocked() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.boardDir
+}
+
+// pruneResumeAttempts ages out cooldown entries past their useful life so
+// the map can't grow indefinitely across many distinct tasks that each
+// failed resume once and then left the interrupted state.
+func (c *AutoGroomCoordinator) pruneResumeAttempts() {
+	cutoff := c.now().Add(-2 * resumeAttemptCooldown)
+	c.mu.Lock()
+	for id, ts := range c.resumeAttempts {
+		if ts.Before(cutoff) {
+			delete(c.resumeAttempts, id)
+		}
+	}
+	c.mu.Unlock()
+}
+
+// tryAutoResume reanimates a daemon-owned crashed run. interrupted →
+// session-resume via ResumeAgentAs; lost → fresh groom via
+// StartGroomWithTriageHashAs (no session continuity, but the previous
+// initiator was the coordinator, so it's safe to re-queue from scratch).
+// Per-task cooldown prevents tight loops on persistent failures.
+func (c *AutoGroomCoordinator) tryAutoResume(ctx context.Context, id, status string) {
+	if c.agent.HasActiveRun(id) {
+		c.recordSkip(id, "active run")
+		return
+	}
+	c.mu.Lock()
+	if last, ok := c.resumeAttempts[id]; ok && c.now().Sub(last) < resumeAttemptCooldown {
+		c.mu.Unlock()
+		c.recordSkip(id, "resume cooldown")
+		return
+	}
+	c.resumeAttempts[id] = c.now()
+	c.mu.Unlock()
+
+	var (
+		runID string
+		err   error
+		op    string
+	)
+	switch status {
+	case "interrupted":
+		op = "resume"
+		runID, err = c.agent.ResumeAgentAs(ctx, id, agent.InitiatorAutoGroom)
+	case "lost":
+		// No session continuity; queue a fresh groom run. Empty triage
+		// hash is fine — the next normal evaluate pass will dedupe via
+		// LastGroomTriageHash once this run completes.
+		op = "restart"
+		runID, err = c.agent.StartGroomWithTriageHashAs(ctx, id, "", agent.InitiatorAutoGroom)
+	default:
+		return
+	}
+	if err != nil {
+		if errors.Is(err, ErrAlreadyRunning) {
+			// Race with another path (e.g., GUI click). Not an error.
+			return
+		}
+		c.logger.Warn("auto-groom: auto-"+op+" failed", "task", id, "err", err)
+		c.recordSkip(id, op+" failed: "+err.Error())
+		c.emit("auto-groom:resume-failed", map[string]any{
+			"task_id": id,
+			"op":      op,
+			"error":   err.Error(),
+		})
+		return
+	}
+	c.mu.Lock()
+	delete(c.lastSkip, id)
+	delete(c.resumeAttempts, id)
+	c.mu.Unlock()
+	c.logger.Info("auto-groom: auto-"+op+" of crashed run",
+		"task", id, "run_id", runID, "previous_status", status)
+	c.emit("auto-groom:resumed", map[string]any{
+		"task_id": id,
+		"run_id":  runID,
+		"op":      op,
 	})
 }
 

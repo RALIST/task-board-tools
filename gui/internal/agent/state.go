@@ -95,6 +95,11 @@ type Event struct {
 	Cwd            string            `json:"cwd,omitempty"`
 	RunEnv         map[string]string `json:"run_env,omitempty"`
 	TriageHash     string            `json:"triage_hash,omitempty"`
+	// Initiator names who queued the run. Empty (= "user") for runs
+	// queued from the GUI or `tb` CLI. Coordinator-driven runs set
+	// "auto-groom" / "auto-implement" so the resume sweep can tell
+	// daemon-owned runs apart from user-owned ones.
+	Initiator string `json:"initiator,omitempty"`
 }
 
 // FilterTBEnv reduces a `KEY=VALUE` env slice (RunInput.Env shape) to a
@@ -148,6 +153,48 @@ const (
 	ArtifactLayoutFile   ArtifactLayout = "file"
 	ArtifactLayoutFolder ArtifactLayout = "folder"
 )
+
+// Initiator stamps the EvQueued JSONL row with who queued the run. Empty
+// (zero value) is treated as user-triggered for backward compatibility
+// with JSONL written before TB-291.
+const (
+	InitiatorUser          = "user"
+	InitiatorAutoGroom     = "auto-groom"
+	InitiatorAutoImplement = "auto-implement"
+)
+
+// LatestQueuedInitiator returns the Initiator field from the most recent
+// EvQueued event in the task's JSONL. Returns "" (treated as user) when
+// the task has no JSONL or no queued event yet. Used by the resume sweep
+// to scope auto-resume/restart to coordinator-owned runs.
+func LatestQueuedInitiator(boardDir, taskID string) (string, error) {
+	paths, err := ResolveArtifactPaths(boardDir, taskID)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(paths.StatePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("LatestQueuedInitiator: read %s: %w", paths.StatePath, err)
+	}
+	latest := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var ev Event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		if ev.Event == EvQueued {
+			latest = ev.Initiator
+		}
+	}
+	return latest, nil
+}
 
 // ArtifactPaths is the resolved state/log location for one task. File-form
 // tasks keep the legacy board-root paths; folder-form tasks use task-local

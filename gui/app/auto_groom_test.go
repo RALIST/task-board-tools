@@ -21,17 +21,17 @@ import (
 // AutoGroomCoordinator wired against all three. The clock is virtual so
 // settle-window tests can advance time without sleeping.
 type autoGroomFixture struct {
-	t          *testing.T
-	root       string
-	boardDir   string
-	board      *BoardService
-	svc        *AgentService
-	stub       *stubRunner
-	settings   *SettingsService
-	prefsPath  string
-	emitter    *recordingEmitter
-	coord      *AutoGroomCoordinator
-	clock      *fakeClock
+	t         *testing.T
+	root      string
+	boardDir  string
+	board     *BoardService
+	svc       *AgentService
+	stub      *stubRunner
+	settings  *SettingsService
+	prefsPath string
+	emitter   *recordingEmitter
+	coord     *AutoGroomCoordinator
+	clock     *fakeClock
 }
 
 // fakeClock is a deterministic time source. now() is read-only after
@@ -580,5 +580,144 @@ func TestAutoGroomCoordinator_StatusReflectsState(t *testing.T) {
 	}
 	if !strings.HasPrefix(st.LastScanAt, "2026-") {
 		t.Errorf("LastScanAt: got %q, want RFC3339-ish", st.LastScanAt)
+	}
+}
+
+// TestAutoGroomCoordinator_ResumesInterruptedBacklogTask verifies the
+// resume sweep auto-resumes a task left `interrupted` in backlog (the
+// daemon's recovery target for crashed groom-mode runs).
+func TestAutoGroomCoordinator_ResumesInterruptedBacklogTask(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	seedInterruptedTask(t, f.boardDir, c, "TB-1", "claude", agent.InitiatorAutoGroom, "interrupted")
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if err := f.settings.SetDefaultAgent("claude"); err != nil {
+		t.Fatalf("SetDefaultAgent: %v", err)
+	}
+	if err := f.settings.SetAutoGroomEnabled(true); err != nil {
+		t.Fatalf("SetAutoGroomEnabled: %v", err)
+	}
+	if err := f.settings.SetAutoGroomSettleMinutes(0); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes: %v", err)
+	}
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	if got := countEmitsByName(f.emitter, "auto-groom:resumed", "TB-1"); got != 1 {
+		t.Fatalf("auto-groom:resumed count = %d, want 1\nevents: %+v",
+			got, f.emitter.snapshot())
+	}
+	// And: no fresh groom should have been queued for the same task.
+	if got := countEmitsByName(f.emitter, "auto-groom:queued", "TB-1"); got != 0 {
+		t.Fatalf("auto-groom:queued count = %d, want 0 (resume must replace fresh-groom)\nevents: %+v",
+			got, f.emitter.snapshot())
+	}
+	if got := f.stub.input().Mode; got != agent.ModeResume {
+		t.Errorf("stub RunInput.Mode = %q, want %q", got, agent.ModeResume)
+	}
+}
+
+// TestAutoGroomCoordinator_SkipsLostTask verifies the defensive `lost`
+// skip: a task whose recovery couldn't capture a session_id is left
+// alone (no fresh groom, no resume attempt — there's nothing to resume).
+func TestAutoGroomCoordinator_SkipsLostTask(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{AgentStatus: "lost"}); err != nil {
+		t.Fatalf("seed lost: %v", err)
+	}
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if err := f.settings.SetDefaultAgent("claude"); err != nil {
+		t.Fatalf("SetDefaultAgent: %v", err)
+	}
+	if err := f.settings.SetAutoGroomEnabled(true); err != nil {
+		t.Fatalf("SetAutoGroomEnabled: %v", err)
+	}
+	if err := f.settings.SetAutoGroomSettleMinutes(0); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes: %v", err)
+	}
+	f.runScanSync()
+
+	if got := countEmitsByName(f.emitter, "auto-groom:resumed", "TB-1"); got != 0 {
+		t.Errorf("auto-groom:resumed count = %d, want 0 (lost must not resume)", got)
+	}
+	if got := countEmitsByName(f.emitter, "auto-groom:queued", "TB-1"); got != 0 {
+		t.Errorf("auto-groom:queued count = %d, want 0 (lost must not start a fresh groom)", got)
+	}
+}
+
+// TestAutoGroomCoordinator_SkipsUserInitiatedInterrupted verifies the
+// initiator filter: an interrupted run a user originally triggered is
+// not auto-resumed.
+func TestAutoGroomCoordinator_SkipsUserInitiatedInterrupted(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	// Empty initiator marks the run as user-triggered.
+	seedInterruptedTask(t, f.boardDir, c, "TB-1", "claude", "", "interrupted")
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if err := f.settings.SetDefaultAgent("claude"); err != nil {
+		t.Fatalf("SetDefaultAgent: %v", err)
+	}
+	if err := f.settings.SetAutoGroomEnabled(true); err != nil {
+		t.Fatalf("SetAutoGroomEnabled: %v", err)
+	}
+	if err := f.settings.SetAutoGroomSettleMinutes(0); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes: %v", err)
+	}
+	f.runScanSync()
+
+	if got := countEmitsByName(f.emitter, "auto-groom:resumed", "TB-1"); got != 0 {
+		t.Errorf("auto-groom:resumed count = %d, want 0 (user-initiated must not be auto-resumed)", got)
+	}
+}
+
+// TestAutoGroomCoordinator_RestartsLostAutoRun verifies a `lost` task
+// the coordinator originally queued is auto-restarted via a fresh
+// StartGroomWithTriageHashAs call (no session continuity).
+func TestAutoGroomCoordinator_RestartsLostAutoRun(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	seedInterruptedTask(t, f.boardDir, c, "TB-1", "claude", agent.InitiatorAutoGroom, "lost")
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if err := f.settings.SetDefaultAgent("claude"); err != nil {
+		t.Fatalf("SetDefaultAgent: %v", err)
+	}
+	if err := f.settings.SetAutoGroomEnabled(true); err != nil {
+		t.Fatalf("SetAutoGroomEnabled: %v", err)
+	}
+	if err := f.settings.SetAutoGroomSettleMinutes(0); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes: %v", err)
+	}
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	if got := countEmitsByName(f.emitter, "auto-groom:resumed", "TB-1"); got != 1 {
+		t.Fatalf("auto-groom:resumed count = %d, want 1\nevents: %+v",
+			got, f.emitter.snapshot())
+	}
+	// Fresh restart: stub sees ModeGroom (not ModeResume).
+	if got := f.stub.input().Mode; got != agent.ModeGroom {
+		t.Errorf("stub RunInput.Mode = %q, want %q (lost restart is a fresh groom)",
+			got, agent.ModeGroom)
 	}
 }

@@ -158,7 +158,15 @@ func (s *AgentService) setRunnerFactory(f runnerFactory) {
 // rollback semantics on failure (entry is removed if a setup step errors
 // out before the runner goroutine is spawned).
 func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) {
-	return s.startAgentRun(ctx, id, agent.ModeImplement, "")
+	return s.startAgentRun(ctx, id, agent.ModeImplement, "", "")
+}
+
+// RunAgentAs is the package-internal entry point used by the auto-implement
+// coordinator. `initiator` is written into the EvQueued JSONL row so the
+// resume sweep can later tell daemon-owned runs apart from user-triggered
+// ones (empty initiator = user).
+func (s *AgentService) RunAgentAs(ctx context.Context, id, initiator string) (string, error) {
+	return s.startAgentRun(ctx, id, agent.ModeImplement, "", initiator)
 }
 
 // GroomTask kicks off a new run for the given task in grooming mode. It
@@ -167,7 +175,7 @@ func (s *AgentService) RunAgent(ctx context.Context, id string) (string, error) 
 // triage hash; use StartGroomWithTriageHash for auto-groom paths that need
 // the durable dedupe fingerprint persisted on the run's JSONL events.
 func (s *AgentService) GroomTask(ctx context.Context, id string) (string, error) {
-	return s.startAgentRun(ctx, id, agent.ModeGroom, "")
+	return s.startAgentRun(ctx, id, agent.ModeGroom, "", "")
 }
 
 // StartGroomWithTriageHash is the auto-groom entry point (TB-174): it
@@ -177,7 +185,15 @@ func (s *AgentService) GroomTask(ctx context.Context, id string) (string, error)
 // manual GroomTask semantics; the AC mandates a real hash from the
 // coordinator, so callers should pre-compute it.
 func (s *AgentService) StartGroomWithTriageHash(ctx context.Context, id, triageHash string) (string, error) {
-	return s.startAgentRun(ctx, id, agent.ModeGroom, triageHash)
+	return s.startAgentRun(ctx, id, agent.ModeGroom, triageHash, "")
+}
+
+// StartGroomWithTriageHashAs is the auto-groom coordinator's entry point.
+// Same as StartGroomWithTriageHash but stamps the JSONL EvQueued row with
+// the supplied initiator (= "auto-groom") so the resume sweep filter can
+// later identify daemon-owned runs.
+func (s *AgentService) StartGroomWithTriageHashAs(ctx context.Context, id, triageHash, initiator string) (string, error) {
+	return s.startAgentRun(ctx, id, agent.ModeGroom, triageHash, initiator)
 }
 
 // ReviewTask kicks off a code-review run for the given task. Same lifecycle
@@ -186,7 +202,7 @@ func (s *AgentService) StartGroomWithTriageHash(ctx context.Context, id, triageH
 // via `tb review --findings`, and use `tb review --fail` when rework is
 // required. Review runs do NOT edit implementation files.
 func (s *AgentService) ReviewTask(ctx context.Context, id string) (string, error) {
-	return s.startAgentRun(ctx, id, agent.ModeReview, "")
+	return s.startAgentRun(ctx, id, agent.ModeReview, "", "")
 }
 
 // ResumeAgent continues the most recent interrupted agent session for
@@ -205,6 +221,18 @@ func (s *AgentService) ReviewTask(ctx context.Context, id string) (string, error
 // for Codex the runner uses `codex exec --json resume <uuid> <prompt>`
 // and a new id flows through the OnSessionID callback (TB-139).
 func (s *AgentService) ResumeAgent(ctx context.Context, id string) (string, error) {
+	return s.resumeAgent(ctx, id, "")
+}
+
+// ResumeAgentAs is the package-internal entry point used by the
+// coordinators. The initiator stamp is written into the EvQueued JSONL row
+// of the new resume run so the resume sweep can later tell daemon-owned
+// resumes apart from user-triggered ones (empty initiator = user).
+func (s *AgentService) ResumeAgentAs(ctx context.Context, id, initiator string) (string, error) {
+	return s.resumeAgent(ctx, id, initiator)
+}
+
+func (s *AgentService) resumeAgent(ctx context.Context, id, initiator string) (string, error) {
 	if s.board == nil {
 		return "", ErrNoBoard
 	}
@@ -288,7 +316,9 @@ func (s *AgentService) ResumeAgent(ctx context.Context, id string) (string, erro
 	}
 
 	// queued JSONL — carries the resume linkage so the UI chip + future
-	// recovery can trace the chain.
+	// recovery can trace the chain. Initiator (TB-291) stamps daemon-owned
+	// resumes so the next stale-recovery cycle can distinguish them from
+	// user-triggered resumes.
 	if err := agent.AppendEvent(boardDir, id, agent.Event{
 		TS:             now,
 		RunID:          runID,
@@ -298,6 +328,7 @@ func (s *AgentService) ResumeAgent(ctx context.Context, id string) (string, erro
 		Mode:           agent.ModeResume.String(),
 		ResumedFrom:    candidate.SessionID,
 		ResumedFromRun: candidate.RunID,
+		Initiator:      initiator,
 	}); err != nil {
 		rollback()
 		return "", fmt.Errorf("ResumeAgent: append queued: %w", err)
@@ -335,7 +366,7 @@ func envSliceFromMap(m map[string]string) []string {
 	return out
 }
 
-func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.Mode, triageHash string) (string, error) {
+func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.Mode, triageHash, initiator string) (string, error) {
 	if s.board == nil {
 		return "", ErrNoBoard
 	}
@@ -409,7 +440,10 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 
 	// Step 1 — JSONL queued. TriageHash is set only by the auto-groom
 	// coordinator path (TB-174); manual groom/implement/review runs leave
-	// it empty so the on-disk format stays stable via omitempty.
+	// it empty so the on-disk format stays stable via omitempty. Initiator
+	// (TB-291) is empty for user-triggered runs; coordinators stamp their
+	// own name ("auto-groom"/"auto-implement") so the resume sweep can
+	// later filter by who originally owned the run.
 	if err := agent.AppendEvent(boardDir, id, agent.Event{
 		TS:         now,
 		RunID:      runID,
@@ -418,6 +452,7 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 		Agent:      agentName,
 		Mode:       mode.String(),
 		TriageHash: triageHash,
+		Initiator:  initiator,
 	}); err != nil {
 		rollback()
 		return "", fmt.Errorf("%s: append queued: %w", runMethodName(mode), err)
@@ -595,7 +630,9 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 		select {
 		case <-ctx.Done():
 			ar.markCancelled()
-			killActiveRun(ar)
+			if err := killActiveRun(ar); err != nil {
+				slog.Warn("agent: shutdown cancel signal failed", "task", id, "run", ar.RunID, "err", err)
+			}
 		case <-ctxCancelled:
 		}
 	}()
