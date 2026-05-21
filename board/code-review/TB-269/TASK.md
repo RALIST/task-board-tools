@@ -4,12 +4,11 @@
 **Priority:** P1
 **Size:** S
 **Module:** docs
-**Tags:** automation,docs,kanban,agent,review-failed
+**Tags:** automation,docs,kanban,agent
 **Agent:** codex
 **ImplementedBy:** codex
 **ImplementStatus:** success
-**ReviewRef:** 54d5549
-**AgentStatus:** success
+**ReviewRef:** 24244a1
 **Branch:** —
 
 ## Goal
@@ -42,18 +41,16 @@ Document the three independently toggleable automation stages, their kanban tran
 ## Review Target
 
 branch: main
-commit: 54d5549 (TB-269 document staged autonomous workflow)
+commit: 24244a1 (TB-269 align review-fail docs)
 
 Scope:
-- Added the staged autonomous workflow contract to architecture, product, implementation, board conventions, and generated board templates.
-- Documented independent auto-groom / auto-implement / auto-review toggles, failed-review retry state cleanup, epic child ordering, and deterministic daemon reconciliation limits.
-- Checked groom/implement/review prompt consistency; prompt wording cleanup is tracked by TB-270 and was not folded into the TB-269 commit.
+- Superseded stale backlog-based review-failure wording in docs/IMPLEMENTATION.md.
+- Cleaned matching docs/FEATURES.md wording so ready is the current review-failed rework source and backlog is legacy compatibility only.
 
 Verification:
-- stale wording smoke grep over current docs/prompts/guidance: no matches
-- git diff --check -- docs/ARCHITECTURE.md docs/FEATURES.md docs/IMPLEMENTATION.md board/CONVENTIONS.md board/SKILL.md cli/templates.go cli/templates_test.go
+- stale review-fail/backlog wording smoke grep over canonical docs, board guidance, templates, and prompts: no matches
+- git diff --check -- docs/FEATURES.md docs/IMPLEMENTATION.md
 - cd cli && go test ./...
-- cd cli && go build -o tb .; cp cli/tb tb
 - scoped subagent review: No CRITICAL or MAJOR issues found.
 
 ## Review Findings
@@ -101,4 +98,10 @@ Verification:
 - 2026-05-21: Edited agentstatus=queued
 - 2026-05-21: Edited agentstatus=running
 - 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited review-target
+- 2026-05-21: Edited reviewref=24244a1
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Failed code review — moved to ready with review-failed marker
+- 2026-05-21: Cleared review-failed marker on resubmit
+- 2026-05-21: Submitted to code-review
 
