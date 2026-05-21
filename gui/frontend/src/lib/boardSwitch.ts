@@ -138,3 +138,12 @@ export function createBoardSwitchCoordinator({
 export function shouldAcceptBoardReload(visibleRoot: string, activeRoot: string | null): boolean {
   return visibleRoot !== '' && activeRoot !== null && visibleRoot === activeRoot;
 }
+
+export async function refreshPersistedBoardOnStartup(
+  projectRoot: string,
+  startStartupGrace: (projectRoot: string) => void,
+  refreshBoard: () => Promise<void>,
+): Promise<void> {
+  startStartupGrace(projectRoot);
+  await refreshBoard();
+}

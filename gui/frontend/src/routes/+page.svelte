@@ -63,7 +63,11 @@
   } from '$lib/stores/startupGrace';
   import { shortcutAction } from '$lib/shortcuts';
   import { isAutoImplementFilterEmpty } from '$lib/autoImplementFilter';
-  import { createBoardSwitchCoordinator, shouldAcceptBoardReload } from '$lib/boardSwitch';
+  import {
+    createBoardSwitchCoordinator,
+    refreshPersistedBoardOnStartup,
+    shouldAcceptBoardReload,
+  } from '$lib/boardSwitch';
 
   let projectRoot = $state('');
   let recents = $state<RecentBoard[]>([]);
@@ -161,8 +165,7 @@
     }));
 
     if (projectRoot) {
-      await refresh();
-      startStartupGraceForBoard(projectRoot);
+      await refreshPersistedBoardOnStartup(projectRoot, startStartupGraceForBoard, refresh);
       bootStatus = 'ready';
     } else if (recents.length > 0) {
       try {

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createBoardSwitchCoordinator, shouldAcceptBoardReload } from './boardSwitch';
+import {
+  createBoardSwitchCoordinator,
+  refreshPersistedBoardOnStartup,
+  shouldAcceptBoardReload,
+} from './boardSwitch';
 
 describe('board switch coordinator', () => {
   it('does not commit UI state when OpenBoard rejects before backend commit', async () => {
@@ -327,6 +331,31 @@ describe('board reload guard', () => {
     expect(shouldAcceptBoardReload('/tmp/new-board', '/tmp/old-board')).toBe(false);
     expect(shouldAcceptBoardReload('/tmp/new-board', null)).toBe(false);
     expect(shouldAcceptBoardReload('', '/tmp/current-board')).toBe(false);
+  });
+});
+
+describe('persisted board startup', () => {
+  it('starts startup grace before waiting for the initial board refresh', async () => {
+    const refresh = deferred<void>();
+    const calls: string[] = [];
+
+    const startup = refreshPersistedBoardOnStartup(
+      '/tmp/current-board',
+      (root) => calls.push(`grace:${root}`),
+      async () => {
+        calls.push('refresh:start');
+        await refresh.promise;
+        calls.push('refresh:done');
+      },
+    );
+    await Promise.resolve();
+
+    expect(calls).toEqual(['grace:/tmp/current-board', 'refresh:start']);
+
+    refresh.resolve();
+    await startup;
+
+    expect(calls).toEqual(['grace:/tmp/current-board', 'refresh:start', 'refresh:done']);
   });
 });
 
