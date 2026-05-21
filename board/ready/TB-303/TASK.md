@@ -27,6 +27,7 @@ Remove generic `AgentStatus` as a live scheduling/status field across the projec
 - TB-268 and TB-299 are bridge fixes that clear or narrow the generic cursor for review-failed and auto-implement pickup; they do not remove the field from the project.
 - Current documented/code surfaces still include `AgentStatus`: CLI metadata parsing/edit/json/help, `tb assign`, `tb ready`, review fail cleanup, GUI runner/daemon/recovery/cancel/resume flows, frontend task types and chips, generated board conventions/templates, and canonical docs.
 - Child tasks for this epic: TB-307 (CLI/storage), TB-308 (GUI runner/daemon lifecycle), TB-309 (frontend display/controls), TB-310 (docs/templates/board cleanup).
+- TB-309 card display must follow the approved column-specific status spec: `docs/superpowers/specs/2026-05-21-column-specific-card-status-design.md`.
 - Related bridge/prerequisite tasks: TB-237, TB-268, TB-299, TB-254.
 
 ## Constraints
@@ -44,6 +45,7 @@ Remove generic `AgentStatus` as a live scheduling/status field across the projec
 - [ ] `tb show --json`, `tb ls --json`, and GUI task DTO/types no longer expose an `agentStatus` field for current task state.
 - [ ] CLI, GUI runner/daemon, and autonomous coordinators queue, run, finish, cancel, recover, resume, and block tasks using per-mode statuses plus JSONL run history, with no live dependency on generic `AgentStatus`.
 - [ ] Frontend cards/drawer/run controls show accurate groom/implement/review state without reading or rendering generic `AgentStatus`; manual GUI smoke is recorded on the UI child task.
+- [ ] Frontend cards show only the mode status for their current column (`backlog` = groom, `ready`/`in-progress` = implement, `code-review`/`done`/`archive` = review), with `review-failed` kept as a separate marker on ready cards.
 - [ ] Canonical docs, generated board templates, local board skill/conventions, and live active task metadata no longer advertise or require `AgentStatus`; any remaining `AgentStatus` string matches an explicit legacy/history allowance documented by TB-310.
 - [ ] Verification for the completed epic includes `cd cli && go test ./...`, `cd gui && go test ./...`, `cd gui/frontend && npm run check`, `cd gui/frontend && npm test -- --run`, and a final `rg -n 'AgentStatus|agentStatus|--agent-status' cli gui docs README.md AGENTS.md board/CONVENTIONS.md board/SKILL.md` audit.
 
@@ -62,4 +64,4 @@ Remove generic `AgentStatus` as a live scheduling/status field across the projec
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
-
+- 2026-05-21: Linked approved column-specific card status spec for TB-309/TB-303.
