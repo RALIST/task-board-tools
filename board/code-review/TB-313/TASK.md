@@ -10,8 +10,9 @@
 **GroomStatus:** success
 **ImplementedBy:** codex
 **ImplementStatus:** success
-**AgentStatus:** success
-**ReviewRef:** 49063fa
+**ReviewRef:** main
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -56,30 +57,42 @@ Manual desktop smoke against Writer Studio was not run in this pass because prio
 ## Review Target
 
 branch: main
-commit: 49063fa
+review ref: main
+code commit: 49063fa
 
 Summary:
-- Added TB-313 regression coverage for virtualized done/archive order and badge preservation after scrolling.
-- Added coverage that large backlog columns stay fully mounted/draggable rather than receiving the completed-history virtual cap.
-- Added coverage that archive columns stay non-draggable without the virtualized DnD guard copy.
+- Completed the missing TB-313 manual desktop smoke with a clean HEAD Wails dev app copy and isolated synthetic large board.
+- Verified large done/archive scrolling, top and far-down drawer opening, bounded visible card rendering, badge preservation, DnD guard visibility, and idle CPU settling.
+- Reran frontend gates; no source changes in this rework pass.
 
 Scope note:
-- Core virtualization implementation was already present on main before this continuation (`Column.svelte`, `columnVisibility.ts`). This commit closes acceptance coverage gaps without touching backend board loading, CLI format, watcher behavior, or board-switch UX.
-- Separate TB-323 drag-start crash WIP is dirty in the working tree and intentionally not included in commit 49063fa.
+- Core virtualization remains the existing TB-313 implementation in `Column.svelte` / `columnVisibility.ts`.
+- This pass updates review evidence only; no backend board loading, CLI format, watcher behavior, or board-switch UX changes.
+- Writer Studio was not opened because prior TB-312 smoke showed it can launch real autonomous work; the synthetic board avoids that side effect while matching the large done/archive shape.
 
 ## Reviewer Notes
 
 Verification:
-- Clean staged-patch worktree at HEAD+TB-313 patch: `cd gui/frontend && npm run check` — 0 errors, 0 warnings.
-- Clean staged-patch worktree at HEAD+TB-313 patch: `cd gui/frontend && npm test -- --run` — 28 files passed, 299 tests passed.
-- Clean staged-patch worktree at HEAD+TB-313 patch: `cd gui/frontend && npm run lint` — passed.
-- Main worktree after commit: `cd gui/frontend && npm run check` — 0 errors, 0 warnings.
-- Main worktree after commit: `cd gui/frontend && npm test -- --run` — 28 files passed, 304 tests passed; includes unrelated TB-323 WIP tests.
-- Main worktree after commit: `cd gui/frontend && npm run lint` — passed.
-- Code review subagent: PASS, no CRITICAL/IMPORTANT findings for TB-313 frontend files.
+- `cd gui/frontend && npm run check` — 0 errors, 0 warnings.
+- `cd gui/frontend && npm test -- --run` — 28 files passed, 304 tests passed.
+- `cd gui/frontend && npm run lint` — passed.
 
-Manual note:
-- Desktop GUI smoke against Writer Studio was not run. Prior TB-312 smoke showed opening Writer Studio can trigger real autonomous work; during continuation an existing `tb-gui`/`wails3 dev` instance was already running and Computer Use timed out reading it, so I did not kill or commandeer that session. Automated coverage exercises 3000-task done/archive rendering, scroll/open, ordering, badges, large backlog non-cap behavior, and DnD guard states.
+Manual desktop smoke:
+- Ran Wails dev from a clean `git archive HEAD` copy under `/tmp/tb313-smoke/app`, with isolated `XDG_CONFIG_HOME=/tmp/tb313-smoke/xdg`, unique smoke single-instance id, automation prefs off, and PATH pointed at `/Users/ralist/go/bin/tb`.
+- Used a synthetic large board at `/tmp/tb313-smoke/large-board` with 60 backlog, 1 ready, 1 in-progress, 1 code-review, 3000 done, and 3000 archive tasks; no queued/running agent tasks.
+- Startup attached watcher to `/tmp/tb313-smoke/large-board/board`; daemon startup scan completed with `enqueued=0`.
+- Done column rendered count `3000` with bounded visible cards, preserved badges (`done-badge` on TB-1001), showed `Drag disabled while this large column uses lazy rendering.`, opened top task TB-1001, scrolled far down to TB-3751..TB-3772 range, and opened TB-3763.
+- Show archived loaded archive count `3000`; archive column rendered bounded visible cards, preserved badge on TB-4001, scrolled far down to TB-6774..TB-6795 range, and opened TB-6784.
+- After scrolling/opening, idle process sample settled at `tb-gui` 0.0% CPU / 64 MB RSS, Vite 0.0% CPU / 52 MB RSS, and Wails wrapper 0.0% CPU / 7 MB RSS.
+- Stopped only the temp smoke app/processes after the run.
+
+Scope note:
+- Writer Studio was intentionally not opened because TB-312 proved that board can launch real autonomous work on open. The smoke board reproduced the large completed-history shape safely without agent side effects.
+- Existing unrelated TB-323/TB-325 working-tree WIP remains dirty and is not part of this TB-313 rework.
+
+## Review Findings
+
+Prior failed-review finding addressed: manual large-board desktop smoke is now complete and recorded in Reviewer Notes. No new source changes in this rework pass.
 
 ## Related Tasks
 
@@ -129,5 +142,21 @@ Manual note:
 - 2026-05-21: Edited review-target
 - 2026-05-21: Edited reviewer-notes
 - 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=49063fa
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Failed code review — moved to ready with review-failed marker
+- 2026-05-21: Edited agentstatus=none, reviewed-by=codex, review-status=success
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited reviewer-notes
+- 2026-05-21: Edited review-target
+- 2026-05-21: Edited review-findings
+- 2026-05-21: Edited agentstatus=success, reviewref=main
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Failed code review — moved to ready with review-failed marker
+- 2026-05-21: Cleared review-failed marker on resubmit
 - 2026-05-21: Submitted to code-review
 
