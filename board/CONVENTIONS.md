@@ -88,21 +88,9 @@ Every done task needs evidence. No task should move to `done` without proof of d
 
 Do not use `archive` as a shortcut for unfinished work or as a substitute for evidence. Archive is only for closing work that should leave the active board: obsolete, superseded, duplicate, or intentionally dropped tasks.
 
-## Autonomous Stages
+## Agent Handoffs
 
-Autonomous board work is split into three independent stages. Enabling one stage does not enable or imply the others:
-
-- `auto-groom` works on `backlog` intake. It may refine task content and, after the task no longer needs triage, promote through the managed ready gate into `ready`.
-- `auto-implement` works only on committed `ready` tasks. The coordinator owns the `ready` to `in-progress` transition; the implementation agent owns the change and submits completed work to `code-review` with review target metadata.
-- `auto-review` works only on `code-review` tasks. It is off by default through `auto_review_enabled`, requires a valid default agent, and reviews only tasks with a top-level `ReviewRef`. A pass moves to `done` through `tb review --pass`; a failure returns to `ready` through `tb review --fail` with `review-failed` and a clear rework note. Missing `ReviewRef` uses the `needs-user` handoff.
-
-Backlog tasks are not auto-implemented. A ready task tagged `review-failed` is rework for auto-implement, not a review candidate. Failed review handoff should clear retry-blocking generic `AgentStatus` while keeping review history in the task log, review fields, and agent artifacts.
-
-Auto-implement obeys epic child order. For tasks with the same parent epic, a later numeric child must not be selected while an earlier child is still active outside `done`; `archive` is treated as closed work because archive is reserved for obsolete, superseded, duplicate, or intentionally dropped tasks. Missing or unreadable earlier siblings should block with a diagnostic instead of being ignored.
-
-Daemon housekeeping for autonomous stages is soft and deterministic. It may repair missed transitions only from objective board/run markers, must use managed board operations, and must not guess from arbitrary prose, logs, or comments. Auto-review recovery applies only to JSONL runs queued with `initiator=auto-review`. It must preserve `needs-user`, `cancelled`, and unrelated `interrupted`/`lost` states. WIP-blocked repairs should back off durably so watcher reloads do not loop on the same blocked transition.
-
-### Agent lifecycle (AgentStatus)
+`AgentStatus` metadata is a coordination aid, not proof of done. Use it to show whether a task is assigned, queued, running, blocked on a person, or carrying the result of the last agent run.
 
 | Value | Meaning |
 |-------|---------|
@@ -111,14 +99,12 @@ Daemon housekeeping for autonomous stages is soft and deterministic. It may repa
 | `running` | Currently executing. |
 | `success` | Last run finished with exit code 0. |
 | `failed` | Last run finished with a non-zero exit code or runtime error from the agent runner. |
-| `cancelled` | User-initiated cancel. |
-| `interrupted` | Recovery-initiated; daemon crashed mid-run with a captured session id, so Resume is available. |
-| `lost` | Recovery-initiated; daemon lost the terminal run result and no resumable session was captured. |
-| `needs-user` | Agent stopped because user input is required. Automation should skip the task until a human clears it. |
+| `cancelled` | Stopped by a user or coordinating tool. |
+| `interrupted` | Stopped before completion, with enough context for the tool to continue later. |
+| `lost` | Stopped before completion, and the exact continuation state is unknown. |
+| `needs-user` | Agent stopped because user input is required. Do not start more agent work until a human clears it. |
 
-Resume is offered when the backend reports that the latest run has a captured session id and the task is in a terminal status (`interrupted`, `lost`, `failed`, `cancelled`, or `success`). `queued`, `running`, and `needs-user` remain blocked; the UI labels the source status so the user intentionally resumes failed, cancelled, or successful runs.
-
-Autonomous agents that cannot continue safely use the `needs-user` handoff. The task should include a `User Attention` section with:
+Agents that cannot continue safely use the `needs-user` handoff. The task should include a `User Attention` section with:
 
 - Reason: short category such as unclear requirement, external blocker, conflict, failed verification, or stale task.
 - Question/Action: the specific ask the user must answer or do.

@@ -30,18 +30,6 @@ Read `board/CONVENTIONS.md` before changing board state. It is the policy source
 
 Every `done` task needs evidence. Implementation tasks should cite a commit or review artifact that includes `TB-NNN`. Spike tasks should link or attach the investigation result, decision record, notes file, or follow-up task list.
 
-## Autonomous Stages
-
-Treat autonomous work as three separate opt-in stages:
-
-- `auto-groom`: backlog intake is groomed and may be promoted to `ready` only after it is no longer triage-reported.
-- `auto-implement`: committed `ready` work is pulled into `in-progress`, implemented, and submitted to `code-review` with review target metadata.
-- `auto-review`: `code-review` work with a top-level `ReviewRef` is reviewed; pass uses `tb review --pass` to move to `done`, fail uses `tb review --fail` to return to `ready` with `review-failed`. Missing `ReviewRef` uses `needs-user`.
-
-Do not auto-implement backlog tasks. Do not auto-review ready `review-failed` rework. Failed review handoff should clear retry-blocking generic `AgentStatus` while preserving review history.
-
-Auto-review is off by default through `auto_review_enabled` and requires a valid default agent. For epic children, auto-implement must not pick a later numeric child while an earlier same-parent child is still active outside `done`; missing or unreadable earlier siblings block with a diagnostic. Daemon housekeeping is deterministic repair only: use objective board/run markers, managed board operations, and durable backoff for WIP-blocked repairs; never guess from prose or override `needs-user`, `cancelled`, or unrelated `interrupted`/`lost`. Auto-review recovery applies only to JSONL runs queued with `initiator=auto-review`.
-
 ## Backlog Capture
 
 Create or update backlog tasks for real work outside the current scope:

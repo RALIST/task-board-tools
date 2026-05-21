@@ -78,6 +78,9 @@ func TestInitRefreshDocsUsesExistingConfigAndPreservesFolderBoardState(t *testin
 	assertNotContains(t, conventions, "tb init [path]")
 	assertNotContains(t, conventions, "tb create \"Title\"")
 	assertNotContains(t, conventions, "<status>/TB-NNN/TASK.md")
+	assertNotContains(t, conventions, "## Autonomous Stages")
+	assertNotContains(t, conventions, "`auto-groom`")
+	assertNotContains(t, conventions, "Daemon housekeeping for autonomous stages")
 
 	skill := readFileForTest(t, filepath.Join(boardDir, "SKILL.md"))
 	assertContains(t, skill, "---\nname: task-board\n")
@@ -85,6 +88,9 @@ func TestInitRefreshDocsUsesExistingConfigAndPreservesFolderBoardState(t *testin
 	assertContains(t, skill, "Every `done` task needs evidence")
 	assertContains(t, skill, "tb show TB-NNN")
 	assertNotContains(t, skill, "### CLI Reference")
+	assertNotContains(t, skill, "## Autonomous Stages")
+	assertNotContains(t, skill, "`auto-implement`")
+	assertNotContains(t, skill, "Daemon housekeeping is deterministic repair only")
 }
 
 func TestInitExistingBoardRefreshesDocsByDefault(t *testing.T) {
