@@ -41,6 +41,9 @@ func main() {
 	var appRef *application.App
 	emitter := emitterShim{getApp: func() *application.App { return appRef }}
 	var settingsService *tbapp.SettingsService
+	var d *daemon.Daemon
+	var autoGroom *tbapp.AutoGroomCoordinator
+	var stageReconciler *tbapp.StageReconciler
 
 	agentService := tbapp.NewAgentService(tbapp.AgentServiceOptions{
 		Board:   boardService,
@@ -51,6 +54,20 @@ func main() {
 			}
 			return time.Duration(settingsService.GetAgentTimeoutMinutes()) * time.Minute
 		},
+		WorkerBudget: func() tbapp.AutomationWorkerBudget { return d },
+		ActiveChanged: func() {
+			if d != nil {
+				d.NotifyAgentActiveChanged()
+			}
+		},
+		TerminalHook: func(payload map[string]any) {
+			if autoGroom != nil {
+				autoGroom.OnAgentRunFinished(payload)
+			}
+			if stageReconciler != nil {
+				stageReconciler.OnAgentRunFinished(payload)
+			}
+		},
 	})
 
 	// Build the daemon BEFORE the watcher so we can tee watcher events
@@ -60,8 +77,8 @@ func main() {
 	settingsForPrefs := tbapp.NewSettingsService(tbapp.SettingsOptions{Logger: logger})
 	maxWorkers := settingsForPrefs.GetMaxWorkers()
 	recovery := tbapp.NewRecoveryService(boardService, agentService, daemon.PidAliveForRecovery, logger)
-	stageReconciler := tbapp.NewStageReconciler(boardService, logger)
-	d := daemon.New(daemon.Options{
+	stageReconciler = tbapp.NewStageReconciler(boardService, logger)
+	d = daemon.New(daemon.Options{
 		Board:                   &boardAdapter{b: boardService},
 		Agent:                   &agentAdapter{s: agentService},
 		Recovery:                recovery,
@@ -75,12 +92,13 @@ func main() {
 	// via the composite activator below; its sink is tee'd into the
 	// watcher emitter alongside the daemon's sink so board:reloaded /
 	// task:updated:<id> events drive incremental scans.
-	autoGroom := tbapp.NewAutoGroomCoordinator(tbapp.AutoGroomCoordinatorOptions{
-		Board:    boardService,
-		Agent:    agentService,
-		Settings: nil, // wired below after settingsService is constructed
-		Emitter:  emitter,
-		Logger:   logger,
+	autoGroom = tbapp.NewAutoGroomCoordinator(tbapp.AutoGroomCoordinatorOptions{
+		Board:        boardService,
+		Agent:        agentService,
+		Settings:     nil, // wired below after settingsService is constructed
+		Emitter:      emitter,
+		Logger:       logger,
+		WorkerBudget: d,
 	})
 
 	// Auto-implement coordinator (TB-179). Parallel to AutoGroomCoordinator
@@ -163,17 +181,6 @@ func main() {
 		},
 	})
 	appRef = app
-
-	// Auto-groom coordinator listens for terminal groom runs so it can
-	// re-check triage and promote successfully groomed tasks to `ready`
-	// via `tb ready` (TB-174). The payload shape mirrors what
-	// AgentService.recordTerminal emits.
-	app.Event.On("agent:run-finished", func(ev *application.CustomEvent) {
-		if payload, ok := ev.Data.(map[string]any); ok {
-			autoGroom.OnAgentRunFinished(payload)
-			stageReconciler.OnAgentRunFinished(payload)
-		}
-	})
 
 	shellController, err := shell.NewController(shell.Options{
 		App:      app,

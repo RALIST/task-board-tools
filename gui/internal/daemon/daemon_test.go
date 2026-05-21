@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -53,13 +54,14 @@ func (b *fakeBoard) set(t AgentTask) {
 // fakeAgent records every RunQueuedAgentSync call. The optional onRun
 // hook lets a test block or simulate work.
 type fakeAgent struct {
-	mu      sync.Mutex
-	calls   []string
-	starts  []time.Time
-	ends    []time.Time
-	onRun   func(ctx context.Context, id string) (string, error)
-	hasFn   func(id string) bool
-	counter atomic.Int32
+	mu       sync.Mutex
+	calls    []string
+	starts   []time.Time
+	ends     []time.Time
+	onRun    func(ctx context.Context, id string) (string, error)
+	hasFn    func(id string) bool
+	activeFn func() []string
+	counter  atomic.Int32
 }
 
 func (a *fakeAgent) RunQueuedAgentSync(ctx context.Context, id string) (string, error) {
@@ -87,6 +89,13 @@ func (a *fakeAgent) HasActiveRun(id string) bool {
 		return a.hasFn(id)
 	}
 	return false
+}
+
+func (a *fakeAgent) ActiveTaskIDs() []string {
+	if a.activeFn != nil {
+		return a.activeFn()
+	}
+	return nil
 }
 
 func (a *fakeAgent) callCount() int {
@@ -494,6 +503,206 @@ func TestDaemon_WorkerPool_Capacity2_Overlaps(t *testing.T) {
 	}
 	if got := concurrentMax.Load(); got != 2 {
 		t.Errorf("max concurrent: %d, want 2", got)
+	}
+}
+
+func TestDaemon_SetMaxWorkers_ReducesRuntimeConcurrency(t *testing.T) {
+	var concurrentMax atomic.Int32
+	var concurrent atomic.Int32
+	a := &fakeAgent{
+		onRun: func(ctx context.Context, id string) (string, error) {
+			cur := concurrent.Add(1)
+			for {
+				peak := concurrentMax.Load()
+				if cur <= peak || concurrentMax.CompareAndSwap(peak, cur) {
+					break
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+			concurrent.Add(-1)
+			return "success", nil
+		},
+	}
+	d := New(Options{Board: newFakeBoard(), Agent: a, MaxWorkers: 2})
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	d.SetMaxWorkers(1)
+	if got := d.MaxWorkers(); got != 1 {
+		t.Fatalf("MaxWorkers after set: got %d, want 1", got)
+	}
+
+	for _, id := range []string{"A", "B", "C"} {
+		if ok, err := d.Enqueue(id); err != nil || !ok {
+			t.Fatalf("enqueue %s: ok=%v err=%v", id, ok, err)
+		}
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if a.callCount() == 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if a.callCount() != 3 {
+		t.Fatalf("only %d runs completed", a.callCount())
+	}
+	if got := concurrentMax.Load(); got > 1 {
+		t.Errorf("max concurrent: %d, want <= 1", got)
+	}
+}
+
+func TestDaemon_SetMaxWorkers_IncreasesRuntimeConcurrency(t *testing.T) {
+	if runtime.NumCPU() < 2 {
+		t.Skip("host max_workers limit is below 2")
+	}
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	a := &fakeAgent{
+		onRun: func(ctx context.Context, id string) (string, error) {
+			started <- id
+			select {
+			case <-release:
+				return "success", nil
+			case <-ctx.Done():
+				return "cancelled", ctx.Err()
+			}
+		},
+	}
+	d := New(Options{Board: newFakeBoard(), Agent: a, MaxWorkers: 1})
+	t.Cleanup(func() {
+		close(release)
+		_ = d.Close()
+	})
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	for _, id := range []string{"A", "B"} {
+		if ok, err := d.Enqueue(id); err != nil || !ok {
+			t.Fatalf("enqueue %s: ok=%v err=%v", id, ok, err)
+		}
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatalf("first run never started")
+	}
+	select {
+	case id := <-started:
+		t.Fatalf("second run %s started before max_workers increased", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	d.SetMaxWorkers(2)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatalf("second run did not start after max_workers increased")
+	}
+}
+
+func TestDaemon_AutomationReservationConsumesWorkerSlot(t *testing.T) {
+	started := make(chan string, 1)
+	a := &fakeAgent{
+		onRun: func(ctx context.Context, id string) (string, error) {
+			started <- id
+			return "success", nil
+		},
+	}
+	d := New(Options{Board: newFakeBoard(), Agent: a, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+
+	if !d.TryReserveAutomationRun("AUTO-1") {
+		t.Fatalf("automation reservation rejected")
+	}
+	if d.TryReserveAutomationRun("AUTO-1") {
+		t.Fatalf("duplicate automation reservation for same task should be rejected")
+	}
+	if got := d.ActiveTaskIDs(); len(got) != 1 || got[0] != "AUTO-1" {
+		t.Fatalf("active after reservation: got %v, want [AUTO-1]", got)
+	}
+	if d.TryReserveAutomationRun("AUTO-2") {
+		t.Fatalf("second automation reservation should be rejected at max_workers=1")
+	}
+	if ok, err := d.Enqueue("TB-1"); err != nil || !ok {
+		t.Fatalf("enqueue while automation slot held: ok=%v err=%v", ok, err)
+	}
+	select {
+	case id := <-started:
+		t.Fatalf("daemon run %s started while automation slot was reserved", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	d.ReleaseAutomationRun("AUTO-1")
+	select {
+	case id := <-started:
+		if id != "TB-1" {
+			t.Fatalf("started task: got %s, want TB-1", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("daemon run did not start after automation slot release")
+	}
+}
+
+func TestDaemon_AutomationReservationCountsAgentServiceActiveRuns(t *testing.T) {
+	a := &fakeAgent{
+		activeFn: func() []string { return []string{"MANUAL-1"} },
+	}
+	d := New(Options{Board: newFakeBoard(), Agent: a, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+
+	if d.TryReserveAutomationRun("AUTO-1") {
+		t.Fatalf("automation reservation should be rejected while AgentService has another active run")
+	}
+}
+
+func TestDaemon_DispatcherWaitsForAgentServiceActiveRun(t *testing.T) {
+	started := make(chan string, 1)
+	active := atomic.Bool{}
+	active.Store(true)
+	a := &fakeAgent{
+		activeFn: func() []string {
+			if active.Load() {
+				return []string{"RECOVERED-1"}
+			}
+			return nil
+		},
+		onRun: func(ctx context.Context, id string) (string, error) {
+			started <- id
+			return "success", nil
+		},
+	}
+	d := New(Options{Board: newFakeBoard(), Agent: a, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+	if err := d.Activate(context.Background(), "/tmp/fake"); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if ok, err := d.Enqueue("TB-1"); err != nil || !ok {
+		t.Fatalf("enqueue: ok=%v err=%v", ok, err)
+	}
+	select {
+	case id := <-started:
+		t.Fatalf("daemon run %s started while AgentService active run consumed capacity", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	active.Store(false)
+	d.NotifyAgentActiveChanged()
+	select {
+	case id := <-started:
+		if id != "TB-1" {
+			t.Fatalf("started task: got %s, want TB-1", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("daemon run did not start after AgentService active run cleared")
 	}
 }
 

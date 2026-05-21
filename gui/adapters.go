@@ -57,6 +57,8 @@ func (a *agentAdapter) RunQueuedAgentSync(ctx context.Context, id string) (strin
 
 func (a *agentAdapter) HasActiveRun(id string) bool { return a.s.HasActiveRun(id) }
 
+func (a *agentAdapter) ActiveTaskIDs() []string { return a.s.ActiveTaskIDs() }
+
 // teeShim adapts a daemon.TeeEmitter to the watcher.Emitter interface,
 // which uses a concrete type rather than an interface for the chained
 // emitter. The wrapping is purely structural.
@@ -78,6 +80,8 @@ func (t teeShim) Emit(name string, data ...any) {
 //   - app.BoardActivator (required by SettingsService).
 //   - app.PeriodicRecoveryController (forwarded to the daemon so the
 //     runtime preference toggle reaches the ticker).
+//   - app.MaxWorkersController (forwarded to the daemon and coordinators so
+//     max_workers changes take effect without restarting the app).
 //   - app.AutoGroomController (forwarded to the auto-groom coordinator
 //     so SetAutoGroomEnabled / SetDefaultAgent kick fresh scans).
 //   - app.AutoImplementController (forwarded to the auto-implement
@@ -117,6 +121,12 @@ func (a *boardActivator) Deactivate() error {
 
 func (a *boardActivator) SetPeriodicRecoveryEnabled(enabled bool) {
 	a.daemon.SetPeriodicRecoveryEnabled(enabled)
+}
+
+func (a *boardActivator) SetMaxWorkers(maxWorkers int) {
+	a.daemon.SetMaxWorkers(maxWorkers)
+	a.autoGroom.NotifyWorkerBudgetChanged()
+	a.autoImplement.NotifyWorkerBudgetChanged()
 }
 
 func (a *boardActivator) NotifyAutoGroomEnabled() {

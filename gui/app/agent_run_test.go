@@ -364,6 +364,21 @@ func TestRunAgent_HappyPath_Success(t *testing.T) {
 	}
 }
 
+func TestRunAgent_RespectsWorkerBudget(t *testing.T) {
+	stub := &stubRunner{name: "claude", exitCode: 0}
+	budget := &fakeWorkerBudget{max: 1, active: []string{"TB-999"}}
+	svc, _ := realTbBoardForRunWithOptions(t, "claude", stub, func(opts *AgentServiceOptions) {
+		opts.WorkerBudget = func() AutomationWorkerBudget { return budget }
+	})
+
+	if _, err := svc.RunAgent(context.Background(), "TB-1"); !errors.Is(err, ErrWorkerCapacityFull) {
+		t.Fatalf("RunAgent error = %v, want ErrWorkerCapacityFull", err)
+	}
+	if stub.startedOnce {
+		t.Fatalf("runner started despite full worker budget")
+	}
+}
+
 func TestRunAgent_ExternalRunnerWithInheritedPipesFinishes(t *testing.T) {
 	childPIDFile := filepath.Join(t.TempDir(), "child.pid")
 	dir := writeAppStubScript(t, "claude", `

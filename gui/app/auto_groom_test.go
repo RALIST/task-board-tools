@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +32,7 @@ type autoGroomFixture struct {
 	settings  *SettingsService
 	prefsPath string
 	emitter   *recordingEmitter
+	budget    *fakeWorkerBudget
 	coord     *AutoGroomCoordinator
 	clock     *fakeClock
 }
@@ -115,7 +118,12 @@ func newAutoGroomFixture(t *testing.T, agentName string) *autoGroomFixture {
 	board.setBoardDir(boardDir)
 
 	em := newRecordingEmitter()
-	svc := NewAgentService(AgentServiceOptions{Board: board, Emitter: em})
+	budget := &fakeWorkerBudget{max: 64}
+	svc := NewAgentService(AgentServiceOptions{
+		Board:        board,
+		Emitter:      em,
+		WorkerBudget: func() AutomationWorkerBudget { return budget },
+	})
 	svc.setRunnerFactory(func(name string) (agent.Runner, error) { return stub, nil })
 
 	prefs := filepath.Join(t.TempDir(), "preferences.json")
@@ -163,6 +171,7 @@ func newAutoGroomFixture(t *testing.T, agentName string) *autoGroomFixture {
 		settings:  settings,
 		prefsPath: prefs,
 		emitter:   em,
+		budget:    budget,
 		coord:     coord,
 		clock:     clock,
 	}
@@ -193,6 +202,45 @@ func (f *autoGroomFixture) countEmits(name string) int {
 		}
 	}
 	return n
+}
+
+func (f *autoGroomFixture) writeBacklogTask(id, agentName string) {
+	f.t.Helper()
+	path := filepath.Join(f.boardDir, "backlog", id+".md")
+	if err := os.WriteFile(path, []byte(triageWorthyBody(id, agentName)), 0o644); err != nil {
+		f.t.Fatalf("write %s: %v", path, err)
+	}
+	f.board.clearTriageCache()
+}
+
+func (f *autoGroomFixture) queuedTaskIDs() []string {
+	f.t.Helper()
+	out := []string{}
+	for _, e := range f.emitter.snapshot() {
+		if e.Name != "auto-groom:queued" || len(e.Payload) == 0 {
+			continue
+		}
+		if payload, ok := e.Payload[0].(map[string]any); ok {
+			if id, ok := payload["task_id"].(string); ok {
+				out = append(out, id)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (f *autoGroomFixture) enableAutoGroom(t *testing.T, defaultAgent string) {
+	t.Helper()
+	if err := f.settings.SetDefaultAgent(defaultAgent); err != nil {
+		t.Fatalf("SetDefaultAgent: %v", err)
+	}
+	if err := f.settings.SetAutoGroomEnabled(true); err != nil {
+		t.Fatalf("SetAutoGroomEnabled: %v", err)
+	}
+	if err := f.settings.SetAutoGroomSettleMinutes(0); err != nil {
+		t.Fatalf("SetAutoGroomSettleMinutes: %v", err)
+	}
 }
 
 // waitForActiveDrained waits until svc.active is empty or fails the test.
@@ -331,6 +379,72 @@ func TestAutoGroomCoordinator_QueuesTriageCandidate(t *testing.T) {
 	}
 	if !sawHash {
 		t.Errorf("no queued event with triage_hash for TB-1; events=%+v", events)
+	}
+}
+
+func TestAutoGroomCoordinator_LimitsStartsToWorkerBudget(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	f.writeBacklogTask("TB-2", "claude")
+	f.writeBacklogTask("TB-3", "claude")
+	if err := f.settings.SetMaxWorkers(2); err != nil {
+		t.Fatalf("SetMaxWorkers: %v", err)
+	}
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	f.enableAutoGroom(t, "claude")
+
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	queued := f.queuedTaskIDs()
+	if len(queued) != 2 {
+		t.Fatalf("queued = %v, want exactly 2 tasks due worker budget", queued)
+	}
+	status := f.coord.Status()
+	skipped := []string{}
+	for _, id := range []string{"TB-1", "TB-2", "TB-3"} {
+		if status.LastSkipReasons[id] == "worker capacity full" {
+			skipped = append(skipped, id)
+		}
+	}
+	if got, want := len(skipped), 1; got != want {
+		t.Fatalf("worker-capacity skipped = %v, want exactly one skipped task", skipped)
+	}
+	if len(queued) == 2 && len(skipped) == 1 {
+		all := append(append([]string{}, queued...), skipped...)
+		sort.Strings(all)
+		if want := []string{"TB-1", "TB-2", "TB-3"}; !reflect.DeepEqual(all, want) {
+			t.Fatalf("queued+skipped tasks = %v, want %v", all, want)
+		}
+	}
+}
+
+func TestAutoGroomCoordinator_ActiveRunReducesWorkerBudget(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	f.writeBacklogTask("TB-2", "claude")
+	f.coord.budget = &fakeWorkerBudget{max: 2, active: []string{"TB-999"}}
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	f.enableAutoGroom(t, "claude")
+
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	queued := f.queuedTaskIDs()
+	if len(queued) != 1 {
+		t.Fatalf("queued = %v, want exactly 1 task because one worker is already active", queued)
+	}
+	status := f.coord.Status()
+	skipped := []string{}
+	for _, id := range []string{"TB-1", "TB-2"} {
+		if status.LastSkipReasons[id] == "worker capacity full" {
+			skipped = append(skipped, id)
+		}
+	}
+	if got, want := len(skipped), 1; got != want {
+		t.Fatalf("worker-capacity skipped = %v, want exactly one skipped task", skipped)
 	}
 }
 
@@ -659,6 +773,45 @@ func TestAutoGroomCoordinator_ResumesInterruptedBacklogTask(t *testing.T) {
 	}
 	if got := f.stub.input().Mode; got != agent.ModeResume {
 		t.Errorf("stub RunInput.Mode = %q, want %q", got, agent.ModeResume)
+	}
+}
+
+func TestAutoGroomCoordinator_ResumeSweepRespectsWorkerBudget(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	f.writeBacklogTask("TB-2", "claude")
+	f.writeBacklogTask("TB-3", "claude")
+	if err := f.settings.SetMaxWorkers(2); err != nil {
+		t.Fatalf("SetMaxWorkers: %v", err)
+	}
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	for _, id := range []string{"TB-1", "TB-2", "TB-3"} {
+		seedInterruptedTask(t, f.boardDir, c, id, "claude", agent.InitiatorAutoGroom, "interrupted")
+	}
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	f.enableAutoGroom(t, "claude")
+
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	resumed := countEmitsByName(f.emitter, "auto-groom:resumed", "")
+	if resumed != 2 {
+		t.Fatalf("auto-groom:resumed count = %d, want 2 due worker budget\nevents: %+v",
+			resumed, f.emitter.snapshot())
+	}
+	status := f.coord.Status()
+	skipped := []string{}
+	for _, id := range []string{"TB-1", "TB-2", "TB-3"} {
+		if status.LastSkipReasons[id] == "worker capacity full" {
+			skipped = append(skipped, id)
+		}
+	}
+	if got, want := len(skipped), 1; got != want {
+		t.Fatalf("worker-capacity skipped = %v, want exactly one skipped task", skipped)
 	}
 }
 

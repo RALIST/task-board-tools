@@ -60,6 +60,12 @@ var ErrNotResumable = ErrCannotResume
 // `tb edit --agent-status none` before any new run can start.
 var ErrNeedsUserAttention = errors.New("task is waiting for user input (AgentStatus: needs-user); clear --agent-status to retry")
 
+// ErrWorkerCapacityFull is returned when the shared agent worker budget is
+// already full. Direct AgentService runs reserve against the same daemon gate
+// as queued automation so manual and autonomous starts cannot exceed
+// max_workers together.
+var ErrWorkerCapacityFull = errors.New("agent worker capacity full")
+
 // Emitter is the contract AgentService needs to forward Wails events to the
 // frontend. *application.App.Event satisfies it in production; tests pass an
 // in-memory implementation. Defined narrowly here (Name + payload only) so
@@ -73,6 +79,20 @@ type Emitter interface {
 // change is observed by the next run without reconstructing AgentService.
 type TimeoutProvider func() time.Duration
 
+// WorkerBudgetProvider returns the live shared worker budget. Production
+// late-binds the daemon through this provider because AgentService is
+// constructed before the daemon in main.
+type WorkerBudgetProvider func() AutomationWorkerBudget
+
+// TerminalHook observes an agent run after AgentService has removed it from
+// the active table and released any worker-budget reservation.
+type TerminalHook func(payload map[string]any)
+
+// ActiveChangedHook fires after AgentService.active grows or shrinks. The
+// daemon uses it to re-check waiters whose capacity depends on active runs
+// that did not originate from a daemon reservation, such as recovered PIDs.
+type ActiveChangedHook func()
+
 // AgentService coordinates agent assignment and (in later subtasks) run
 // orchestration. It composes the CLI client from BoardService for `tb edit`
 // calls and a separate Emitter for Wails events. Its active-run table is
@@ -82,6 +102,9 @@ type AgentService struct {
 	board           *BoardService
 	emitter         Emitter
 	timeoutProvider TimeoutProvider
+	workerBudget    WorkerBudgetProvider
+	terminalHook    TerminalHook
+	activeChanged   ActiveChangedHook
 
 	// factory is the Runner selector. Nil in production (defaultRunnerFactory
 	// applies); tests override via SetRunnerFactoryForTesting.
@@ -98,6 +121,9 @@ type AgentServiceOptions struct {
 	Board           *BoardService
 	Emitter         Emitter
 	TimeoutProvider TimeoutProvider
+	WorkerBudget    WorkerBudgetProvider
+	TerminalHook    TerminalHook
+	ActiveChanged   ActiveChangedHook
 }
 
 // NewAgentService returns a ready service. Emitter is allowed to be nil
@@ -107,6 +133,9 @@ func NewAgentService(opts AgentServiceOptions) *AgentService {
 		board:           opts.Board,
 		emitter:         opts.Emitter,
 		timeoutProvider: opts.TimeoutProvider,
+		workerBudget:    opts.WorkerBudget,
+		terminalHook:    opts.TerminalHook,
+		activeChanged:   opts.ActiveChanged,
 		active:          make(map[string]*activeRun),
 	}
 }
@@ -123,6 +152,23 @@ func (s *AgentService) timeoutForRun() time.Duration {
 		return defaultAgentTimeoutDuration()
 	}
 	return timeout
+}
+
+func (s *AgentService) reserveWorker(taskID string) (func(), bool) {
+	if s.workerBudget == nil {
+		return func() {}, true
+	}
+	budget := s.workerBudget()
+	if budget == nil {
+		return func() {}, true
+	}
+	return reserveAutomationWorker(budget, taskID)
+}
+
+func (s *AgentService) notifyActiveChanged() {
+	if s.activeChanged != nil {
+		s.activeChanged()
+	}
 }
 
 func defaultAgentTimeoutDuration() time.Duration {
@@ -229,6 +275,11 @@ type activeRun struct {
 	// Empty means a user/manual run.
 	Initiator string
 
+	// ReleaseWorker releases a shared worker-budget reservation for direct
+	// AgentService runs. Daemon-queued runs leave it nil because the daemon
+	// worker releases its slot around RunQueuedAgentSync.
+	ReleaseWorker func()
+
 	// Cancel cancels the runner's exec context. The runner converts that
 	// into a single SIGTERM and exits; CancelRun escalates to SIGKILL via
 	// Pgid if the process doesn't go quietly.
@@ -325,11 +376,13 @@ func (s *AgentService) adoptRecoveredRun(taskID string, stub *activeRun) *active
 		return nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if existing, ok := s.active[taskID]; ok {
+		s.mu.Unlock()
 		return existing
 	}
 	s.active[taskID] = stub
+	s.mu.Unlock()
+	s.notifyActiveChanged()
 	return stub
 }
 
@@ -347,8 +400,11 @@ func (s *AgentService) getActiveRun(taskID string) *activeRun {
 // fresh RunAgent re-uses the same task does not evict the new run.
 func (s *AgentService) removeActiveRun(taskID string, ar *activeRun) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if cur, ok := s.active[taskID]; ok && cur == ar {
 		delete(s.active, taskID)
+		s.mu.Unlock()
+		s.notifyActiveChanged()
+		return
 	}
+	s.mu.Unlock()
 }

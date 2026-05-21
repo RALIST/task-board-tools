@@ -66,6 +66,36 @@ func (b *fakeWorkerBudget) setActive(ids ...string) {
 	b.mu.Unlock()
 }
 
+func (b *fakeWorkerBudget) TryReserveAutomationRun(taskID string) bool {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, id := range b.active {
+		if id == taskID {
+			return false
+		}
+	}
+	if b.max > 0 && len(b.active) >= b.max {
+		return false
+	}
+	b.active = append(b.active, taskID)
+	return true
+}
+
+func (b *fakeWorkerBudget) ReleaseAutomationRun(taskID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, id := range b.active {
+		if id == taskID {
+			b.active = append(b.active[:i], b.active[i+1:]...)
+			return
+		}
+	}
+}
+
 // readyTaskBody returns a body for a task that already passed grooming
 // (priority + acceptance criteria + module set) so it would survive the
 // triage gate.
@@ -192,7 +222,12 @@ func newAutoImplementFixtureWithConfig(t *testing.T, agentName string, ready []r
 	board.setBoardDir(boardDir)
 
 	em := newRecordingEmitter()
-	svc := NewAgentService(AgentServiceOptions{Board: board, Emitter: em})
+	budget := &fakeWorkerBudget{max: 64}
+	svc := NewAgentService(AgentServiceOptions{
+		Board:        board,
+		Emitter:      em,
+		WorkerBudget: func() AutomationWorkerBudget { return budget },
+	})
 	svc.setRunnerFactory(func(name string) (agent.Runner, error) { return stub, nil })
 
 	prefs := filepath.Join(t.TempDir(), "preferences.json")
@@ -201,8 +236,6 @@ func newAutoImplementFixtureWithConfig(t *testing.T, agentName string, ready []r
 		RecentsPath: filepath.Join(t.TempDir(), "recent.json"),
 		PrefsPath:   prefs,
 	})
-	budget := &fakeWorkerBudget{max: 64}
-
 	coord := NewAutoImplementCoordinator(AutoImplementCoordinatorOptions{
 		Board:        board,
 		Agent:        svc,
@@ -1089,6 +1122,48 @@ func TestAutoImplementCoordinator_ResumesInterruptedInProgressTask(t *testing.T)
 	}
 	if got := f.stub.input().Mode; got != agent.ModeResume {
 		t.Errorf("stub RunInput.Mode = %q, want %q", got, agent.ModeResume)
+	}
+}
+
+func TestAutoImplementCoordinator_ResumeSweepRespectsWorkerBudget(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		nil,
+		map[string][]readyTaskSpec{
+			"in-progress": {
+				{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+				{ID: "TB-101", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+				{ID: "TB-102", Type: "bug", Size: "S", Module: "gui", Agent: "claude"},
+			},
+		},
+	)
+	f.budget.setMax(2)
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatalf("board has no CLI client")
+	}
+	for _, id := range []string{"TB-100", "TB-101", "TB-102"} {
+		seedInterruptedTask(t, f.boardDir, c, id, "claude", agent.InitiatorAutoImplement, "interrupted")
+	}
+	f.activate(t)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	resumed := countEmitsByName(f.emitter, "auto-implement:resumed", "")
+	if resumed != 2 {
+		t.Fatalf("auto-implement:resumed count = %d, want 2 due worker budget\nevents: %+v",
+			resumed, f.emitter.snapshot())
+	}
+	status := f.coord.Status()
+	skipped := []string{}
+	for _, id := range []string{"TB-100", "TB-101", "TB-102"} {
+		if status.LastSkipReasons[id] == "worker capacity full" {
+			skipped = append(skipped, id)
+		}
+	}
+	if got, want := len(skipped), 1; got != want {
+		t.Fatalf("worker-capacity skipped = %v, want exactly one skipped task", skipped)
 	}
 }
 

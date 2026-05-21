@@ -140,12 +140,19 @@ func (s *SettingsService) GetMaxWorkersLimit() int {
 	return MaxWorkersMax
 }
 
-// SetMaxWorkers persists the value to disk after clamping. Returns the
-// underlying I/O error on failure.
+// SetMaxWorkers persists the value to disk after clamping and notifies the
+// runtime worker-budget controller when one is wired. Returns the underlying
+// I/O error on failure.
 func (s *SettingsService) SetMaxWorkers(n int) error {
-	return s.updatePreferences(func(prefs *Preferences) {
+	if err := s.updatePreferences(func(prefs *Preferences) {
 		prefs.MaxWorkers = n
-	})
+	}); err != nil {
+		return err
+	}
+	if controller, ok := s.activator.(MaxWorkersController); ok {
+		controller.SetMaxWorkers(s.GetMaxWorkers())
+	}
+	return nil
 }
 
 // GetAgentTimeoutMinutes returns the persisted agent timeout in minutes,

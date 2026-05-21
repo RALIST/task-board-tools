@@ -66,6 +66,7 @@ type AutoGroomCoordinator struct {
 	settings *SettingsService
 	emitter  Emitter
 	logger   *slog.Logger
+	budget   AutomationWorkerBudget
 
 	// now is the clock the coordinator uses for settle-window math. Tests
 	// override it to advance a virtual clock without sleeping.
@@ -95,6 +96,9 @@ type AutoGroomCoordinatorOptions struct {
 	Settings *SettingsService
 	Emitter  Emitter
 	Logger   *slog.Logger
+	// WorkerBudget is the daemon worker budget. Auto-groom starts runs
+	// through AgentService directly, so it must reserve capacity itself.
+	WorkerBudget AutomationWorkerBudget
 	// Now overrides time.Now for tests. nil = production clock.
 	Now func() time.Time
 }
@@ -117,6 +121,7 @@ func NewAutoGroomCoordinator(opts AutoGroomCoordinatorOptions) *AutoGroomCoordin
 		settings:       opts.Settings,
 		emitter:        opts.Emitter,
 		logger:         logger.With("component", "auto-groom"),
+		budget:         opts.WorkerBudget,
 		now:            clock,
 		lastSkip:       map[string]string{},
 		settleTargets:  map[string]time.Time{},
@@ -217,6 +222,12 @@ func (c *AutoGroomCoordinator) NotifyAutoGroomEnabled() {
 // NotifyDefaultAgentChanged is invoked by SettingsService.SetDefaultAgent
 // so clearing the no-default state emits the cleared event promptly.
 func (c *AutoGroomCoordinator) NotifyDefaultAgentChanged() {
+	c.scheduleScan()
+}
+
+// NotifyWorkerBudgetChanged is invoked when max_workers changes at runtime.
+// Raising the cap can immediately unblock tasks that were skipped for capacity.
+func (c *AutoGroomCoordinator) NotifyWorkerBudgetChanged() {
 	c.scheduleScan()
 }
 
@@ -382,11 +393,13 @@ func (c *AutoGroomCoordinator) scan(ctx context.Context, boardDir string) {
 	}
 	c.transitionNeedsDefault(false)
 
+	remainingWorkers := c.remainingWorkerCapacity()
+
 	// Resume sweep: any backlog task left `interrupted` by stale-recovery
 	// (daemon crash with a captured session_id) gets auto-resumed before
 	// we evaluate triage candidates. ResumeAgent flips AgentStatus to
 	// "queued" atomically, so subsequent passes won't re-trigger it.
-	c.sweepInterrupted(ctx)
+	remainingWorkers, resumedThisScan := c.sweepInterrupted(ctx, remainingWorkers)
 
 	reasons, err := c.board.Triage(ctx)
 	if err != nil {
@@ -413,8 +426,22 @@ func (c *AutoGroomCoordinator) scan(ctx context.Context, boardDir string) {
 	}
 	c.mu.Unlock()
 
-	for id, taskReasons := range reasons {
-		c.evaluate(ctx, boardDir, id, taskReasons, defaultAgent, settle)
+	ids := make([]string, 0, len(reasons))
+	for id := range reasons {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if _, ok := resumedThisScan[id]; ok {
+			continue
+		}
+		if remainingWorkers <= 0 {
+			c.recordSkip(id, "worker capacity full")
+			continue
+		}
+		if c.evaluate(ctx, boardDir, id, reasons[id], defaultAgent, settle) {
+			remainingWorkers--
+		}
 	}
 
 	// Notify the frontend that a scan finished. The frontend listener
@@ -428,34 +455,34 @@ func (c *AutoGroomCoordinator) scan(ctx context.Context, boardDir string) {
 
 // evaluate decides whether to queue a single candidate. Encapsulated so
 // the test harness can also invoke this directly via scan().
-func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string, reasons []string, defaultAgent string, settle int) {
+func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string, reasons []string, defaultAgent string, settle int) bool {
 	task, err := c.board.GetTask(ctx, id)
 	if err != nil {
 		c.logger.Debug("auto-groom: GetTask failed", "task", id, "err", err)
-		return
+		return false
 	}
 	if task.Metadata.Status != "backlog" {
 		c.recordSkip(id, "not in backlog")
-		return
+		return false
 	}
 	switch task.Metadata.AgentStatus {
 	case "queued", "running", "needs-user":
 		c.recordSkip(id, "agent-status "+task.Metadata.AgentStatus)
-		return
+		return false
 	case "interrupted":
 		// sweepInterrupted owns this path; if it slipped through (e.g.,
 		// cooldown active), don't fall through to a fresh groom run.
 		c.recordSkip(id, "agent-status interrupted")
-		return
+		return false
 	case "lost":
 		// No resumable session — a fresh groom run would discard whatever
 		// the previous run did. Leave it for a human to triage.
 		c.recordSkip(id, "agent-status lost")
-		return
+		return false
 	}
 	if c.agent.HasActiveRun(id) {
 		c.recordSkip(id, "active run")
-		return
+		return false
 	}
 
 	// Settle window — guard freshly created/edited tasks so attachments
@@ -464,12 +491,12 @@ func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string
 		eligibleAt, ok, err := c.taskEligibleAt(boardDir, id, settle)
 		if err != nil {
 			c.logger.Debug("auto-groom: stat task failed", "task", id, "err", err)
-			return
+			return false
 		}
 		if ok && c.now().Before(eligibleAt) {
 			c.armSettleTimer(boardDir, id, eligibleAt)
 			c.recordSkip(id, "settle")
-			return
+			return false
 		}
 	}
 
@@ -480,7 +507,7 @@ func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string
 		c.logger.Debug("auto-groom: read groom history failed", "task", id, "err", err)
 	} else if ok && prior == hash {
 		c.recordSkip(id, "dedupe")
-		return
+		return false
 	}
 
 	// Ensure an Agent is set without overwriting an explicit assignment.
@@ -488,18 +515,22 @@ func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string
 		c2 := c.board.snapshot()
 		if c2 == nil {
 			c.logger.Warn("auto-groom: board has no CLI client", "task", id)
-			return
+			return false
 		}
 		if err := c2.Edit(ctx, id, cli.EditInput{Agent: defaultAgent}); err != nil {
 			c.logger.Warn("auto-groom: set agent failed", "task", id, "agent", defaultAgent, "err", err)
-			return
+			return false
 		}
 	}
 
 	runID, err := c.agent.StartGroomWithTriageHashAs(ctx, id, hash, agent.InitiatorAutoGroom)
 	if err != nil {
+		if errors.Is(err, ErrWorkerCapacityFull) {
+			c.recordSkip(id, "worker capacity full")
+			return false
+		}
 		c.logger.Warn("auto-groom: StartGroomWithTriageHashAs failed", "task", id, "err", err)
-		return
+		return false
 	}
 	c.mu.Lock()
 	delete(c.lastSkip, id)
@@ -509,6 +540,7 @@ func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string
 		"run_id":      runID,
 		"triage_hash": hash,
 	})
+	return true
 }
 
 // sweepInterrupted finds backlog tasks left `interrupted` or `lost` by
@@ -516,14 +548,15 @@ func (c *AutoGroomCoordinator) evaluate(ctx context.Context, boardDir, id string
 // filter scopes auto-resume/restart to tasks that the auto-groom
 // coordinator itself originally queued — user-triggered groom runs that
 // crashed are left for the user to deal with via the GUI.
-func (c *AutoGroomCoordinator) sweepInterrupted(ctx context.Context) {
+func (c *AutoGroomCoordinator) sweepInterrupted(ctx context.Context, remainingWorkers int) (int, map[string]struct{}) {
+	resumed := map[string]struct{}{}
 	if c.board == nil || c.agent == nil {
-		return
+		return remainingWorkers, resumed
 	}
 	snap, err := c.board.LoadBoard(ctx)
 	if err != nil {
 		c.logger.Debug("auto-groom: LoadBoard for resume sweep failed", "err", err)
-		return
+		return remainingWorkers, resumed
 	}
 	c.pruneResumeAttempts()
 	for _, t := range snap.Backlog {
@@ -539,8 +572,16 @@ func (c *AutoGroomCoordinator) sweepInterrupted(ctx context.Context) {
 			c.recordSkip(t.ID, "user-initiated; auto-resume skipped")
 			continue
 		}
-		c.tryAutoResume(ctx, t.ID, t.AgentStatus)
+		if remainingWorkers <= 0 {
+			c.recordSkip(t.ID, "worker capacity full")
+			continue
+		}
+		if c.tryAutoResume(ctx, t.ID, t.AgentStatus) {
+			resumed[t.ID] = struct{}{}
+			remainingWorkers--
+		}
 	}
+	return remainingWorkers, resumed
 }
 
 // boardDirLocked snapshots c.boardDir under the coordinator mutex so the
@@ -570,16 +611,16 @@ func (c *AutoGroomCoordinator) pruneResumeAttempts() {
 // StartGroomWithTriageHashAs (no session continuity, but the previous
 // initiator was the coordinator, so it's safe to re-queue from scratch).
 // Per-task cooldown prevents tight loops on persistent failures.
-func (c *AutoGroomCoordinator) tryAutoResume(ctx context.Context, id, status string) {
+func (c *AutoGroomCoordinator) tryAutoResume(ctx context.Context, id, status string) bool {
 	if c.agent.HasActiveRun(id) {
 		c.recordSkip(id, "active run")
-		return
+		return false
 	}
 	c.mu.Lock()
 	if last, ok := c.resumeAttempts[id]; ok && c.now().Sub(last) < resumeAttemptCooldown {
 		c.mu.Unlock()
 		c.recordSkip(id, "resume cooldown")
-		return
+		return false
 	}
 	c.resumeAttempts[id] = c.now()
 	c.mu.Unlock()
@@ -600,12 +641,16 @@ func (c *AutoGroomCoordinator) tryAutoResume(ctx context.Context, id, status str
 		op = "restart"
 		runID, err = c.agent.StartGroomWithTriageHashAs(ctx, id, "", agent.InitiatorAutoGroom)
 	default:
-		return
+		return false
 	}
 	if err != nil {
 		if errors.Is(err, ErrAlreadyRunning) {
 			// Race with another path (e.g., GUI click). Not an error.
-			return
+			return false
+		}
+		if errors.Is(err, ErrWorkerCapacityFull) {
+			c.recordSkip(id, "worker capacity full")
+			return false
 		}
 		c.logger.Warn("auto-groom: auto-"+op+" failed", "task", id, "err", err)
 		c.recordSkip(id, op+" failed: "+err.Error())
@@ -614,7 +659,7 @@ func (c *AutoGroomCoordinator) tryAutoResume(ctx context.Context, id, status str
 			"op":      op,
 			"error":   err.Error(),
 		})
-		return
+		return false
 	}
 	c.mu.Lock()
 	delete(c.lastSkip, id)
@@ -627,6 +672,11 @@ func (c *AutoGroomCoordinator) tryAutoResume(ctx context.Context, id, status str
 		"run_id":  runID,
 		"op":      op,
 	})
+	return true
+}
+
+func (c *AutoGroomCoordinator) remainingWorkerCapacity() int {
+	return remainingAutomationWorkerCapacity(c.budget, c.agent, c.settings)
 }
 
 // taskEligibleAt returns when the task becomes eligible for auto-groom,

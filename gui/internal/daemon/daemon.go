@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -85,6 +86,10 @@ type Agent interface {
 	// in-flight run for this task (the manual UI path). The daemon
 	// uses this so a watcher event doesn't duplicate a manual run.
 	HasActiveRun(id string) bool
+}
+
+type activeRunLister interface {
+	ActiveTaskIDs() []string
 }
 
 // Recovery is the narrow surface the daemon needs to reconcile stale
@@ -147,12 +152,16 @@ type Daemon struct {
 	recovery   Recovery
 	reconciler Reconciler
 	logger     *slog.Logger
-	maxWorkers int
 	queue      chan queuedTask
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 	workersWG  sync.WaitGroup
 	closeOnce  sync.Once
+
+	workerLimitMu      sync.Mutex
+	maxWorkers         int
+	runningWorkers     int
+	workerLimitChanged chan struct{}
 
 	periodicRecoveryInterval time.Duration
 	disablePeriodicRecovery  bool
@@ -164,6 +173,10 @@ type Daemon struct {
 	// either sitting in the queue OR being executed by a worker.
 	activeMu sync.Mutex
 	active   map[string]struct{}
+	// automationActive is the subset of active reserved by automation
+	// coordinators that start runs through AgentService directly. These
+	// reservations consume the same worker slot gate as daemon workers.
+	automationActive map[string]struct{}
 
 	// boardMu guards boardDir + activated. Switched on Activate /
 	// cleared on Deactivate.
@@ -210,25 +223,60 @@ func New(opts Options) *Daemon {
 		reconciler:               opts.Reconciler,
 		logger:                   logger,
 		maxWorkers:               mw,
+		workerLimitChanged:       make(chan struct{}),
 		queue:                    make(chan queuedTask, qb),
 		rootCtx:                  ctx,
 		rootCancel:               cancel,
 		active:                   make(map[string]struct{}),
+		automationActive:         make(map[string]struct{}),
 		periodicRecoveryInterval: recoveryInterval,
 		disablePeriodicRecovery:  opts.DisablePeriodicRecovery,
 	}
 
-	for i := 0; i < mw; i++ {
-		d.workersWG.Add(1)
-		go d.worker(i)
-	}
-	logger.Info("daemon: workers spawned", "max_workers", mw, "queue_buffer", qb)
+	d.workersWG.Add(1)
+	go d.worker(0)
+	logger.Info("daemon: dispatcher spawned", "max_workers", mw, "queue_buffer", qb)
 	return d
 }
 
 // MaxWorkers reports the configured semaphore capacity. Useful for
 // telemetry and tests.
-func (d *Daemon) MaxWorkers() int { return d.maxWorkers }
+func (d *Daemon) MaxWorkers() int {
+	d.workerLimitMu.Lock()
+	defer d.workerLimitMu.Unlock()
+	return d.maxWorkers
+}
+
+// SetMaxWorkers changes the live concurrency budget for queued daemon work.
+// Already-running jobs are not cancelled when the budget shrinks; new jobs wait
+// until the number of active worker slots falls below the updated value.
+func (d *Daemon) SetMaxWorkers(n int) {
+	if n < 1 {
+		n = 1
+	}
+	maxLimit := runtime.NumCPU()
+	if maxLimit < 1 {
+		maxLimit = 1
+	}
+	if n > maxLimit {
+		n = maxLimit
+	}
+	d.workerLimitMu.Lock()
+	if d.maxWorkers != n {
+		d.maxWorkers = n
+	}
+	d.signalWorkerLimitChangedLocked()
+	d.workerLimitMu.Unlock()
+	d.logger.Info("daemon: max workers updated", "max_workers", n)
+}
+
+// NotifyAgentActiveChanged wakes dispatcher waiters whose capacity check
+// depends on AgentService.ActiveTaskIDs rather than a daemon-owned slot.
+func (d *Daemon) NotifyAgentActiveChanged() {
+	d.workerLimitMu.Lock()
+	d.signalWorkerLimitChangedLocked()
+	d.workerLimitMu.Unlock()
+}
 
 // ActiveTaskIDs returns a snapshot of task IDs currently queued or running in
 // this daemon instance. Auto-implement uses it to avoid scheduling more ready
@@ -362,6 +410,7 @@ func (d *Daemon) deactivate(reason string) error {
 
 	d.activeMu.Lock()
 	d.active = make(map[string]struct{})
+	d.automationActive = make(map[string]struct{})
 	d.activeMu.Unlock()
 	return nil
 }
@@ -547,6 +596,151 @@ func (d *Daemon) release(taskID string) {
 	d.activeMu.Unlock()
 }
 
+// TryReserveAutomationRun reserves a shared worker slot for coordinator-owned
+// runs that bypass the daemon queue and start through AgentService directly.
+// The reservation is intentionally non-blocking: callers should skip this scan
+// when capacity is full and try again on the next watcher/settings event.
+func (d *Daemon) TryReserveAutomationRun(taskID string) bool {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return false
+	}
+	d.activeMu.Lock()
+	if _, ok := d.active[taskID]; ok {
+		d.activeMu.Unlock()
+		return false
+	}
+	d.activeMu.Unlock()
+
+	if d.agent != nil && d.agent.HasActiveRun(taskID) {
+		return false
+	}
+	extraActive := d.unreservedAgentActiveCount()
+	if d.activeTaskCount()+extraActive >= d.MaxWorkers() {
+		return false
+	}
+	if !d.tryAcquireWorkerSlotNow(extraActive) {
+		return false
+	}
+
+	maxWorkers := d.MaxWorkers()
+	d.activeMu.Lock()
+	if _, ok := d.active[taskID]; ok {
+		d.activeMu.Unlock()
+		d.releaseWorkerSlot()
+		return false
+	}
+	if len(d.active) >= maxWorkers {
+		d.activeMu.Unlock()
+		d.releaseWorkerSlot()
+		return false
+	}
+	d.active[taskID] = struct{}{}
+	d.automationActive[taskID] = struct{}{}
+	d.activeMu.Unlock()
+	return true
+}
+
+func (d *Daemon) activeTaskCount() int {
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+	return len(d.active)
+}
+
+func (d *Daemon) unreservedAgentActiveCount() int {
+	lister, ok := d.agent.(activeRunLister)
+	if !ok {
+		return 0
+	}
+	ids := lister.ActiveTaskIDs()
+	if len(ids) == 0 {
+		return 0
+	}
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+	count := 0
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, reserved := d.active[id]; !reserved {
+			count++
+		}
+	}
+	return count
+}
+
+// ReleaseAutomationRun releases a direct-run reservation created by
+// TryReserveAutomationRun. Calling it for a daemon-owned task is a no-op, which
+// keeps the main event hook simple: every agent:run-finished event can flow
+// through this method.
+func (d *Daemon) ReleaseAutomationRun(taskID string) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return
+	}
+	d.activeMu.Lock()
+	_, ok := d.automationActive[taskID]
+	if ok {
+		delete(d.automationActive, taskID)
+		delete(d.active, taskID)
+	}
+	d.activeMu.Unlock()
+	if ok {
+		d.releaseWorkerSlot()
+	}
+}
+
+func (d *Daemon) acquireWorkerSlot(ctx context.Context, extraActive func() int) bool {
+	for {
+		d.workerLimitMu.Lock()
+		extra := 0
+		if extraActive != nil {
+			extra = extraActive()
+		}
+		if d.runningWorkers+extra < d.maxWorkers {
+			d.runningWorkers++
+			d.workerLimitMu.Unlock()
+			return true
+		}
+		changed := d.workerLimitChanged
+		d.workerLimitMu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return false
+		case <-d.rootCtx.Done():
+			return false
+		case <-changed:
+		}
+	}
+}
+
+func (d *Daemon) tryAcquireWorkerSlotNow(extraActive int) bool {
+	d.workerLimitMu.Lock()
+	defer d.workerLimitMu.Unlock()
+	if d.runningWorkers+extraActive >= d.maxWorkers {
+		return false
+	}
+	d.runningWorkers++
+	return true
+}
+
+func (d *Daemon) releaseWorkerSlot() {
+	d.workerLimitMu.Lock()
+	if d.runningWorkers > 0 {
+		d.runningWorkers--
+	}
+	d.signalWorkerLimitChangedLocked()
+	d.workerLimitMu.Unlock()
+}
+
+func (d *Daemon) signalWorkerLimitChangedLocked() {
+	close(d.workerLimitChanged)
+	d.workerLimitChanged = make(chan struct{})
+}
+
 // IsActive reports whether the given task is currently queued or
 // running (daemon's view). Useful for tests; not surfaced to Wails.
 func (d *Daemon) IsActive(taskID string) bool {
@@ -586,22 +780,43 @@ func (d *Daemon) isCurrentGeneration(generation uint64) bool {
 	return d.activated && d.generation == generation
 }
 
-// worker runs a worker goroutine: pull a task ID off the queue, call
-// the executor, release the slot, repeat. Exits when the root ctx is
-// done (Close calls rootCancel). The queue channel is intentionally
-// never closed — see Close for the rationale.
+// worker is the FIFO dispatcher: it reads one queued task at a time, waits for
+// a live worker slot, then launches the actual run in its own goroutine. The
+// dispatcher never reads task N+1 while task N is still waiting for capacity, so
+// runtime max_workers shrink cannot let later tasks overtake earlier ones.
 func (d *Daemon) worker(idx int) {
 	defer d.workersWG.Done()
-	logger := d.logger.With("worker", idx)
+	logger := d.logger.With("dispatcher", idx)
 	for {
 		select {
 		case <-d.rootCtx.Done():
-			logger.Debug("daemon: worker exited (ctx cancelled)")
+			logger.Debug("daemon: dispatcher exited (ctx cancelled)")
 			return
 		case task := <-d.queue:
-			d.runOne(logger, task)
+			d.dispatchOne(logger, task)
 		}
 	}
+}
+
+func (d *Daemon) dispatchOne(logger *slog.Logger, task queuedTask) {
+	taskID := task.id
+	runCtx, ok := d.activationContextFor(task.generation)
+	if !ok {
+		logger.Debug("daemon: dropping stale queued task", "task", taskID)
+		d.release(taskID)
+		return
+	}
+	if !d.acquireWorkerSlot(runCtx, d.unreservedAgentActiveCount) {
+		logger.Debug("daemon: dropping queued task after worker-slot wait cancelled", "task", taskID)
+		d.release(taskID)
+		return
+	}
+	d.workersWG.Add(1)
+	go func() {
+		defer d.workersWG.Done()
+		defer d.releaseWorkerSlot()
+		d.runOne(logger, task)
+	}()
 }
 
 func (d *Daemon) runOne(logger *slog.Logger, task queuedTask) {

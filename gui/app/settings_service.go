@@ -105,6 +105,14 @@ type PeriodicRecoveryController interface {
 	SetPeriodicRecoveryEnabled(enabled bool)
 }
 
+// MaxWorkersController is the optional runtime settings hook exposed by
+// the daemon/composite activator. SettingsService persists max_workers, then
+// calls this hook with the normalized value so the running process reflects
+// the new worker budget without restart.
+type MaxWorkersController interface {
+	SetMaxWorkers(maxWorkers int)
+}
+
 // AutoGroomController is the optional runtime settings hook exposed by
 // the auto-groom coordinator (TB-174). SettingsService persists the
 // preference, then calls the matching Notify method so a freshly

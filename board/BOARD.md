@@ -38,11 +38,12 @@
 |----|-------|----------|--------|--------|
 | — | — | — | — | — |
 
-## Code Review (1/3)
+## Code Review (2/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
 | TB-312 | GUI: Open project selection does not switch board | P1 | gui | — |
+| TB-315 | Auto-groom and auto-resume must respect worker budget | P1 | gui | — |
 
 ## Ready (10/10 ⚠)
 
@@ -107,6 +108,7 @@
 | TB-311 | Manual smoke board-switch cancellation in desktop GUI | spike | P2 | S | gui |
 | TB-313 | GUI: virtualize large kanban columns | improvement | P2 | M | gui |
 | TB-314 | GUI: opening a board can start queued agent runs during smoke/load tests | bug | P1 | M | gui |
+| TB-316 | Profile GUI idle CPU usage | bug | P1 | S | gui |
 
 ## Recently Done
 

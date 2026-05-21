@@ -49,7 +49,7 @@ type AutoImplementCoordinator struct {
 	settings *SettingsService
 	emitter  Emitter
 	logger   *slog.Logger
-	budget   AutoImplementWorkerBudget
+	budget   AutomationWorkerBudget
 
 	now                  func() time.Time
 	beforePullForTesting func(taskID string)
@@ -74,19 +74,7 @@ type AutoImplementCoordinatorOptions struct {
 	Emitter      Emitter
 	Logger       *slog.Logger
 	Now          func() time.Time
-	WorkerBudget AutoImplementWorkerBudget
-}
-
-// AutoImplementWorkerBudget is the daemon worker budget surface the
-// coordinator needs for preflight scheduling. The production daemon
-// implements it; tests use small fakes.
-type AutoImplementWorkerBudget interface {
-	MaxWorkers() int
-	ActiveTaskIDs() []string
-}
-
-type activeTaskLister interface {
-	ActiveTaskIDs() []string
+	WorkerBudget AutomationWorkerBudget
 }
 
 // NewAutoImplementCoordinator constructs the coordinator. Activate must
@@ -191,6 +179,10 @@ func (c *AutoImplementCoordinator) NotifyAutoImplementQueryChanged() { c.schedul
 // default_agent changes. Triggers an immediate scan so a freshly
 // supplied default agent unblocks queued candidates.
 func (c *AutoImplementCoordinator) NotifyDefaultAgentChanged() { c.scheduleScan() }
+
+// NotifyWorkerBudgetChanged is invoked when max_workers changes at runtime.
+// Raising the cap can immediately unblock tasks that were skipped for capacity.
+func (c *AutoImplementCoordinator) NotifyWorkerBudgetChanged() { c.scheduleScan() }
 
 // Emit satisfies the watcher.Emitter contract. Coordinator only cares
 // about board:reloaded and task:updated:<id>.
@@ -327,6 +319,7 @@ func (c *AutoImplementCoordinator) scan(ctx context.Context, boardDir string) {
 	// ResumeAgent/RunAgent flip AgentStatus to "queued" atomically, so
 	// the candidate pass below won't see them as resumable on this scan
 	// or the next.
+	remainingWorkers := c.remainingWorkerCapacity()
 	c.pruneResumeAttempts()
 	for _, t := range snap.InProgress {
 		if t.AgentStatus != "interrupted" && t.AgentStatus != "lost" {
@@ -341,7 +334,13 @@ func (c *AutoImplementCoordinator) scan(ctx context.Context, boardDir string) {
 			c.recordSkip(t.ID, "user-initiated; auto-resume skipped")
 			continue
 		}
-		c.tryAutoResume(ctx, t.ID, t.AgentStatus)
+		if remainingWorkers <= 0 {
+			c.recordSkip(t.ID, "worker capacity full")
+			continue
+		}
+		if c.tryAutoResume(ctx, t.ID, t.AgentStatus) {
+			remainingWorkers--
+		}
 	}
 
 	triage, err := c.board.Triage(ctx)
@@ -410,7 +409,6 @@ func (c *AutoImplementCoordinator) scan(ctx context.Context, boardDir string) {
 		return ni < nj
 	})
 
-	remainingWorkers := c.remainingWorkerCapacity()
 	inProgressCount := snap.WipCounts["in-progress"]
 	inProgressLimit := c.explicitInProgressWIPLimit(snap)
 
@@ -490,6 +488,18 @@ func (c *AutoImplementCoordinator) startCandidate(ctx context.Context, boardDir 
 
 	runID, err := c.agent.RunAgentAs(ctx, task.ID, agent.InitiatorAutoImplement)
 	if err != nil {
+		if errors.Is(err, ErrWorkerCapacityFull) {
+			c.recordSkip(task.ID, "worker capacity full")
+			c.emit("auto-implement:worker-capacity-full", map[string]any{
+				"task_id": task.ID,
+				"error":   err.Error(),
+			})
+			if moveErr := c.board.MoveTask(ctx, task.ID, "ready"); moveErr != nil {
+				c.logger.Warn("auto-implement: rollback to ready after worker-capacity skip failed", "task", task.ID, "err", moveErr)
+				return result
+			}
+			return autoImplementStartResult{}
+		}
 		c.logger.Warn("auto-implement: RunAgentAs failed", "task", task.ID, "err", err)
 		c.recordSkip(task.ID, "run-failed: "+err.Error())
 		c.emit("auto-implement:run-failed", map[string]any{
@@ -532,16 +542,16 @@ func (c *AutoImplementCoordinator) pruneResumeAttempts() {
 // RunAgentAs (no session continuity; the task is already in-progress so
 // no pull is needed). Per-task cooldown prevents tight loops on
 // persistent failures.
-func (c *AutoImplementCoordinator) tryAutoResume(ctx context.Context, id, status string) {
+func (c *AutoImplementCoordinator) tryAutoResume(ctx context.Context, id, status string) bool {
 	if c.agent.HasActiveRun(id) {
 		c.recordSkip(id, "active run")
-		return
+		return false
 	}
 	c.mu.Lock()
 	if last, ok := c.resumeAttempts[id]; ok && c.now().Sub(last) < resumeAttemptCooldown {
 		c.mu.Unlock()
 		c.recordSkip(id, "resume cooldown")
-		return
+		return false
 	}
 	c.resumeAttempts[id] = c.now()
 	c.mu.Unlock()
@@ -562,11 +572,15 @@ func (c *AutoImplementCoordinator) tryAutoResume(ctx context.Context, id, status
 		op = "restart"
 		runID, err = c.agent.RunAgentAs(ctx, id, agent.InitiatorAutoImplement)
 	default:
-		return
+		return false
 	}
 	if err != nil {
 		if errors.Is(err, ErrAlreadyRunning) {
-			return
+			return false
+		}
+		if errors.Is(err, ErrWorkerCapacityFull) {
+			c.recordSkip(id, "worker capacity full")
+			return false
 		}
 		c.logger.Warn("auto-implement: auto-"+op+" failed", "task", id, "err", err)
 		c.recordSkip(id, op+" failed: "+err.Error())
@@ -575,7 +589,7 @@ func (c *AutoImplementCoordinator) tryAutoResume(ctx context.Context, id, status
 			"op":      op,
 			"error":   err.Error(),
 		})
-		return
+		return false
 	}
 	c.mu.Lock()
 	delete(c.lastSkip, id)
@@ -588,6 +602,7 @@ func (c *AutoImplementCoordinator) tryAutoResume(ctx context.Context, id, status
 		"run_id":  runID,
 		"op":      op,
 	})
+	return true
 }
 
 func (c *AutoImplementCoordinator) recordSkip(taskID, reason string) {
@@ -732,37 +747,7 @@ func implementGateBlocker(t Task) string {
 }
 
 func (c *AutoImplementCoordinator) remainingWorkerCapacity() int {
-	maxWorkers := 1
-	active := map[string]struct{}{}
-
-	if c.budget != nil {
-		if max := c.budget.MaxWorkers(); max > 0 {
-			maxWorkers = max
-		}
-		for _, id := range c.budget.ActiveTaskIDs() {
-			if strings.TrimSpace(id) != "" {
-				active[id] = struct{}{}
-			}
-		}
-	} else if c.settings != nil {
-		if max := c.settings.GetMaxWorkers(); max > 0 {
-			maxWorkers = max
-		}
-	}
-
-	if lister, ok := any(c.agent).(activeTaskLister); ok {
-		for _, id := range lister.ActiveTaskIDs() {
-			if strings.TrimSpace(id) != "" {
-				active[id] = struct{}{}
-			}
-		}
-	}
-
-	remaining := maxWorkers - len(active)
-	if remaining < 0 {
-		return 0
-	}
-	return remaining
+	return remainingAutomationWorkerCapacity(c.budget, c.agent, c.settings)
 }
 
 func (c *AutoImplementCoordinator) explicitInProgressWIPLimit(snap BoardSnapshot) int {

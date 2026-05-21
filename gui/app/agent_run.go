@@ -285,35 +285,45 @@ func (s *AgentService) resumeAgent(ctx context.Context, id, initiator string) (s
 		// update still lands on a real action slot.
 		parentMode = agent.ModeImplement
 	}
+	releaseWorker, reserved := s.reserveWorker(id)
+	if !reserved {
+		cancel()
+		return "", ErrWorkerCapacityFull
+	}
 	ar := &activeRun{
-		RunID:      runID,
-		TaskID:     id,
-		Agent:      agentName,
-		Mode:       agent.ModeResume.String(),
-		BoardDir:   boardDir,
-		Client:     c,
-		ParentMode: parentMode.String(),
-		Cancel:     cancel,
-		Done:       make(chan struct{}),
-		SessionID:  candidate.SessionID,
-		Cwd:        candidate.Cwd,
-		Env:        envSlice,
-		Initiator:  initiator,
+		RunID:         runID,
+		TaskID:        id,
+		Agent:         agentName,
+		Mode:          agent.ModeResume.String(),
+		BoardDir:      boardDir,
+		Client:        c,
+		ParentMode:    parentMode.String(),
+		Cancel:        cancel,
+		Done:          make(chan struct{}),
+		SessionID:     candidate.SessionID,
+		Cwd:           candidate.Cwd,
+		Env:           envSlice,
+		Initiator:     initiator,
+		ReleaseWorker: releaseWorker,
 	}
 
 	s.mu.Lock()
 	if _, busy := s.active[id]; busy {
 		s.mu.Unlock()
+		releaseWorker()
 		cancel()
 		return "", ErrAlreadyRunning
 	}
 	s.active[id] = ar
 	s.mu.Unlock()
+	s.notifyActiveChanged()
 
 	rollback := func() {
 		s.mu.Lock()
 		delete(s.active, id)
 		s.mu.Unlock()
+		s.notifyActiveChanged()
+		releaseWorker()
 		cancel()
 	}
 
@@ -424,17 +434,23 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 	// Pre-build activeRun outside the lock; its Done channel must exist
 	// before the runner goroutine starts.
 	runCtx, cancel := context.WithCancel(context.Background())
+	releaseWorker, reserved := s.reserveWorker(id)
+	if !reserved {
+		cancel()
+		return "", ErrWorkerCapacityFull
+	}
 	ar := &activeRun{
-		RunID:      runID,
-		TaskID:     id,
-		Agent:      agentName,
-		Mode:       mode.String(),
-		BoardDir:   boardDir,
-		Client:     c,
-		Cancel:     cancel,
-		Done:       make(chan struct{}),
-		TriageHash: triageHash,
-		Initiator:  initiator,
+		RunID:         runID,
+		TaskID:        id,
+		Agent:         agentName,
+		Mode:          mode.String(),
+		BoardDir:      boardDir,
+		Client:        c,
+		Cancel:        cancel,
+		Done:          make(chan struct{}),
+		TriageHash:    triageHash,
+		Initiator:     initiator,
+		ReleaseWorker: releaseWorker,
 	}
 
 	// Insert placeholder under s.mu only — the rest is I/O outside the
@@ -443,16 +459,20 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 	s.mu.Lock()
 	if _, busy := s.active[id]; busy {
 		s.mu.Unlock()
+		releaseWorker()
 		cancel()
 		return "", ErrAlreadyRunning
 	}
 	s.active[id] = ar
 	s.mu.Unlock()
+	s.notifyActiveChanged()
 
 	rollback := func() {
 		s.mu.Lock()
 		delete(s.active, id)
 		s.mu.Unlock()
+		s.notifyActiveChanged()
+		releaseWorker()
 		cancel()
 	}
 
@@ -638,6 +658,7 @@ func (s *AgentService) RunQueuedAgentSync(ctx context.Context, id string) (strin
 	}
 	s.active[id] = ar
 	s.mu.Unlock()
+	s.notifyActiveChanged()
 
 	// Watch the parent ctx: if it cancels before the runner exits (i.e.
 	// daemon shutdown), mark the run as cancelled BEFORE the runner
@@ -963,7 +984,7 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 		}); err != nil {
 			slog.Warn("agent: append finished failed", "task", ar.TaskID, "run", ar.RunID, "err", err)
 		}
-		s.emit("agent:run-finished", map[string]any{
+		payload := map[string]any{
 			"run_id":    ar.RunID,
 			"task_id":   ar.TaskID,
 			"status":    string(status),
@@ -971,7 +992,7 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 			"reason":    reason,
 			"mode":      ar.Mode,
 			"board_dir": boardDir,
-		})
+		}
 
 		// Preserve an agent-set `needs-user` over the exit-mapped status.
 		// We re-read AgentStatus from disk via BoardService.GetTask so the
@@ -1039,6 +1060,14 @@ func (s *AgentService) recordTerminal(c *cli.Client, ar *activeRun, boardDir str
 		s.mu.Lock()
 		delete(s.active, ar.TaskID)
 		s.mu.Unlock()
+		s.notifyActiveChanged()
+		if ar.ReleaseWorker != nil {
+			ar.ReleaseWorker()
+		}
+		s.emit("agent:run-finished", payload)
+		if s.terminalHook != nil {
+			s.terminalHook(payload)
+		}
 	})
 }
 

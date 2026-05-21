@@ -23,6 +23,16 @@ func newSettingsForPrefs(t *testing.T) (*SettingsService, string) {
 	return s, prefs
 }
 
+type maxWorkersRuntimeActivator struct {
+	values []int
+}
+
+func (a *maxWorkersRuntimeActivator) Activate(context.Context, string) error { return nil }
+func (a *maxWorkersRuntimeActivator) Deactivate() error                      { return nil }
+func (a *maxWorkersRuntimeActivator) SetMaxWorkers(n int) {
+	a.values = append(a.values, n)
+}
+
 func TestPreferences_MissingFileReturnsDefaults(t *testing.T) {
 	s, _ := newSettingsForPrefs(t)
 	if got := s.GetMaxWorkers(); got != MaxWorkersDefault {
@@ -63,6 +73,24 @@ func TestSetMaxWorkers_RoundTrip(t *testing.T) {
 	})
 	if got := s2.GetMaxWorkers(); got != 3 {
 		t.Errorf("fresh read: got %d, want 3", got)
+	}
+}
+
+func TestSetMaxWorkers_NotifiesRuntimeController(t *testing.T) {
+	dir := t.TempDir()
+	activator := &maxWorkersRuntimeActivator{}
+	s := NewSettingsService(SettingsOptions{
+		Logger:      slog.Default(),
+		RecentsPath: filepath.Join(dir, "recent.json"),
+		PrefsPath:   filepath.Join(dir, "preferences.json"),
+		Activator:   activator,
+	})
+
+	if err := s.SetMaxWorkers(2); err != nil {
+		t.Fatalf("SetMaxWorkers: %v", err)
+	}
+	if len(activator.values) != 1 || activator.values[0] != 2 {
+		t.Fatalf("runtime notifications: got %#v, want [2]", activator.values)
 	}
 }
 
