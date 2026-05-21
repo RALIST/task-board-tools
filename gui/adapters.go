@@ -87,11 +87,14 @@ func (t teeShim) Emit(name string, data ...any) {
 //   - app.AutoImplementController (forwarded to the auto-implement
 //     coordinator so SetAutoImplementEnabled / SetAutoImplementQuery /
 //     SetDefaultAgent kick fresh scans).
+//   - app.AutoReviewController (forwarded to the auto-review coordinator
+//     so SetAutoReviewEnabled / SetDefaultAgent kick fresh scans).
 type boardActivator struct {
 	daemon        *daemon.Daemon
 	agent         *tbapp.AgentService
 	autoGroom     *tbapp.AutoGroomCoordinator
 	autoImplement *tbapp.AutoImplementCoordinator
+	autoReview    *tbapp.AutoReviewCoordinator
 }
 
 func (a *boardActivator) Activate(ctx context.Context, boardDir string) error {
@@ -101,7 +104,10 @@ func (a *boardActivator) Activate(ctx context.Context, boardDir string) error {
 	if err := a.autoGroom.Activate(ctx, boardDir); err != nil {
 		return err
 	}
-	return a.autoImplement.Activate(ctx, boardDir)
+	if err := a.autoImplement.Activate(ctx, boardDir); err != nil {
+		return err
+	}
+	return a.autoReview.Activate(ctx, boardDir)
 }
 
 func (a *boardActivator) Deactivate() error {
@@ -110,13 +116,14 @@ func (a *boardActivator) Deactivate() error {
 	// are joined so callers see all failures — keeps the contract
 	// honest if any Deactivate gains a real error path.
 	implErr := a.autoImplement.Deactivate()
+	reviewErr := a.autoReview.Deactivate()
 	coordErr := a.autoGroom.Deactivate()
 	var agentErr error
 	if a.agent != nil {
 		agentErr = a.agent.CancelRunsForCurrentBoard(context.Background(), "board switch")
 	}
 	daemonErr := a.daemon.Deactivate()
-	return errors.Join(implErr, coordErr, agentErr, daemonErr)
+	return errors.Join(reviewErr, implErr, coordErr, agentErr, daemonErr)
 }
 
 func (a *boardActivator) SetPeriodicRecoveryEnabled(enabled bool) {
@@ -127,6 +134,7 @@ func (a *boardActivator) SetMaxWorkers(maxWorkers int) {
 	a.daemon.SetMaxWorkers(maxWorkers)
 	a.autoGroom.NotifyWorkerBudgetChanged()
 	a.autoImplement.NotifyWorkerBudgetChanged()
+	a.autoReview.NotifyWorkerBudgetChanged()
 }
 
 func (a *boardActivator) NotifyAutoGroomEnabled() {
@@ -136,6 +144,7 @@ func (a *boardActivator) NotifyAutoGroomEnabled() {
 func (a *boardActivator) NotifyDefaultAgentChanged() {
 	a.autoGroom.NotifyDefaultAgentChanged()
 	a.autoImplement.NotifyDefaultAgentChanged()
+	a.autoReview.NotifyDefaultAgentChanged()
 }
 
 func (a *boardActivator) NotifyAutoImplementEnabled() {
@@ -144,4 +153,8 @@ func (a *boardActivator) NotifyAutoImplementEnabled() {
 
 func (a *boardActivator) NotifyAutoImplementQueryChanged() {
 	a.autoImplement.NotifyAutoImplementQueryChanged()
+}
+
+func (a *boardActivator) NotifyAutoReviewEnabled() {
+	a.autoReview.NotifyAutoReviewEnabled()
 }

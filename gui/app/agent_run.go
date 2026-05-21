@@ -205,6 +205,13 @@ func (s *AgentService) ReviewTask(ctx context.Context, id string) (string, error
 	return s.startAgentRun(ctx, id, agent.ModeReview, "", "")
 }
 
+// ReviewTaskAs is the auto-review coordinator entry point. Same as
+// ReviewTask, but stamps the queued JSONL row with the supplied initiator so
+// recovery can distinguish daemon-owned review runs from manual ones.
+func (s *AgentService) ReviewTaskAs(ctx context.Context, id, initiator string) (string, error) {
+	return s.startAgentRun(ctx, id, agent.ModeReview, "", initiator)
+}
+
 // ResumeAgent continues the latest captured agent session for the task
 // (TB-130/TB-252). Reads the persisted SessionID + cwd + env from the
 // parent run's JSONL session event, validates that the task is in a
@@ -430,6 +437,10 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 
 	runID := agent.GenerateRunID()
 	now := time.Now().UTC().Format(time.RFC3339)
+	reviewTarget := ""
+	if mode == agent.ModeReview {
+		reviewTarget = autoReviewFingerprint(detail.Metadata, detail.Body)
+	}
 
 	// Pre-build activeRun outside the lock; its Done channel must exist
 	// before the runner goroutine starts.
@@ -490,6 +501,7 @@ func (s *AgentService) startAgentRun(ctx context.Context, id string, mode agent.
 		Agent:      agentName,
 		Mode:       mode.String(),
 		TriageHash: triageHash,
+		Target:     reviewTarget,
 		Initiator:  initiator,
 	}); err != nil {
 		rollback()

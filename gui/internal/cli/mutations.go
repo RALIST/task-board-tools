@@ -273,6 +273,7 @@ type EditInput struct {
 	ImplementStatus string
 	ReviewedBy      string
 	ReviewStatus    string
+	UserAttention   string
 }
 
 // HasChanges reports whether any field is set.
@@ -282,7 +283,8 @@ func (in EditInput) HasChanges() bool {
 		strings.TrimSpace(in.Title) != "" || strings.TrimSpace(in.ReviewRef) != "" ||
 		in.GroomedBy != "" || in.GroomStatus != "" ||
 		in.ImplementedBy != "" || in.ImplementStatus != "" ||
-		in.ReviewedBy != "" || in.ReviewStatus != ""
+		in.ReviewedBy != "" || in.ReviewStatus != "" ||
+		strings.TrimSpace(in.UserAttention) != ""
 }
 
 // Edit runs `tb edit <id> [flags]`. Returns a MutationError on any failure.
@@ -346,6 +348,11 @@ func (c *Client) Edit(ctx context.Context, id string, in EditInput) error {
 		if kv.val != "" {
 			args = append(args, kv.flag, kv.val)
 		}
+	}
+	if strings.TrimSpace(in.UserAttention) != "" {
+		args = append(args, "--user-attention", "-")
+		_, err := c.RunWithStdin(ctx, strings.NewReader(in.UserAttention), args...)
+		return wrapMutation("edit", args, err)
 	}
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("edit", args, err)

@@ -457,6 +457,7 @@ type EditTaskInput struct {
 	ImplementStatus string `json:"implementStatus"`
 	ReviewedBy      string `json:"reviewedBy"`
 	ReviewStatus    string `json:"reviewStatus"`
+	UserAttention   string `json:"userAttention"`
 }
 
 // EditTask runs `tb edit <id> [flags…]`. Returns nil on success.
@@ -481,6 +482,7 @@ func (b *BoardService) EditTask(ctx context.Context, id string, in EditTaskInput
 		ImplementStatus: in.ImplementStatus,
 		ReviewedBy:      in.ReviewedBy,
 		ReviewStatus:    in.ReviewStatus,
+		UserAttention:   in.UserAttention,
 	})
 }
 

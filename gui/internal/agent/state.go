@@ -60,7 +60,7 @@ const (
 //
 // Schema (locked here; the documentation table in TB-47 cross-references):
 //
-//	queued   {ts, run_id, task_id, event:"queued",   agent, mode, resumed_from?, resumed_from_run?, triage_hash?}
+//	queued   {ts, run_id, task_id, event:"queued",   agent, mode, resumed_from?, resumed_from_run?, triage_hash?, target?}
 //	started  {ts, run_id, task_id, event:"started",  agent, mode, pid}
 //	session  {ts, run_id, task_id, event:"session",  session_id, pid, cwd, run_env}
 //	stdout   {ts, run_id, task_id, event:"stdout",   mode, line}
@@ -98,7 +98,11 @@ type Event struct {
 	RunEnv         map[string]string `json:"run_env,omitempty"`
 	TriageHash     string            `json:"triage_hash,omitempty"`
 	Signal         string            `json:"signal,omitempty"`
-	Target         string            `json:"target,omitempty"`
+	// Target carries a mode-specific durable target. Cleanup events use
+	// it for the signal target; auto-review queued events use it for the
+	// review fingerprint that prevents duplicate reviews of the same
+	// code-review submission epoch.
+	Target string `json:"target,omitempty"`
 	// Initiator names who queued the run. Empty (= "user") for runs
 	// queued from the GUI or `tb` CLI. Coordinator-driven runs set
 	// "auto-groom" / "auto-implement" so the resume sweep can tell
@@ -165,6 +169,7 @@ const (
 	InitiatorUser          = "user"
 	InitiatorAutoGroom     = "auto-groom"
 	InitiatorAutoImplement = "auto-implement"
+	InitiatorAutoReview    = "auto-review"
 )
 
 // LatestQueuedInitiator returns the Initiator field from the most recent

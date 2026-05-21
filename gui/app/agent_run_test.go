@@ -711,6 +711,42 @@ func TestReviewTask_HappyPath_Success(t *testing.T) {
 	}
 }
 
+func TestReviewTaskAs_RecordsAutoReviewInitiator(t *testing.T) {
+	stub := &stubRunner{
+		name:        "claude",
+		stdoutLines: []string{"reviewed"},
+		exitCode:    0,
+	}
+	svc, boardDir := realTbBoardForRun(t, "claude", stub)
+
+	runID, err := svc.ReviewTaskAs(context.Background(), "TB-1", agent.InitiatorAutoReview)
+	if err != nil {
+		t.Fatalf("ReviewTaskAs: %v", err)
+	}
+	waitForRunCompletion(t, svc, "TB-1", 5*time.Second)
+
+	events := readEvents(t, boardDir, "TB-1")
+	var queued agent.Event
+	for _, ev := range events {
+		if ev.RunID == runID && ev.Event == agent.EvQueued {
+			queued = ev
+			break
+		}
+	}
+	if queued.Event != agent.EvQueued {
+		t.Fatalf("queued event for %s not found in %+v", runID, events)
+	}
+	if queued.Mode != agent.ModeReview.String() {
+		t.Fatalf("queued mode = %q, want review", queued.Mode)
+	}
+	if queued.Initiator != agent.InitiatorAutoReview {
+		t.Fatalf("queued initiator = %q, want auto-review", queued.Initiator)
+	}
+	if stub.input().Mode != agent.ModeReview {
+		t.Fatalf("runner mode = %s, want review", stub.input().Mode)
+	}
+}
+
 // TestRunAgent_ClaudePreAllocatesSessionID is the TB-135 contract: a
 // Claude run gets a UUIDv4 SessionID pre-allocated in runGoroutine,
 // passes it through RunInput.SessionID to the runner, and persists the

@@ -43,6 +43,7 @@ func main() {
 	var settingsService *tbapp.SettingsService
 	var d *daemon.Daemon
 	var autoGroom *tbapp.AutoGroomCoordinator
+	var autoReview *tbapp.AutoReviewCoordinator
 	var stageReconciler *tbapp.StageReconciler
 
 	agentService := tbapp.NewAgentService(tbapp.AgentServiceOptions{
@@ -63,6 +64,9 @@ func main() {
 		TerminalHook: func(payload map[string]any) {
 			if autoGroom != nil {
 				autoGroom.OnAgentRunFinished(payload)
+			}
+			if autoReview != nil {
+				autoReview.OnAgentRunFinished(payload)
 			}
 			if stageReconciler != nil {
 				stageReconciler.OnAgentRunFinished(payload)
@@ -113,25 +117,35 @@ func main() {
 		WorkerBudget: d,
 	})
 
+	autoReview = tbapp.NewAutoReviewCoordinator(tbapp.AutoReviewCoordinatorOptions{
+		Board:        boardService,
+		Agent:        agentService,
+		Settings:     nil, // wired below after settingsService is constructed
+		Emitter:      emitter,
+		Logger:       logger,
+		WorkerBudget: d,
+	})
+
 	// Watcher emits to the Wails app, the daemon sink, the board sink, the
-	// auto-groom coordinator sink, and the auto-implement coordinator sink
-	// (TB-58 + TB-174 + TB-179). Right-associative fan-out keeps the
+	// auto-groom coordinator sink, auto-implement coordinator sink, and
+	// auto-review coordinator sink. Right-associative fan-out keeps the
 	// existing TeeEmitter contract unchanged.
 	sink := daemon.NewEventSink(d, logger)
 	boardSink := tbapp.NewBoardWatcherSink(boardService)
-	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: daemon.TeeEmitter{A: boardSink, B: daemon.TeeEmitter{A: autoGroom, B: autoImplement}}}}
+	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: daemon.TeeEmitter{A: boardSink, B: daemon.TeeEmitter{A: autoGroom, B: daemon.TeeEmitter{A: autoImplement, B: autoReview}}}}}
 	w := watcher.New(teeShim{tee: tee}, logger)
 
 	settingsService = tbapp.NewSettingsService(tbapp.SettingsOptions{
 		Logger:    logger,
 		Board:     boardService,
 		Watcher:   w,
-		Activator: &boardActivator{daemon: d, agent: agentService, autoGroom: autoGroom, autoImplement: autoImplement},
+		Activator: &boardActivator{daemon: d, agent: agentService, autoGroom: autoGroom, autoImplement: autoImplement, autoReview: autoReview},
 	})
 	// Late-bind the SettingsService so both coordinators can read
 	// preferences on every scan.
 	autoGroom.SetSettings(settingsService)
 	autoImplement.SetSettings(settingsService)
+	autoReview.SetSettings(settingsService)
 
 	// Per-agent quota usage — independent of any individual run, refreshed on
 	// a timer and on demand from the header widget (TB-107).
@@ -160,6 +174,7 @@ func main() {
 			application.NewService(usageService),
 			application.NewService(autoGroom),
 			application.NewService(autoImplement),
+			application.NewService(autoReview),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID:      "com.taskboard.tbgui",
