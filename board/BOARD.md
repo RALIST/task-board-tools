@@ -32,19 +32,18 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 1/1 | tooling |
 
-## In Progress (3/3 ⚠)
+## In Progress (2/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
 | TB-313 | GUI: virtualize large kanban columns | P2 | gui | — |
 | TB-318 | GUI: show loading state during board switch | P2 | gui | — |
-| TB-320 | GUI: make startup grace header a live countdown | P2 | gui/frontend | — |
 
-## Code Review (0/3)
+## Code Review (1/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-320 | GUI: make startup grace header a live countdown | P2 | gui/frontend | — |
 
 ## Ready (7/10)
 

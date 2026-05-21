@@ -6,9 +6,10 @@
 **Module:** gui/frontend
 **Tags:** startup,automation,ui,grace
 **Agent:** codex
-**AgentStatus:** failed
+**AgentStatus:** success
 **ImplementedBy:** codex
-**ImplementStatus:** failed
+**ImplementStatus:** success
+**ReviewRef:** a6e3660
 **Branch:** —
 
 ## Goal
@@ -40,6 +41,23 @@ Related work: TB-301 added startup grace behavior and the first static header pi
 - [ ] Tests cover initial display, ticking/decrement, expiry/hide, board switch cancellation, and zero-delay behavior.
 - [ ] Verification includes `cd gui/frontend && npm run check` and `cd gui/frontend && npm test -- --run`.
 
+## Review Target
+
+branch: main
+commit: a6e3660
+
+Summary:
+- Added a frontend startup-grace countdown store that hides on expiry, cancels old board timers, and treats 0 as disabled.
+- Wired the header badge to live countdown state instead of the persisted preference value.
+
+Verification:
+- cd gui/frontend && npm run check
+- cd gui/frontend && npm test -- --run
+- cd gui/frontend && npm run lint
+- cd gui/frontend && npm run deadcode
+- git diff --check
+- code review: no TB-320 blocking findings
+
 ## Attachments
 
 ## Log
@@ -57,4 +75,12 @@ Related work: TB-301 added startup grace behavior and the first static header pi
 - 2026-05-21: Edited agentstatus=queued
 - 2026-05-21: Edited agentstatus=running
 - 2026-05-21: Edited agentstatus=failed, implemented-by=codex, implement-status=failed
+- 2026-05-21: Moved to ready
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited review-target
+- 2026-05-21: Edited reviewref=a6e3660
+- 2026-05-21: Submitted to code-review
 
