@@ -12,6 +12,8 @@
 **ImplementedBy:** codex
 **ImplementStatus:** success
 **ReviewRef:** 9ee67bb
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -62,6 +64,10 @@ verification:
 - cd cli && go build -o tb .
 - subagent code review: no findings, Ready to merge: Yes
 
+## Review Findings
+
+- No blocking findings.
+
 ## Related Tasks
 
 - **TB-93** — parent folder-form task milestone and storage contract.
@@ -110,4 +116,9 @@ verification:
 - 2026-05-21: Edited review-target
 - 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=9ee67bb
 - 2026-05-21: Submitted to code-review
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Passed code review
+- 2026-05-21: Edited agentstatus=success, reviewed-by=codex, review-status=success
 

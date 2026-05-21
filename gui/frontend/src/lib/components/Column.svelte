@@ -27,10 +27,13 @@
 
   let dragOver = $state(false);
   let dragging = $state(false);
+  let dragStartupPending = $state(false);
   let scrollTop = $state(0);
   let viewportHeight = $state(0);
   let scrollList = $state<HTMLUListElement | null>(null);
   let lastTasks = $state<Task[] | null>(null);
+  let pendingDragItem: HTMLElement | null = null;
+  let pendingDragZone: HTMLUListElement | null = null;
   let virtualized = $derived(shouldVirtualizeColumn(status, tasks.length));
   let virtualRange = $derived.by<VirtualTaskRange>(() => {
     if (!virtualized) return { start: 0, end: tasks.length, paddingTop: 0, paddingBottom: 0 };
@@ -50,18 +53,16 @@
     }
   });
 
-  // svelte-dnd-action requires the SAME array IDENTITY across the consider →
-  // finalize lifecycle. We keep a $state-backed `items` array and refresh it
-  // from `tasks` only when no drag is in flight, so a board:reloaded mid-drag
-  // doesn't blow the library's internal DOM tracking (it crashes with
-  // `undefined is not an object (originalDragTarget.parentElement)` otherwise).
+  // svelte-dnd-action requires stable DOM from pointer-down through finalize.
+  // Freeze the handed-off items while drag startup is pending too; the library
+  // dereferences the source item's parent before it emits the first consider.
   let items = $state<Array<{ id: string; task: Task }>>([]);
   // Re-seed from the `tasks` prop whenever it changes — unless a drag is in
   // flight. We can't use `$derived` directly because we MUST keep the same
   // array identity through the drag (svelte-dnd-action stores DOM refs by
   // index against the array we hand it).
   $effect(() => {
-    if (dragging) return;
+    if (dragging || dragStartupPending) return;
     if (sameItems(untrack(() => items), visibleTasks)) return;
     items = visibleTasks.map((t) => ({ id: t.id, task: t }));
   });
@@ -72,6 +73,7 @@
   }
 
   function handleConsider(e: CustomEvent<DndEvent<{ id: string; task: Task }>>) {
+    clearDragStartupPending();
     dragging = true;
     items = e.detail.items;
     // svelte-dnd-action fires `consider` on every zone the pointer crosses,
@@ -87,6 +89,7 @@
   }
 
   function handleFinalize(e: CustomEvent<DndEvent<{ id: string; task: Task }>>) {
+    clearDragStartupPending();
     dragOver = false;
     const next = e.detail.items;
     items = next;
@@ -104,6 +107,72 @@
     scrollTop = node.scrollTop;
     viewportHeight = node.clientHeight;
   }
+
+  function dragStartupGuard(node: HTMLUListElement) {
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      beginDragStartupPending(event, node);
+    };
+    node.addEventListener('mousedown', handlePointerDown, true);
+    node.addEventListener('touchstart', handlePointerDown, true);
+    return {
+      destroy: () => {
+        node.removeEventListener('mousedown', handlePointerDown, true);
+        node.removeEventListener('touchstart', handlePointerDown, true);
+        if (pendingDragZone === node) clearDragStartupPending();
+      },
+    };
+  }
+
+  function beginDragStartupPending(event: MouseEvent | TouchEvent, zone: HTMLUListElement) {
+    if ('button' in event && event.button !== 0) return;
+    const item = draggableItemFromEvent(event, zone);
+    if (!item) return;
+    dragStartupPending = true;
+    pendingDragItem = item;
+    pendingDragZone = zone;
+    addDragStartupWindowGuards();
+  }
+
+  function draggableItemFromEvent(event: Event, zone: HTMLUListElement): HTMLElement | null {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return null;
+    const item = target.closest('li');
+    if (!(item instanceof HTMLElement) || item.parentElement !== zone) return null;
+    if (target !== item && ('value' in target || target.isContentEditable)) return null;
+    return item;
+  }
+
+  function addDragStartupWindowGuards() {
+    window.removeEventListener('mousemove', cancelDetachedDragStartup, true);
+    window.removeEventListener('touchmove', cancelDetachedDragStartup, true);
+    window.removeEventListener('mouseup', clearDragStartupPending, true);
+    window.removeEventListener('touchend', clearDragStartupPending, true);
+    window.removeEventListener('touchcancel', clearDragStartupPending, true);
+    window.addEventListener('mousemove', cancelDetachedDragStartup, true);
+    window.addEventListener('touchmove', cancelDetachedDragStartup, true);
+    window.addEventListener('mouseup', clearDragStartupPending, true);
+    window.addEventListener('touchend', clearDragStartupPending, true);
+    window.addEventListener('touchcancel', clearDragStartupPending, true);
+  }
+
+  function clearDragStartupPending() {
+    if (!dragStartupPending && !pendingDragItem && !pendingDragZone) return;
+    dragStartupPending = false;
+    pendingDragItem = null;
+    pendingDragZone = null;
+    window.removeEventListener('mousemove', cancelDetachedDragStartup, true);
+    window.removeEventListener('touchmove', cancelDetachedDragStartup, true);
+    window.removeEventListener('mouseup', clearDragStartupPending, true);
+    window.removeEventListener('touchend', clearDragStartupPending, true);
+    window.removeEventListener('touchcancel', clearDragStartupPending, true);
+  }
+
+  function cancelDetachedDragStartup(event: Event) {
+    if (!dragStartupPending || !pendingDragItem || !pendingDragZone) return;
+    if (pendingDragItem.isConnected && pendingDragItem.parentElement === pendingDragZone) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
 </script>
 
 <article class="col" class:drag-over={dragOver}>
@@ -120,6 +189,7 @@
   {#if dndEnabled}
     <ul
       bind:this={scrollList}
+      use:dragStartupGuard
       use:dndzone={{ items, type: 'task', flipDurationMs: 150, dropTargetStyle: {} }}
       onscroll={handleScroll}
       onconsider={handleConsider}

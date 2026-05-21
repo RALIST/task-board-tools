@@ -10,6 +10,8 @@
 **ImplementStatus:** success
 **ReviewRef:** 30daff0
 **AgentStatus:** success
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -60,7 +62,8 @@ Verification:
 
 ## Review Findings
 
-Previous blocking finding at b1ced3d is addressed in 30daff0: existing-board mount now calls refreshPersistedBoardOnStartup(projectRoot, startStartupGraceForBoard, refresh), which starts grace before the initial board refresh awaits. Countdown/tick/expiry/switch/zero-delay behavior remains covered by startupGrace store tests.
+- No blocking findings. Reviewed `ReviewRef: 30daff0`; source shows the header renders only when `startupGrace.active`, the store decrements/hides/handles zero-delay, and board activation/persisted startup paths start or cancel the countdown for the active board.
+- Verification: `cd gui/frontend && npm test -- --run src/lib/boardSwitch.test.ts src/lib/stores/startupGrace.test.ts` passed (2 files, 23 tests).
 
 ## Attachments
 
@@ -132,4 +135,9 @@ Previous blocking finding at b1ced3d is addressed in 30daff0: existing-board mou
 - 2026-05-21: Edited agentstatus=success, reviewed-by=none, review-status=none, reviewref=30daff0
 - 2026-05-21: Cleared review-failed marker on resubmit
 - 2026-05-21: Submitted to code-review
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Passed code review
+- 2026-05-21: Edited agentstatus=success, reviewed-by=codex, review-status=success
 

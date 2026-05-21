@@ -29,8 +29,45 @@ var singleInstanceKey = [32]byte{
 	0x65, 0x79, 0x2d, 0x76, 0x31, 0x2e, 0x30, 0x2e, // "ey-v1.0."
 }
 
+type windowClosePolicy struct {
+	terminateAfterLastWindowClosed bool
+	disableQuitOnLastWindowClosed  bool
+}
+
+func windowClosePolicyForTray(traySupported bool) windowClosePolicy {
+	return windowClosePolicy{
+		terminateAfterLastWindowClosed: !traySupported,
+		disableQuitOnLastWindowClosed:  traySupported,
+	}
+}
+
 func shouldTerminateAfterLastWindowClosed() bool {
-	return !shell.TraySupported()
+	return windowClosePolicyForTray(shell.TraySupported()).terminateAfterLastWindowClosed
+}
+
+func handleTrayWindowClosing(event *application.WindowEvent, traySupported bool, appShuttingDown bool, hide func()) {
+	if !traySupported || appShuttingDown {
+		return
+	}
+	event.Cancel()
+	if hide != nil {
+		hide()
+	}
+}
+
+func installTrayWindowCloseHideHook(app *application.App, window *application.WebviewWindow) {
+	if window == nil {
+		return
+	}
+	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		appShuttingDown := false
+		if app != nil {
+			appShuttingDown = app.Context().Err() != nil
+		}
+		handleTrayWindowClosing(event, shell.TraySupported(), appShuttingDown, func() {
+			window.Hide()
+		})
+	})
 }
 
 func main() {
@@ -169,6 +206,7 @@ func main() {
 		usageService.RefreshAgentUsage(ctx)
 	})
 
+	windowClose := windowClosePolicyForTray(shell.TraySupported())
 	app := application.New(application.Options{
 		Name:        "Task Board Tools",
 		Description: "Task Board Tools GUI — kanban over markdown tasks",
@@ -198,7 +236,13 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: shouldTerminateAfterLastWindowClosed(),
+			ApplicationShouldTerminateAfterLastWindowClosed: windowClose.terminateAfterLastWindowClosed,
+		},
+		Windows: application.WindowsOptions{
+			DisableQuitOnLastWindowClosed: windowClose.disableQuitOnLastWindowClosed,
+		},
+		Linux: application.LinuxOptions{
+			DisableQuitOnLastWindowClosed: windowClose.disableQuitOnLastWindowClosed,
 		},
 	})
 	appRef = app
@@ -236,6 +280,7 @@ func main() {
 		URL:                "/",
 		UseApplicationMenu: true,
 	})
+	installTrayWindowCloseHideHook(app, window)
 
 	// Route file drops onto elements with data-file-drop-target into the
 	// shared `tb attach` path. The webview's runtime tags drop targets via

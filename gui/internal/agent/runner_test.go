@@ -48,6 +48,9 @@ func TestPromptReview_LocksReviewContract(t *testing.T) {
 		"tb review --pass {{TASK_ID}}",
 		"`tb review --pass` writes/replaces `## Review Findings` from stdin",
 		"Blocking findings always use `tb review --fail`",
+		"Process success is not a review decision",
+		"Do not end a successful review run with the task still in `code-review`",
+		"`ReviewStatus: success`, `AgentStatus: success`, or exit code 0 is not enough",
 		"`review-failed`",
 	} {
 		if !containsPromptText(PromptReview, text) {

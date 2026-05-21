@@ -46,3 +46,5 @@ BLOCKED_BY TB-303
 - 2026-05-20: Edited acceptance
 - 2026-05-21: Committed — moved to ready
 - 2026-05-21: Edited body via GUI
+- 2026-05-21: Moved to backlog
+

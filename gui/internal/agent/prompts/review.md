@@ -22,6 +22,7 @@ Follow the board format and keep board hygiene intact.
 - Do not run `tb start`, `tb close`, or `tb mv` for this task. Use only the pass/fail flows below for review-state transitions.
 - If you have no blocking findings, use the pass path below.
 - If you find blocking issues that require rework, use the failure handoff below to move the task back to `ready` with a `review-failed` marker.
+- Process success is not a review decision. Do not end a successful review run with the task still in `code-review`; use `tb review --pass`, `tb review --fail`, or `needs-user`.
 
 ## Writing findings
 
@@ -71,6 +72,7 @@ EOF
 - You have inspected the implementation referenced by top-level `**ReviewRef:**` (or reported that no machine-readable review target was set, via the user-attention handoff).
 - Findings — including "no blocking findings" — are recorded in `## Review Findings` through the pass path or `tb review --fail`.
 - The task is either moved to `done` (passed) or back in `ready` tagged `review-failed` (rework required).
+- `ReviewStatus: success`, `AgentStatus: success`, or exit code 0 is not enough while the task still lives in `code-review`; the managed board transition is the review decision.
 
 ## When review cannot finish — User Attention handoff
 

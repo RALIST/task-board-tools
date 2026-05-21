@@ -4,7 +4,7 @@
 **Priority:** P1
 **Size:** S
 **Module:** workflow
-**Tags:** code-review,review-failed,automation
+**Tags:** code-review,automation
 **Branch:** —
 
 ## Goal
@@ -24,3 +24,5 @@ When a failed review returns to ready with review-failed, auto-implement or tb p
 
 - 2026-05-21: Created
 - 2026-05-21: Edited acceptance
+- 2026-05-21: Edited tags=code-review,automation
+

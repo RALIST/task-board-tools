@@ -84,6 +84,8 @@ When decomposing an epic, connect children to the parent and keep sibling orderi
 
 If review passes, use `tb review --pass` to record findings and move the task to `done`. If review fails, use `tb review --fail` to return it to `ready`, preserve the findings, and make the next required action obvious.
 
+Review metadata is runner evidence, not the review decision. `ReviewStatus: success` means the review agent exited successfully; it does not pass review unless `tb review --pass` moved the task to `done`. A review run must end with a managed outcome: pass, fail, or `needs-user` when it cannot safely decide.
+
 Every done task needs evidence. No task should move to `done` without proof of done in the task log, review reference, attachments, or related repository history. Implementation tasks should point to a commit or review artifact that includes the task ID. Spikes should link or attach the investigation result, decision record, notes file, or follow-up task list.
 
 Do not use `archive` as a shortcut for unfinished work or as a substitute for evidence. Archive is only for closing work that should leave the active board: obsolete, superseded, duplicate, or intentionally dropped tasks.

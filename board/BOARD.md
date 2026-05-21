@@ -5,6 +5,7 @@
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
+| TB-324 | Epic: Capture GUI crashes as board tasks | 0/3 | ready | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
 | TB-292 | Epic: mirror project settings between GUI and .tb.yaml | 0/3 | ready | gui |
 | TB-303 | Epic: remove generic AgentStatus field | 0/4 | ready | workflow |
@@ -32,18 +33,17 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 1/1 | tooling |
 
-## In Progress (2/3)
+## In Progress (1/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-313 | GUI: virtualize large kanban columns | P2 | gui | — |
-| TB-318 | GUI: show loading state during board switch | P2 | gui | — |
+| TB-323 | Prevent kanban drag-start crash | P2 | gui-frontend | — |
 
-## Code Review (1/3)
+## Code Review (0/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-320 | GUI: make startup grace header a live countdown | P2 | gui/frontend | — |
+| — | — | — | — | — |
 
 ## Ready (7/10)
 
@@ -54,8 +54,8 @@
 | TB-294 | GUI backend: persist project settings in .tb.yaml | feature | P2 | M | gui |
 | TB-295 | GUI settings panel mirrors project .tb.yaml | feature | P2 | M | gui |
 | TB-303 | Epic: remove generic AgentStatus field | tech-debt | P2 | XL | workflow |
-| TB-310 | Docs and board cleanup for AgentStatus removal | tech-debt | P2 | M | docs |
 | TB-317 | CLI: add --agent-status filter for running agent tasks | feature | P2 | S | cli |
+| TB-324 | Epic: Capture GUI crashes as board tasks | feature | P1 | L | gui |
 
 ## Backlog
 
@@ -89,24 +89,44 @@
 | TB-259 | Per-task chat panel via claude/codex CLIs | feature | P1 | L | gui |
 | TB-260 | Ability to edit agent prompts | feature | P2 | L | gui |
 | TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
-| TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
 | TB-298 | Allow DnD into the Archive column | improvement | P2 | S | gui-frontend |
 | TB-299 | Auto-implement: gate on per-mode ImplementStatus, clear AgentStatus on tb ready | tech-debt | P1 | S | gui |
 | TB-307 | CLI: replace AgentStatus metadata with per-mode status fields | tech-debt | P2 | M | cli |
 | TB-308 | GUI: run lifecycle uses per-mode statuses only | tech-debt | P2 | L | gui |
 | TB-309 | Frontend: remove generic AgentStatus display dependency | improvement | P2 | M | gui-frontend |
+| TB-310 | Docs and board cleanup for AgentStatus removal | tech-debt | P2 | M | docs |
 | TB-311 | Manual smoke board-switch cancellation in desktop GUI | spike | P2 | S | gui |
 | TB-314 | GUI: opening a board can start queued agent runs during smoke/load tests | bug | P1 | M | gui |
 | TB-316 | Profile GUI idle CPU usage | bug | P1 | S | gui |
 | TB-319 | CLI: clear review-failed when submitting retried in-progress work | bug | P1 | S | workflow |
 | TB-321 | GUI: board view misses live running automation tasks | bug | P1 | M | gui/frontend |
-| TB-322 | check if app closing kills agnets | bug | P2 | M |  |
+| TB-326 | Crash capture sink creates sanitized board tasks | feature | P1 | M | gui |
+| TB-327 | Capture frontend runtime crashes on board | feature | P1 | M | gui-frontend |
+| TB-328 | Capture backend GUI panics on board | feature | P1 | M | gui |
+| TB-330 | Run log: show user-friendly log | bug | P2 | M |  |
+| TB-331 | Add tokens usage for each agent run | bug | P2 | M |  |
+| TB-332 | Pause auto-flows on low usage limits | improvement | P2 | M |  |
+| TB-333 | Allow to set default agent per column | improvement | P2 | M |  |
+| TB-334 | Pause auto-flows on low limits per agent | improvement | P2 | M |  |
+| TB-335 | "Show window" option is not working | bug | P3 | M |  |
+| TB-336 | Auto-implement priority | bug | P2 | M |  |
+| TB-337 | Auto-implement query quick access | improvement | P2 | M |  |
+| TB-338 | Agent: restore PromptGroom required placeholders | bug | P2 | S | gui/internal/agent |
+| TB-339 | CLI: fix init EOF errorlint regression | bug | P2 | S | cli |
+| TB-340 | Auto-review: prevent successful review runs from staying in code-review | bug | P1 | M | gui/app |
+| TB-341 | Check full card transictions protocol | bug | P2 | M |  |
 
 ## Recently Done
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-329 | Needs-user handoff should return in-progress task to ready | bug | gui |
+| TB-325 | GUI: task edits refresh board cards live | bug | gui |
+| TB-322 | GUI: window close must not kill agent runs | bug | gui |
+| TB-320 | GUI: make startup grace header a live countdown | bug | gui/frontend |
+| TB-318 | GUI: show loading state during board switch | bug | gui |
 | TB-315 | Auto-groom and auto-resume must respect worker budget | bug | gui |
+| TB-313 | GUI: virtualize large kanban columns | improvement | gui |
 | TB-312 | GUI: Open project selection does not switch board | bug | gui |
 | TB-306 | Generated conventions and skill should omit autonomous flows | bug | cli |
 | TB-305 | CLI: install project task-board skills during init | improvement | cli |
@@ -122,6 +142,7 @@
 | TB-288 | FilterBar-driven auto-implement query (replaces text DSL) | feature | gui |
 | TB-287 | Flaky race in TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart | bug | gui |
 | TB-286 | Show readable GUI error toasts | bug | gui-frontend |
+| TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | cli |
 | TB-272 | CLI: add managed review pass flow | feature | workflow |
 | TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
 | TB-270 | Align agent prompts with staged kanban workflow | improvement | agent |
@@ -149,10 +170,3 @@
 | TB-237 | Save diffrent agent actions in diffrent fields | improvement | cli |
 | TB-236 | macOS titlebar double-click should zoom/restore window | bug | gui |
 | TB-235 | Require ReviewRef metadata before code-review moves | improvement | workflow |
-| TB-233 | Auto-implement priority: rank review-failed ready tasks first | improvement | gui |
-| TB-232 | tb-gui usage tap: chain to user's original statusline instead of replacing it | bug | gui |
-| TB-231 | Address TB-130 adversarial review findings | bug | gui |
-| TB-230 | CLI: avoid backups when init content is unchanged | bug | cli |
-| TB-229 | CLI: reconcile .tb.yaml with annotated config template | improvement | cli |
-| TB-228 | CLI: make init refresh existing boards by default | improvement | cli |
-| TB-227 | CLI: refresh generated board docs for existing boards | improvement | cli |

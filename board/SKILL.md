@@ -30,6 +30,8 @@ Read `board/CONVENTIONS.md` before changing board state. It is the policy source
 
 Every `done` task needs evidence. Implementation tasks should cite a commit or review artifact that includes `TB-NNN`. Spike tasks should link or attach the investigation result, decision record, notes file, or follow-up task list.
 
+Review runs must finish through an explicit board handoff: `tb review --pass` for clean reviews, `tb review --fail` for blocking findings, or `needs-user` when the reviewer cannot safely decide. Agent or review status `success` only means the runner exited 0; it does not pass a task that remains in `code-review`.
+
 ## Backlog Capture
 
 Create or update backlog tasks for real work outside the current scope:

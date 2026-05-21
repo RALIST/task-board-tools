@@ -8,10 +8,12 @@
 **Tags:** gui,daemon,agent,lifecycle,shutdown,manual-qa
 **GroomedBy:** codex
 **GroomStatus:** success
-**AgentStatus:** success
 **ImplementedBy:** codex
 **ImplementStatus:** success
-**ReviewRef:** 6a7ec39
+**ReviewRef:** working-tree
+**AgentStatus:** success
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -47,36 +49,43 @@ Ensure desktop GUI lifecycle matches the product contract: closing the main wind
 
 ## Review Target
 
-commit: 6a7ec39
-scope: GUI lifecycle seam and backend coverage for window close vs app shutdown
+working-tree: /Users/ralist/projects/task-board-tools
+scope: TB-322 review-fix rework for GUI last-window-close lifecycle
 files:
 - gui/main.go
 - gui/main_test.go
-- gui/app/daemon_integration_test.go
-- gui/app/agent_recovery_test.go
 summary:
-- Added testable Wails window-close policy seam: tray-capable platforms keep app alive after last window closes.
-- Added daemon shutdown race coverage proving concurrent Close writes one finished{cancelled, reason:"shutdown"} and AgentStatus cancelled.
-- Added recovery coverage proving finished{cancelled, reason:"shutdown"} is preserved and not overwritten.
-- Existing board-switch tests still assert reason "board switch".
+- Wired tray-capable last-window-close policy into macOS, Windows, and Linux Wails app options.
+- Added a Common.WindowClosing hook so normal tray-capable window chrome close cancels Wails' default destroy path and hides the main window instead.
+- Preserved explicit app shutdown/Quit by letting the close event proceed once the app context is cancelled.
+- Added table coverage for tray/no-tray policy and close-vs-quit hook behavior.
 verification:
-- cd gui && go test . ./app -run 'TestWindowCloseTerminationPolicy|TestDaemonShutdown_ConcurrentClose|TestRecoverStale_ShutdownCancelled' (RED failed before helper; GREEN passed after helper)
+- cd gui && go test . ./app -run 'TestWindowClosePolicy|TestWindowCloseTerminationPolicy|TestHandleTrayWindowClosing|TestDaemonShutdown_ConcurrentClose|TestRecoverStale_ShutdownCancelled'
 - cd gui && go test ./internal/daemon ./app
-- cd gui && go test ./...
+- cd gui && go test ./... (fails in untouched tools/tb-gui/internal/agent: TestPromptGroom_NonEmptyAndUsesOnlySupportedPlaceholders; captured as TB-338)
+- git diff --check -- gui/main.go gui/main_test.go
 notes:
-- No frontend checks run because no Svelte/run/tray UI state changed.
-- Full git diff --check still has pre-existing unrelated board/backlog/TB-319/TASK.md EOF whitespace; scoped/cached diff check passed.
+- No Svelte/frontend checks run; this change is native shell/Wails lifecycle wiring only.
+- Manual desktop smoke is still required for native tray/window behavior.
 
 ## Reviewer Notes
 
-Automated review: subagent Einstein found no Critical or Important issues and no Minor items in the scoped diff.
+Reworked both prior blocking findings:
+- Linux/Windows now receive DisableQuitOnLastWindowClosed from the same tray policy as macOS.
+- Tray-capable user window close now cancels the default Wails destroy event and hides the window; explicit Quit/app shutdown still proceeds because app context cancellation disables the hide hook.
 
-Manual desktop smoke still required at review time because Wails native window-close behavior cannot be fully exercised by Go unit tests here:
-1. On a scratch board, start a deliberately slow agent run in the desktop GUI.
-2. Close the main window via window chrome on a tray-capable platform; restore from tray/menu and confirm the run remains active or finishes naturally, with no shutdown cancellation.
-3. Repeat and choose explicit Quit from menu/tray; confirm exactly one shutdown-cancelled run and no orphaned running row.
+Verification caveat: full `cd gui && go test ./...` fails in untouched `internal/agent` PromptGroom placeholder coverage. Captured as TB-338 so TB-322 review can distinguish that existing suite failure from this lifecycle fix.
+
+## Review Findings
+
+- Accepted after manual reconciliation: TB-322 was moved from stale `code-review` to `done` with `tb review --pass`.
+- Stuck-state evidence is attached as `TB-322-review-state-evidence.md`; it shows the resumed run resubmitted TB-322 to `code-review` and never ran managed pass/fail, while runner metadata later recorded `finished{mode: resume, status: success}`.
+- Root prevention follow-up is TB-340.
+- Existing verification caveat remains captured in the review target: full `cd gui && go test ./...` is blocked by unrelated TB-338; scoped TB-322 checks passed.
 
 ## Attachments
+
+- TB-322-review-state-evidence.md
 
 ## Log
 
@@ -99,3 +108,31 @@ Manual desktop smoke still required at review time because Wails native window-c
 - 2026-05-21: Edited implemented-by=codex, implement-status=success, reviewref=6a7ec39
 - 2026-05-21: Submitted to code-review
 - 2026-05-21: Edited agentstatus=success
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Failed code review — moved to ready with review-failed marker
+- 2026-05-21: Edited agentstatus=none, reviewed-by=codex, review-status=success
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited review-target
+- 2026-05-21: Edited reviewer-notes
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=working-tree
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Failed code review — moved to ready with review-failed marker
+- 2026-05-21: Edited tags=gui,daemon,agent,lifecycle,shutdown,manual-qa, agentstatus=success, reviewed-by=none, review-status=none
+- 2026-05-21: Edited review-findings
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Edited agentstatus=success, reviewed-by=codex, review-status=success
+- 2026-05-21: Passed code review
+- 2026-05-21: Attached TB-322-review-state-evidence.md
+- 2026-05-21: Edited review-findings
+

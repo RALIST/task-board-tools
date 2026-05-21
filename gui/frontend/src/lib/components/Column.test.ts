@@ -138,9 +138,62 @@ const boardMocks = vi.hoisted(() => {
 });
 vi.mock('$lib/stores/board', () => ({ board: boardMocks.board }));
 
-const dndMocks = vi.hoisted(() => ({
-  dndzone: vi.fn(() => ({ update: vi.fn(), destroy: vi.fn() })),
-}));
+const dndMocks = vi.hoisted(() => {
+  function dndzone(node: HTMLElement) {
+    let dragTarget: HTMLElement | null = null;
+    const childListeners = new Map<Element, EventListener>();
+
+    function removeWindowListeners() {
+      window.removeEventListener('mousemove', handleMouseMoveMaybeDragStart);
+      window.removeEventListener('mouseup', handleMouseUp);
+    }
+
+    function handleMouseMoveMaybeDragStart() {
+      removeWindowListeners();
+      const originDropZone = dragTarget?.parentElement ?? null;
+      originDropZone!.closest('dialog');
+      dragTarget = null;
+    }
+
+    function handleMouseUp() {
+      removeWindowListeners();
+      dragTarget = null;
+    }
+
+    function bindChildren() {
+      for (const [child, listener] of childListeners) {
+        child.removeEventListener('mousedown', listener);
+      }
+      childListeners.clear();
+      for (const child of Array.from(node.children)) {
+        const listener: EventListener = (event) => {
+          if (!(event instanceof MouseEvent)) return;
+          if (event.button !== 0) return;
+          dragTarget = event.currentTarget as HTMLElement;
+          window.addEventListener('mousemove', handleMouseMoveMaybeDragStart);
+          window.addEventListener('mouseup', handleMouseUp);
+        };
+        child.addEventListener('mousedown', listener);
+        childListeners.set(child, listener);
+      }
+    }
+
+    bindChildren();
+
+    return {
+      update: bindChildren,
+      destroy: () => {
+        for (const [child, listener] of childListeners) {
+          child.removeEventListener('mousedown', listener);
+        }
+        childListeners.clear();
+        removeWindowListeners();
+      },
+    };
+  }
+
+  return { dndzone: vi.fn(dndzone) };
+});
 vi.mock('svelte-dnd-action', () => ({
   dndzone: dndMocks.dndzone,
   TRIGGERS: {
@@ -208,6 +261,45 @@ function setViewport(list: HTMLElement, height: number) {
 }
 
 describe('Column virtualization', () => {
+  it('does not crash when a board refresh removes the source card before drag startup', async () => {
+    component = mount(ColumnHarness, {
+      target: document.body,
+      props: { initialTasks: [task('TB-323', 'ready')], status: 'ready', title: 'Ready' },
+    });
+    await tick();
+
+    const card = document.querySelector<HTMLElement>('[data-task-id="TB-323"]');
+    const item = card?.closest('li');
+    expect(item).not.toBeNull();
+    item!.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientX: 0, clientY: 0 }),
+    );
+
+    (component as { setTasks: (tasks: Task[]) => void }).setTasks([]);
+    await tick();
+
+    expect(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { cancelable: true, clientX: 8, clientY: 0 }));
+    }).not.toThrow();
+
+    window.dispatchEvent(new MouseEvent('mouseup', { cancelable: true }));
+    await tick();
+    expect(document.querySelector('[data-task-id="TB-323"]')).toBeNull();
+  });
+
+  it('keeps draggable task cards marked as file-drop targets', async () => {
+    component = mount(Column, {
+      target: document.body,
+      props: { title: 'Ready', status: 'ready', tasks: [task('TB-126', 'ready')] },
+    });
+    await tick();
+
+    const card = document.querySelector<HTMLElement>('[data-task-id="TB-126"]');
+    expect(card).not.toBeNull();
+    expect(card?.hasAttribute('data-file-drop-target')).toBe(true);
+    expect(card?.querySelector('.ttl')?.closest('[data-file-drop-target]')).toBe(card);
+  });
+
   it('refreshes draggable card content when a patched task keeps the same ID', async () => {
     const stale = task('TB-325', 'ready');
     stale.title = 'Stale card title';

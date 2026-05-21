@@ -13,6 +13,7 @@
 **ReviewRef:** main
 **ReviewedBy:** codex
 **ReviewStatus:** success
+**AgentStatus:** success
 **Branch:** —
 
 ## Goal
@@ -92,7 +93,9 @@ Scope note:
 
 ## Review Findings
 
-Prior failed-review finding addressed: manual large-board desktop smoke is now complete and recorded in Reviewer Notes. No new source changes in this rework pass.
+- No blocking findings.
+- Reviewed top-level ReviewRef `main` at clean HEAD `d08419b`; relevant virtualization code and tests cover bounded done/archive rendering, order/badges, keyboard open after scroll, backlog non-virtualized guard, and DnD guard behavior.
+- Fresh verification in clean `/tmp/tb313-review.LNGixf` copy: `npm run check` found 0 errors/0 warnings, `npm test -- --run` passed 28 files/299 tests, and `npm run lint` exited 0.
 
 ## Related Tasks
 
@@ -159,4 +162,9 @@ Prior failed-review finding addressed: manual large-board desktop smoke is now c
 - 2026-05-21: Failed code review — moved to ready with review-failed marker
 - 2026-05-21: Cleared review-failed marker on resubmit
 - 2026-05-21: Submitted to code-review
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Passed code review
+- 2026-05-21: Edited agentstatus=success, reviewed-by=codex, review-status=success
 
