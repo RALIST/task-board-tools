@@ -120,8 +120,11 @@ func cmdScan(args []string) {
 		today := fmt.Sprintf("%s", currentDate())
 		content := buildScanTaskContent(id, h, today)
 
-		filename := fmt.Sprintf("%s.md", taskID)
-		destPath := filepath.Join(boardDir, "backlog", filename)
+		taskDir := filepath.Join(boardDir, "backlog", taskID)
+		if err := os.Mkdir(taskDir, 0755); err != nil {
+			fatal("cannot create task directory %s: %v", taskDir, err)
+		}
+		destPath := filepath.Join(taskDir, folderTaskFileName)
 		if err := writeFileAtomic(destPath, []byte(content), 0644); err != nil {
 			fatal("cannot write %s: %v", destPath, err)
 		}
@@ -276,6 +279,7 @@ func buildScanTaskContent(id int, h todoHit, date string) string {
 	b.WriteString("**Branch:** —\n")
 	fmt.Fprintf(&b, "\n## Goal\n\nResolve %s at `%s:%d`.\n", h.Marker, h.RelFile, h.Line)
 	b.WriteString("\n## Acceptance Criteria\n\n- [ ] (to be filled)\n")
+	b.WriteString("\n## Attachments\n")
 	fmt.Fprintf(&b, "\n## Log\n\n- %s: Created by `tb scan` from %s comment\n", date, h.Marker)
 	return b.String()
 }
