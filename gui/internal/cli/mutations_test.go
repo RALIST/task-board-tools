@@ -239,6 +239,43 @@ func TestMove_MissingReviewRefSurfacesValidation(t *testing.T) {
 	}
 }
 
+func TestReviewPassForwardsFindings(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args.log")
+	stdinPath := filepath.Join(dir, "stdin.log")
+	stub := writeStub(t, dir, "tb",
+		`printf "%s\n" "$@" > `+argsPath+`; cat > `+stdinPath+`; echo "Passed review for TB-1"`)
+	c, _ := NewClient(Options{BinaryPath: stub})
+
+	if err := c.ReviewPass(context.Background(), "TB-1", "- No blocking findings.\n"); err != nil {
+		t.Fatalf("ReviewPass: %v", err)
+	}
+
+	gotArgs, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	if strings.TrimSpace(string(gotArgs)) != "review\n--pass\n-\nTB-1" {
+		t.Fatalf("unexpected args:\n%s", string(gotArgs))
+	}
+	gotStdin, err := os.ReadFile(stdinPath)
+	if err != nil {
+		t.Fatalf("read stdin: %v", err)
+	}
+	if string(gotStdin) != "- No blocking findings.\n" {
+		t.Fatalf("unexpected stdin:\n%s", string(gotStdin))
+	}
+}
+
+func TestReviewPassRejectsEmptyFindings(t *testing.T) {
+	c, _ := NewClient(Options{BinaryPath: writeStub(t, t.TempDir(), "tb", `:`)})
+	err := c.ReviewPass(context.Background(), "TB-1", "  ")
+	var me *MutationError
+	if !errors.As(err, &me) || me.Kind != ErrKindValidation {
+		t.Fatalf("want validation, got %v", err)
+	}
+}
+
 func TestEdit_TaskNotFound(t *testing.T) {
 	stub := writeStub(t, t.TempDir(), "tb", `echo "error: task TB-9 not found in any directory (backlog, in-progress, done, archive)" 1>&2; exit 1`)
 	c, _ := NewClient(Options{BinaryPath: stub})

@@ -583,6 +583,15 @@ func (b *BoardService) SetReviewFindings(ctx context.Context, id, body string) e
 	return c.ReviewWriteSection(ctx, id, "findings", body)
 }
 
+// PassReview moves a code-review task to done and persists the findings body.
+func (b *BoardService) PassReview(ctx context.Context, id, findings string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.ReviewPass(ctx, id, findings)
+}
+
 // FailReview moves a code-review task back to ready with the review-failed
 // marker and persists the findings body.
 func (b *BoardService) FailReview(ctx context.Context, id, findings string) error {

@@ -15,6 +15,7 @@ import (
 //	tb review --target  <ID> file|-      replace ## Review Target
 //	tb review --notes   <ID> file|-      replace ## Reviewer Notes
 //	tb review --findings <ID> file|-     replace ## Review Findings
+//	tb review --pass    <ID> file|-      write findings + move task to done
 //	tb review --fail    <ID> file|-      write findings + move task to ready with review-failed tag
 //
 // Exactly one mode flag is required. Section flags read replacement content
@@ -26,6 +27,7 @@ func cmdReview(args []string) {
 	targetPath := fs.String("target", "", "write ## Review Target from file path or - for stdin")
 	notesPath := fs.String("notes", "", "write ## Reviewer Notes from file path or - for stdin")
 	findingsPath := fs.String("findings", "", "write ## Review Findings from file path or - for stdin")
+	passPath := fs.String("pass", "", "pass review: write findings from file|- and move task to done")
 	failPath := fs.String("fail", "", "fail review: write findings from file|- and move task back to ready with review-failed tag")
 
 	fs.Usage = func() {
@@ -34,11 +36,12 @@ func cmdReview(args []string) {
 		fmt.Fprintf(os.Stderr, "  tb review --target <ID> file|-\n")
 		fmt.Fprintf(os.Stderr, "  tb review --notes <ID> file|-\n")
 		fmt.Fprintf(os.Stderr, "  tb review --findings <ID> file|-\n")
+		fmt.Fprintf(os.Stderr, "  tb review --pass <ID> file|-\n")
 		fmt.Fprintf(os.Stderr, "  tb review --fail <ID> file|-\n\n")
 		fs.PrintDefaults()
 	}
 
-	reordered := reorderArgs(args)
+	reordered := reorderReviewArgs(args)
 	if err := fs.Parse(reordered); err != nil {
 		os.Exit(1)
 	}
@@ -58,16 +61,19 @@ func cmdReview(args []string) {
 	if *findingsPath != "" {
 		modeCount++
 	}
+	if *passPath != "" {
+		modeCount++
+	}
 	if *failPath != "" {
 		modeCount++
 	}
 	if modeCount == 0 {
-		fmt.Fprintln(os.Stderr, "error: one of --submit, --target, --notes, --findings, or --fail is required")
+		fmt.Fprintln(os.Stderr, "error: one of --submit, --target, --notes, --findings, --pass, or --fail is required")
 		fs.Usage()
 		os.Exit(1)
 	}
 	if modeCount > 1 {
-		fmt.Fprintln(os.Stderr, "error: only one of --submit, --target, --notes, --findings, --fail may be set")
+		fmt.Fprintln(os.Stderr, "error: only one of --submit, --target, --notes, --findings, --pass, --fail may be set")
 		os.Exit(1)
 	}
 
@@ -91,6 +97,12 @@ func cmdReview(args []string) {
 		runReviewSection(taskID, *notesPath, "## Reviewer Notes", "reviewer-notes", "reviewer notes")
 	case *findingsPath != "":
 		runReviewSection(taskID, *findingsPath, "## Review Findings", "review-findings", "review findings")
+	case *passPath != "":
+		if msg, err := reviewPass(taskID, *passPath); err != nil {
+			fatal("%v", err)
+		} else {
+			fmt.Println(msg)
+		}
 	case *failPath != "":
 		if msg, err := reviewFail(taskID, *failPath); err != nil {
 			fatal("%v", err)
@@ -98,6 +110,54 @@ func cmdReview(args []string) {
 			fmt.Println(msg)
 		}
 	}
+}
+
+func reorderReviewArgs(args []string) []string {
+	if len(args) >= 3 && reviewSourceFlag(args[0]) {
+		if args[1] == "-" {
+			return reorderArgs(args)
+		}
+		if args[2] == "-" || looksLikeTaskIDArg(args[1]) {
+			normalized := append([]string{args[0], args[2], args[1]}, args[3:]...)
+			return reorderArgs(normalized)
+		}
+	}
+	return reorderArgs(args)
+}
+
+func reviewSourceFlag(arg string) bool {
+	switch arg {
+	case "--target", "--notes", "--findings", "--pass", "--fail":
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeTaskIDArg(arg string) bool {
+	if arg == "" {
+		return false
+	}
+	if allDigits(arg) {
+		return true
+	}
+	dash := strings.LastIndex(arg, "-")
+	if dash <= 0 || dash == len(arg)-1 {
+		return false
+	}
+	return allDigits(arg[dash+1:])
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func runReviewSection(taskID, sourcePath, heading, metaLabel, humanLabel string) {
@@ -272,6 +332,63 @@ func reviewWriteSection(taskID, sourcePath, heading, metaLabel, humanLabel strin
 	}
 
 	return fmt.Sprintf("Updated %s: %s", taskID, metaLabel), nil
+}
+
+// reviewPass is the success flow: write/replace ## Review Findings, move the
+// task to done, and regenerate BOARD.md through the move helper. Rejects tasks
+// not currently in code-review.
+func reviewPass(taskID, sourcePath string) (string, error) {
+	body, err := readReviewBodyInput(sourcePath, "review findings")
+	if err != nil {
+		return "", err
+	}
+	body = redactText(body)
+
+	boardDir := cfg.BoardDir
+
+	if err := reviewWritePassMetadata(boardDir, taskID, body); err != nil {
+		return "", err
+	}
+
+	result, err := moveTaskOnBoardWithGuard(boardDir, taskID, "done", expectedSourceGuard("code-review"), func(string) string {
+		return "Passed code review"
+	})
+	if err != nil {
+		return "", err
+	}
+	if result.Noop {
+		return fmt.Sprintf("%s is already in done — review findings were written, but no move occurred", taskID), nil
+	}
+	return fmt.Sprintf("Passed review for %s: moved %s -> done", taskID, result.SrcStatus), nil
+}
+
+// reviewWritePassMetadata writes the findings section under the board lock.
+// The move helper handles the status transition and pass log entry.
+func reviewWritePassMetadata(boardDir, taskID, findingsBody string) error {
+	lock, err := lockBoard(boardDir)
+	if err != nil {
+		return err
+	}
+	defer lock.unlock()
+
+	ref, err := resolveTaskRef(boardDir, taskID, allStatusDirs)
+	if err != nil {
+		return err
+	}
+	if ref.Status != "code-review" {
+		return fmt.Errorf("tb review --pass only accepts tasks in code-review; %s is in %s", taskID, ref.Status)
+	}
+
+	data, err := os.ReadFile(ref.Path)
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", ref.Path, err)
+	}
+
+	content := upsertTaskSection(string(data), "## Review Findings", findingsBody)
+	if err := writeFileAtomic(ref.Path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("cannot write %s: %w", ref.Path, err)
+	}
+	return nil
 }
 
 // reviewFail is the failure flow: write/replace ## Review Findings, move the

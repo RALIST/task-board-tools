@@ -96,6 +96,7 @@ Usage:
   tb review --target <ID> file|-                                         Write ## Review Target section
   tb review --notes <ID> file|-                                          Write ## Reviewer Notes section
   tb review --findings <ID> file|-                                       Write ## Review Findings section
+  tb review --pass <ID> file|-                                           Pass review: write findings, move to done
   tb review --fail <ID> file|-                                           Fail review: write findings, move to ready, mark review-failed
   tb start <ID>                                                          Start working (warns when called on a backlog task — pulls should come from ready)
   tb done <ID>                                                           Mark done
@@ -140,7 +141,7 @@ Commands:
   grep, search      Full-text regex search across all task files
   scan              Find untagged TODO/FIXME/HACK comments, create tasks, update source
   regenerate, regen Regenerate BOARD.md from directory contents
-  review            Code-review flow: submit, set Review Target/Reviewer Notes/Findings, fail back to ready
+  review            Code-review flow: submit, set Review Target/Reviewer Notes/Findings, pass to done, fail back to ready
 
 Task IDs use the configured prefix (default: PR). The prefix is optional in commands —
 "tb start 123" and "tb start PR-123" are equivalent.

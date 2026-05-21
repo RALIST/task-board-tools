@@ -439,6 +439,20 @@ func (c *Client) ReviewWriteSection(ctx context.Context, id, section, content st
 	return wrapMutation("review", args, err)
 }
 
+// ReviewPass runs `tb review --pass <id> -` with findings piped in. Moves the
+// task to done.
+func (c *Client) ReviewPass(ctx context.Context, id, findings string) error {
+	if strings.TrimSpace(id) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: "task id is required"}
+	}
+	if strings.TrimSpace(findings) == "" {
+		return &MutationError{Kind: ErrKindValidation, Op: "review", Stderr: "review findings cannot be empty"}
+	}
+	args := []string{"review", "--pass", "-", id}
+	_, err := c.RunWithStdin(ctx, strings.NewReader(findings), args...)
+	return wrapMutation("review", args, err)
+}
+
 // ReviewFail runs `tb review --fail <id> -` with findings piped in. Moves the
 // task back to ready and tags it review-failed.
 func (c *Client) ReviewFail(ctx context.Context, id, findings string) error {

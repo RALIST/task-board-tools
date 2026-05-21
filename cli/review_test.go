@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -232,6 +234,120 @@ func TestReviewFailMovesToReadyWithMarker(t *testing.T) {
 	}
 	if !strings.Contains(content, "Failed code review") {
 		t.Fatalf("expected fail log entry, got:\n%s", content)
+	}
+}
+
+func TestReviewPassMovesToDoneWithFindings(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	writeReviewTask(t, boardDir, "code-review", reviewBaseTask)
+
+	withStdin(t, "- No blocking findings.\n", func() {
+		if _, err := reviewPass("TB-1", "-"); err != nil {
+			t.Fatalf("reviewPass: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(filepath.Join(boardDir, "done", "TB-1.md")); err != nil {
+		t.Fatalf("task should be in done/: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, "code-review", "TB-1.md")); !os.IsNotExist(err) {
+		t.Fatalf("source file should be removed, got err=%v", err)
+	}
+	content := readReviewTask(t, boardDir, "done")
+	if !strings.Contains(content, "## Review Findings\n\n- No blocking findings.") {
+		t.Fatalf("expected findings section, got:\n%s", content)
+	}
+	if !strings.Contains(content, "Passed code review") {
+		t.Fatalf("expected pass log entry, got:\n%s", content)
+	}
+}
+
+func TestReviewPassCommandAcceptsIDThenFile(t *testing.T) {
+	if os.Getenv("TB_TEST_REVIEW_PASS_COMMAND") == "1" {
+		boardDir := newCommandTestBoard(t)
+		writeReviewTask(t, boardDir, "code-review", reviewBaseTask)
+
+		inputPath := filepath.Join(t.TempDir(), "findings.md")
+		if err := os.WriteFile(inputPath, []byte("- No blocking findings.\n"), 0644); err != nil {
+			t.Fatalf("write findings: %v", err)
+		}
+
+		captureStdout(t, func() {
+			cmdReview([]string{"--pass", "TB-1", inputPath})
+		})
+
+		content := readReviewTask(t, boardDir, "done")
+		if !strings.Contains(content, "## Review Findings\n\n- No blocking findings.") {
+			t.Fatalf("expected findings section, got:\n%s", content)
+		}
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestReviewPassCommandAcceptsIDThenFile$", "-test.v")
+	cmd.Env = append(os.Environ(), "TB_TEST_REVIEW_PASS_COMMAND=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("child should pass; err=%v\nstderr:\n%s", err, stderr.String())
+	}
+}
+
+func TestReviewPassMovesFolderTaskToDone(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	writeMoveFolderTask(t, boardDir, "code-review", "TB-1", "Folder Review")
+
+	withStdin(t, "- No blocking findings.\n", func() {
+		if _, err := reviewPass("TB-1", "-"); err != nil {
+			t.Fatalf("reviewPass: %v", err)
+		}
+	})
+
+	donePath := filepath.Join(boardDir, "done", "TB-1", folderTaskFileName)
+	if _, err := os.Stat(donePath); err != nil {
+		t.Fatalf("folder task should be in done/: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, "code-review", "TB-1", folderTaskFileName)); !os.IsNotExist(err) {
+		t.Fatalf("source folder task should be removed, got err=%v", err)
+	}
+	content, err := os.ReadFile(donePath)
+	if err != nil {
+		t.Fatalf("read done folder task: %v", err)
+	}
+	if !strings.Contains(string(content), "## Review Findings\n\n- No blocking findings.") {
+		t.Fatalf("expected findings section, got:\n%s", string(content))
+	}
+	assertSingleTaskRepresentation(t, boardDir, "TB-1", filepath.Join("done", "TB-1", folderTaskFileName))
+}
+
+func TestReviewPassRejectsNonCodeReview(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	writeReviewTask(t, boardDir, "ready", reviewBaseTask)
+
+	var err error
+	withStdin(t, "- No blocking findings.\n", func() {
+		_, err = reviewPass("TB-1", "-")
+	})
+	if err == nil || !strings.Contains(err.Error(), "only accepts tasks in code-review") {
+		t.Fatalf("reviewPass error = %v, want code-review-only error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(boardDir, "ready", "TB-1.md")); statErr != nil {
+		t.Fatalf("task should remain ready: %v", statErr)
+	}
+}
+
+func TestReviewPassRejectsEmptyFindings(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	writeReviewTask(t, boardDir, "code-review", reviewBaseTask)
+
+	var err error
+	withStdin(t, "\n  \n", func() {
+		_, err = reviewPass("TB-1", "-")
+	})
+	if err == nil || !strings.Contains(err.Error(), "empty after trimming") {
+		t.Fatalf("reviewPass error = %v, want empty-content error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(boardDir, "code-review", "TB-1.md")); statErr != nil {
+		t.Fatalf("task should remain code-review: %v", statErr)
 	}
 }
 
