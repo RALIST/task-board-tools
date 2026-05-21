@@ -45,9 +45,9 @@ func TestPromptReview_LocksReviewContract(t *testing.T) {
 		"top-level `**ReviewRef:**` metadata is the machine-readable review target",
 		"`## Review Target` is supplementary human prose",
 		"If `**ReviewRef:**` is missing",
-		"Temporary pass fallback until TB-272 lands",
 		"tb review --pass {{TASK_ID}}",
-		"tb done {{TASK_ID}}",
+		"`tb review --pass` writes/replaces `## Review Findings` from stdin",
+		"Blocking findings always use `tb review --fail`",
 		"`review-failed`",
 	} {
 		if !containsPromptText(PromptReview, text) {

@@ -27,9 +27,12 @@ func TestConventionsTemplateStaysPolicyFocused(t *testing.T) {
 		"`auto-groom`",
 		"`auto-implement`",
 		"`auto-review`",
+		"`auto_review_enabled`",
+		"`tb review --pass`",
 		"Failed review handoff should clear retry-blocking generic `AgentStatus`",
 		"a later numeric child must not be selected while an earlier child is still active outside `done`",
 		"Daemon housekeeping for autonomous stages is soft and deterministic",
+		"`initiator=auto-review`",
 	} {
 		assertContains(t, content, want)
 	}
@@ -101,9 +104,12 @@ func TestSkillTemplateIsPortableAgentSkill(t *testing.T) {
 		"`auto-groom`",
 		"`auto-implement`",
 		"`auto-review`",
+		"`tb review --pass`",
+		"`auto_review_enabled`",
 		"Failed review handoff should clear retry-blocking generic `AgentStatus`",
 		"auto-implement must not pick a later numeric child",
 		"Daemon housekeeping is deterministic repair only",
+		"`initiator=auto-review`",
 		"`needs-user`",
 		"Reason:",
 		"Question/Action:",

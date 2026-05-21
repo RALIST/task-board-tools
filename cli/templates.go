@@ -88,7 +88,7 @@ When decomposing an epic, connect children to the parent and keep sibling orderi
 
 `+"`code-review`"+` is a claim that implementation is complete enough to inspect. A review should focus on behavior, regressions, missing tests, data loss, security, and contract drift.
 
-If review passes, move the task to `+"`done`"+` with a concise completion note. If review fails, return it to `+"`ready`"+`, preserve the findings, and make the next required action obvious.
+If review passes, use `+"`tb review --pass`"+` to record findings and move the task to `+"`done`"+`. If review fails, use `+"`tb review --fail`"+` to return it to `+"`ready`"+`, preserve the findings, and make the next required action obvious.
 
 Every done task needs evidence. No task should move to `+"`done`"+` without proof of done in the task log, review reference, attachments, or related repository history. Implementation tasks should point to a commit or review artifact that includes the task ID. Spikes should link or attach the investigation result, decision record, notes file, or follow-up task list.
 
@@ -100,13 +100,13 @@ Autonomous board work is split into three independent stages. Enabling one stage
 
 - `+"`auto-groom`"+` works on `+"`backlog`"+` intake. It may refine task content and, after the task no longer needs triage, promote through the managed ready gate into `+"`ready`"+`.
 - `+"`auto-implement`"+` works only on committed `+"`ready`"+` tasks. The coordinator owns the `+"`ready`"+` to `+"`in-progress`"+` transition; the implementation agent owns the change and submits completed work to `+"`code-review`"+` with review target metadata.
-- `+"`auto-review`"+` works only on `+"`code-review`"+` tasks. A pass moves to `+"`done`"+`; a failure returns to `+"`ready`"+` with `+"`review-failed`"+` and a clear rework note.
+- `+"`auto-review`"+` works only on `+"`code-review`"+` tasks. It is off by default through `+"`auto_review_enabled`"+`, requires a valid default agent, and reviews only tasks with a top-level `+"`ReviewRef`"+`. A pass moves to `+"`done`"+` through `+"`tb review --pass`"+`; a failure returns to `+"`ready`"+` through `+"`tb review --fail`"+` with `+"`review-failed`"+` and a clear rework note. Missing `+"`ReviewRef`"+` uses the `+"`needs-user`"+` handoff.
 
 Backlog tasks are not auto-implemented. A ready task tagged `+"`review-failed`"+` is rework for auto-implement, not a review candidate. Failed review handoff should clear retry-blocking generic `+"`AgentStatus`"+` while keeping review history in the task log, review fields, and agent artifacts.
 
 Auto-implement obeys epic child order. For tasks with the same parent epic, a later numeric child must not be selected while an earlier child is still active outside `+"`done`"+`; `+"`archive`"+` is treated as closed work because archive is reserved for obsolete, superseded, duplicate, or intentionally dropped tasks. Missing or unreadable earlier siblings should block with a diagnostic instead of being ignored.
 
-Daemon housekeeping for autonomous stages is soft and deterministic. It may repair missed transitions only from objective board/run markers, must use managed board operations, and must not guess from arbitrary prose, logs, or comments. It must preserve `+"`needs-user`"+`, `+"`cancelled`"+`, unresolved `+"`interrupted`"+`, and `+"`lost`"+` states. WIP-blocked repairs should back off durably so watcher reloads do not loop on the same blocked transition.
+Daemon housekeeping for autonomous stages is soft and deterministic. It may repair missed transitions only from objective board/run markers, must use managed board operations, and must not guess from arbitrary prose, logs, or comments. Auto-review recovery applies only to JSONL runs queued with `+"`initiator=auto-review`"+`. It must preserve `+"`needs-user`"+`, `+"`cancelled`"+`, and unrelated `+"`interrupted`"+`/`+"`lost`"+` states. WIP-blocked repairs should back off durably so watcher reloads do not loop on the same blocked transition.
 
 ### Agent lifecycle (AgentStatus)
 
@@ -197,11 +197,11 @@ Treat autonomous work as three separate opt-in stages:
 
 - `+"`auto-groom`"+`: backlog intake is groomed and may be promoted to `+"`ready`"+` only after it is no longer triage-reported.
 - `+"`auto-implement`"+`: committed `+"`ready`"+` work is pulled into `+"`in-progress`"+`, implemented, and submitted to `+"`code-review`"+` with review target metadata.
-- `+"`auto-review`"+`: `+"`code-review`"+` work is reviewed; pass moves to `+"`done`"+`, fail returns to `+"`ready`"+` with `+"`review-failed`"+`.
+- `+"`auto-review`"+`: `+"`code-review`"+` work with a top-level `+"`ReviewRef`"+` is reviewed; pass uses `+"`tb review --pass`"+` to move to `+"`done`"+`, fail uses `+"`tb review --fail`"+` to return to `+"`ready`"+` with `+"`review-failed`"+`. Missing `+"`ReviewRef`"+` uses `+"`needs-user`"+`.
 
 Do not auto-implement backlog tasks. Do not auto-review ready `+"`review-failed`"+` rework. Failed review handoff should clear retry-blocking generic `+"`AgentStatus`"+` while preserving review history.
 
-For epic children, auto-implement must not pick a later numeric child while an earlier same-parent child is still active outside `+"`done`"+`; missing or unreadable earlier siblings block with a diagnostic. Daemon housekeeping is deterministic repair only: use objective board/run markers, managed board operations, and durable backoff for WIP-blocked repairs; never guess from prose or override `+"`needs-user`"+`, `+"`cancelled`"+`, `+"`interrupted`"+`, or `+"`lost`"+`.
+Auto-review is off by default through `+"`auto_review_enabled`"+` and requires a valid default agent. For epic children, auto-implement must not pick a later numeric child while an earlier same-parent child is still active outside `+"`done`"+`; missing or unreadable earlier siblings block with a diagnostic. Daemon housekeeping is deterministic repair only: use objective board/run markers, managed board operations, and durable backoff for WIP-blocked repairs; never guess from prose or override `+"`needs-user`"+`, `+"`cancelled`"+`, or unrelated `+"`interrupted`"+`/`+"`lost`"+`. Auto-review recovery applies only to JSONL runs queued with `+"`initiator=auto-review`"+`.
 
 ## Backlog Capture
 
@@ -235,7 +235,7 @@ Then set `+"`AgentStatus`"+` to `+"`needs-user`"+` and stop cleanly. Do not mark
 - Create/capture: `+"`tb create \"Title\" -m module -d \"context\"`"+`.
 - Groom/commit intake: edit the task until it has a real goal and acceptance criteria, then `+"`tb ready %[1]s-NNN`"+`.
 - Start work: `+"`tb pull`"+` or `+"`tb pull %[1]s-NNN`"+`.
-- Move/review/finish: `+"`tb review --submit %[1]s-NNN`"+`, `+"`tb review --fail %[1]s-NNN file|-`"+`, `+"`tb done %[1]s-NNN`"+`, `+"`tb close %[1]s-NNN`"+`.
+- Move/review/finish: `+"`tb review --submit %[1]s-NNN`"+`, `+"`tb review --pass %[1]s-NNN file|-`"+`, `+"`tb review --fail %[1]s-NNN file|-`"+`, `+"`tb done %[1]s-NNN`"+`, `+"`tb close %[1]s-NNN`"+`.
 - Search/link: `+"`tb grep \"pattern\"`"+`, `+"`tb epic %[1]s-NNN`"+`.
 - Ask for user input: write the `+"`User Attention`"+` section, then set `+"`--agent-status needs-user`"+`.
 

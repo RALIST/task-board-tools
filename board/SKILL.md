@@ -36,11 +36,11 @@ Treat autonomous work as three separate opt-in stages:
 
 - `auto-groom`: backlog intake is groomed and may be promoted to `ready` only after it is no longer triage-reported.
 - `auto-implement`: committed `ready` work is pulled into `in-progress`, implemented, and submitted to `code-review` with review target metadata.
-- `auto-review`: `code-review` work is reviewed; pass moves to `done`, fail returns to `ready` with `review-failed`.
+- `auto-review`: `code-review` work with a top-level `ReviewRef` is reviewed; pass uses `tb review --pass` to move to `done`, fail uses `tb review --fail` to return to `ready` with `review-failed`. Missing `ReviewRef` uses `needs-user`.
 
 Do not auto-implement backlog tasks. Do not auto-review ready `review-failed` rework. Failed review handoff should clear retry-blocking generic `AgentStatus` while preserving review history.
 
-For epic children, auto-implement must not pick a later numeric child while an earlier same-parent child is still active outside `done`; missing or unreadable earlier siblings block with a diagnostic. Daemon housekeeping is deterministic repair only: use objective board/run markers, managed board operations, and durable backoff for WIP-blocked repairs; never guess from prose or override `needs-user`, `cancelled`, `interrupted`, or `lost`.
+Auto-review is off by default through `auto_review_enabled` and requires a valid default agent. For epic children, auto-implement must not pick a later numeric child while an earlier same-parent child is still active outside `done`; missing or unreadable earlier siblings block with a diagnostic. Daemon housekeeping is deterministic repair only: use objective board/run markers, managed board operations, and durable backoff for WIP-blocked repairs; never guess from prose or override `needs-user`, `cancelled`, or unrelated `interrupted`/`lost`. Auto-review recovery applies only to JSONL runs queued with `initiator=auto-review`.
 
 ## Backlog Capture
 
@@ -74,7 +74,7 @@ Then set `AgentStatus` to `needs-user` and stop cleanly. Do not mark the task do
 - Create/capture: `tb create "Title" -m module -d "context"`.
 - Groom/commit intake: edit the task until it has a real goal and acceptance criteria, then `tb ready TB-NNN`.
 - Start work: `tb pull` or `tb pull TB-NNN`.
-- Move/review/finish: `tb review --submit TB-NNN`, `tb review --fail TB-NNN file|-`, `tb done TB-NNN`, `tb close TB-NNN`.
+- Move/review/finish: `tb review --submit TB-NNN`, `tb review --pass TB-NNN file|-`, `tb review --fail TB-NNN file|-`, `tb done TB-NNN`, `tb close TB-NNN`.
 - Search/link: `tb grep "pattern"`, `tb epic TB-NNN`.
 - Ask for user input: write the `User Attention` section, then set `--agent-status needs-user`.
 

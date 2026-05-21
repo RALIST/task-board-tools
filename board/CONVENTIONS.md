@@ -82,7 +82,7 @@ When decomposing an epic, connect children to the parent and keep sibling orderi
 
 `code-review` is a claim that implementation is complete enough to inspect. A review should focus on behavior, regressions, missing tests, data loss, security, and contract drift.
 
-If review passes, move the task to `done` with a concise completion note. If review fails, return it to `ready`, preserve the findings, and make the next required action obvious.
+If review passes, use `tb review --pass` to record findings and move the task to `done`. If review fails, use `tb review --fail` to return it to `ready`, preserve the findings, and make the next required action obvious.
 
 Every done task needs evidence. No task should move to `done` without proof of done in the task log, review reference, attachments, or related repository history. Implementation tasks should point to a commit or review artifact that includes the task ID. Spikes should link or attach the investigation result, decision record, notes file, or follow-up task list.
 
@@ -94,13 +94,13 @@ Autonomous board work is split into three independent stages. Enabling one stage
 
 - `auto-groom` works on `backlog` intake. It may refine task content and, after the task no longer needs triage, promote through the managed ready gate into `ready`.
 - `auto-implement` works only on committed `ready` tasks. The coordinator owns the `ready` to `in-progress` transition; the implementation agent owns the change and submits completed work to `code-review` with review target metadata.
-- `auto-review` works only on `code-review` tasks. A pass moves to `done`; a failure returns to `ready` with `review-failed` and a clear rework note.
+- `auto-review` works only on `code-review` tasks. It is off by default through `auto_review_enabled`, requires a valid default agent, and reviews only tasks with a top-level `ReviewRef`. A pass moves to `done` through `tb review --pass`; a failure returns to `ready` through `tb review --fail` with `review-failed` and a clear rework note. Missing `ReviewRef` uses the `needs-user` handoff.
 
 Backlog tasks are not auto-implemented. A ready task tagged `review-failed` is rework for auto-implement, not a review candidate. Failed review handoff should clear retry-blocking generic `AgentStatus` while keeping review history in the task log, review fields, and agent artifacts.
 
 Auto-implement obeys epic child order. For tasks with the same parent epic, a later numeric child must not be selected while an earlier child is still active outside `done`; `archive` is treated as closed work because archive is reserved for obsolete, superseded, duplicate, or intentionally dropped tasks. Missing or unreadable earlier siblings should block with a diagnostic instead of being ignored.
 
-Daemon housekeeping for autonomous stages is soft and deterministic. It may repair missed transitions only from objective board/run markers, must use managed board operations, and must not guess from arbitrary prose, logs, or comments. It must preserve `needs-user`, `cancelled`, unresolved `interrupted`, and `lost` states. WIP-blocked repairs should back off durably so watcher reloads do not loop on the same blocked transition.
+Daemon housekeeping for autonomous stages is soft and deterministic. It may repair missed transitions only from objective board/run markers, must use managed board operations, and must not guess from arbitrary prose, logs, or comments. Auto-review recovery applies only to JSONL runs queued with `initiator=auto-review`. It must preserve `needs-user`, `cancelled`, and unrelated `interrupted`/`lost` states. WIP-blocked repairs should back off durably so watcher reloads do not loop on the same blocked transition.
 
 ### Agent lifecycle (AgentStatus)
 

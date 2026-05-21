@@ -54,7 +54,7 @@ section with a `(nit)` prefix. Reviewers may also leave notes in
 
 ## Pass handoff — moving to done
 
-When TB-272 lands, the managed pass flow is:
+When no blocking findings remain, run the managed pass flow:
 
 ```sh
 tb review --pass {{TASK_ID}} - <<'EOF'
@@ -62,19 +62,9 @@ tb review --pass {{TASK_ID}} - <<'EOF'
 EOF
 ```
 
-Temporary pass fallback until TB-272 lands: if `tb review --pass {{TASK_ID}}`
-is not available in the local CLI, record the pass findings and then move the
-task to done explicitly:
-
-```sh
-tb review --findings {{TASK_ID}} - <<'EOF'
-- No blocking findings.
-EOF
-tb done {{TASK_ID}}
-```
-
-Do not use the temporary fallback for a review with blocking findings. Blocking
-findings always use `tb review --fail`.
+`tb review --pass` writes/replaces `## Review Findings` from stdin, moves the
+task to `done`, and regenerates `BOARD.md` atomically. Blocking findings always
+use `tb review --fail`.
 
 ## Failure handoff — moving back to ready
 
