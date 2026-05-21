@@ -54,6 +54,11 @@
   } from '$lib/stores/usage';
   import AgentUsageHeader from '$lib/components/AgentUsageHeader.svelte';
   import { preferencesStore } from '$lib/stores/preferences';
+  import {
+    cancelStartupGrace,
+    startStartupGrace,
+    startupGraceStore,
+  } from '$lib/stores/startupGrace';
   import { shortcutAction } from '$lib/shortcuts';
   import { isAutoImplementFilterEmpty } from '$lib/autoImplementFilter';
 
@@ -99,12 +104,18 @@
   // task is missing prerequisites (no default agent, blank query) we
   // disable the pill and surface a tooltip pointing the user to Settings.
   let autoImplementEnabled = $derived($preferencesStore.autoImplementEnabled);
-  let startupGraceSeconds = $derived($preferencesStore.automationStartupGraceSeconds);
+  let startupGrace = $derived($startupGraceStore);
   let autoImplementMissingPrereqs = $derived(
     $preferencesStore.defaultAgent === 'none' ||
       isAutoImplementFilterEmpty($preferencesStore.autoImplementQuery),
   );
   let autoImplementToggleBusy = $state(false);
+
+  $effect(() => {
+    if ($preferencesStore.automationStartupGraceSeconds <= 0) {
+      cancelStartupGrace();
+    }
+  });
 
   async function toggleAutoImplement() {
     if (autoImplementToggleBusy) return;
@@ -128,17 +139,19 @@
 
   onMount(async () => {
     document.documentElement.classList.toggle('platform-mac', System.IsMac());
-    void preferencesStore.load().catch(() => {});
+    await preferencesStore.load().catch(() => {});
     try { projectRoot = await getProjectRoot(); } catch { projectRoot = ''; }
     try { recents = await listRecentBoards(); } catch { recents = []; }
 
     if (projectRoot) {
+      startStartupGraceForBoard(projectRoot);
       await refresh();
       bootStatus = 'ready';
     } else if (recents.length > 0) {
       try {
         await openBoard(recents[0].projectRoot);
         projectRoot = recents[0].projectRoot;
+        startStartupGraceForBoard(projectRoot);
         await refresh();
         bootStatus = 'ready';
       } catch (err) {
@@ -146,13 +159,17 @@
         bootStatus = 'pick';
       }
     } else {
+      cancelStartupGrace();
       bootStatus = 'pick';
     }
 
     offEvents.push(Events.On('board:reloaded', async () => { await refresh(); }));
     offEvents.push(Events.On('board:opened', async (info: any) => {
       const root = info?.data?.projectRoot ?? info?.projectRoot ?? '';
-      if (root) projectRoot = root;
+      if (root) {
+        projectRoot = root;
+        startStartupGraceForBoard(root);
+      }
       bootStatus = 'ready';
       try { recents = await listRecentBoards(); } catch { recents = []; }
       await refresh();
@@ -212,6 +229,7 @@
 
   onDestroy(() => {
     for (const off of offEvents) { try { off(); } catch { /* ignore */ } }
+    cancelStartupGrace();
   });
 
   async function pickAndOpen() {
@@ -221,6 +239,7 @@
       if (!path) return;
       await openBoard(path);
       projectRoot = path;
+      startStartupGraceForBoard(path);
       recents = await listRecentBoards();
       await refresh();
       bootStatus = 'ready';
@@ -243,6 +262,7 @@
     // OpenBoard already emitted board:opened from the backend, but refresh
     // explicitly so a not-yet-listening watcher still gets us to ready.
     projectRoot = newRoot;
+    startStartupGraceForBoard(newRoot);
     try { recents = await listRecentBoards(); } catch { /* recents are non-fatal */ }
     await refresh();
     bootStatus = 'ready';
@@ -256,12 +276,17 @@
     try {
       await openBoard(r.projectRoot);
       projectRoot = r.projectRoot;
+      startStartupGraceForBoard(r.projectRoot);
       recents = await listRecentBoards();
       await refresh();
       bootStatus = 'ready';
     } catch (err) {
       pushToast(`Failed to open ${r.projectRoot}: ${errorString(err)}`);
     }
+  }
+
+  function startStartupGraceForBoard(root: string) {
+    startStartupGrace(root, $preferencesStore.automationStartupGraceSeconds);
   }
 
   function shortPath(p: string): string {
@@ -435,9 +460,13 @@
         Auto-impl
       </button>
       <AutoReviewHeaderToggle onOpenSettings={() => (settingsOpen = true)} />
-      {#if startupGraceSeconds > 0}
-        <span class="startup-grace-pill" title="Automation startup grace after opening a board">
-          Grace {startupGraceSeconds}s
+      {#if startupGrace.active}
+        <span
+          class="startup-grace-pill"
+          title="Automation startup grace active after opening this board"
+          aria-live="polite"
+          data-testid="startup-grace-pill">
+          Grace {startupGrace.remainingSeconds}s
         </span>
       {/if}
       <button class="pick" onclick={() => (settingsOpen = true)}>Settings</button>
