@@ -7,8 +7,9 @@
 **Tags:** automation,docs,kanban,agent,review-failed
 **Agent:** codex
 **ImplementedBy:** codex
-**ImplementStatus:** failed
+**ImplementStatus:** success
 **ReviewRef:** 54d5549
+**AgentStatus:** success
 **Branch:** —
 
 ## Goal
@@ -96,4 +97,8 @@ Verification:
 - 2026-05-20: Edited agentstatus=queued
 - 2026-05-20: Edited agentstatus=running
 - 2026-05-20: Failed code review — moved to ready with review-failed marker
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
 
