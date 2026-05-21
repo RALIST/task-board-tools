@@ -8,6 +8,10 @@
 **Tags:** docs,templates
 **GroomedBy:** codex
 **GroomStatus:** success
+**AgentStatus:** success
+**ImplementedBy:** codex
+**ImplementStatus:** success
+**ReviewRef:** fd034ce
 **Branch:** —
 
 ## Goal
@@ -42,6 +46,18 @@ Remove autonomous-flow and product-feature detail from the generated board conve
 - [ ] Template/unit coverage is updated so tests assert generated docs exclude the autonomous-stage strings while preserving existing policy-focused, portable-skill, board-path, and prefix checks.
 - [ ] Verification includes `cd cli && go test ./...`, `cd cli && go build -o tb .`, and a temp-board `tb init` smoke check that generated `CONVENTIONS.md` and `SKILL.md` omit the forbidden autonomous-stage strings.
 
+## Review Target
+
+commit: fd034ce
+scope: cli/templates.go, cli/templates_test.go, cli/init_test.go, board/CONVENTIONS.md, board/SKILL.md
+summary: removed autonomous-stage/product-feature prose from generated board docs, kept generic AgentStatus/user-attention handoff, refreshed generated docs, and added exclusion coverage.
+verification:
+- cd cli && go test ./...
+- cd cli && go build -o tb .
+- temp-board tb init smoke check confirmed generated CONVENTIONS.md and SKILL.md omit forbidden autonomous-stage strings
+review: subagent code review reported no blocking findings
+note: .codex/skills/task-board/SKILL.md was updated locally to match board/SKILL.md; it is ignored by this repo/global git config and is not part of the tracked commit.
+
 ## Attachments
 
 ## Log
@@ -57,4 +73,10 @@ Remove autonomous-flow and product-feature detail from the generated board conve
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited review-target
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=fd034ce
+- 2026-05-21: Submitted to code-review
 
