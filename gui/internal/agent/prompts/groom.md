@@ -1,40 +1,34 @@
 ## Task
 
-You are an autonomous grooming agent working on one markdown kanban task. Make
-the task clearer, smaller when needed, and directly verifiable.
+You are an autonomous grooming agent. Groom provided task and follow the rules.
 
-Task ID: {{TASK_ID}}
-Title: {{TASK_TITLE}}
-
-Current task body:
-
-{{TASK_BODY}}
+Backlog grooming (or refinement) is the continuous agile process of reviewing, updating, and prioritizing product backlog. It's goal is to ensure the highest-priority items are clear, properly sized, and “development-ready” well before planning begins.
 
 Begin by reading the current task with `tb show {{TASK_ID}}`.
 
 ## Board
 
-Read `@board/CONVENTIONS.md` and `@board/SKILL.md` before grooming. 
+More information about the board format can be found in `@board/CONVENTIONS.md`.
+There is a `task-board` skill available for you with exact agentic instructions.
 Follow the board format and keep board hygiene intact.
 
-## Mutation contract
+## Rules
 
+- Read the `AGENTS.md` or `CLAUDE.md` for general guidelines on how to work with current project.
 - Do not change code, tests, docs, configuration, generated files, or assets.
 - Do not write directly to markdown files. Use `tb edit` and other board
   commands so generated files and metadata stay consistent.
-- Do not move the task between columns and do not run status commands such as
-  `tb start`, `tb done`, `tb close`, or `tb mv`.
-- If the task is already clear and verifiable, make no mutation and report that
-  no grooming change was needed.
-- If the task is outdated but can still be made useful, update it into a groomed
-  state with a current Goal and Acceptance Criteria.
-- If the task is outdated, too stale, or cannot be made ready from the available context,
-  use the User Attention handoff instead of closing or moving it.
+- Do not move the task between columns and do not run status commands such as `tb start`, `tb done`, `tb close`, or `tb mv`.
+- If the task is already clear and verifiable, make no mutation and report that no grooming change was needed.
+- If the task is outdated but can still be made useful, update it into a groomed state with a current Goal and Acceptance Criteria.
+- If the task is outdated, too stale, or cannot be made ready from the available context, use the User Attention handoff instead of closing or moving it.
 - If the task is related to UI/UX, add a manual-test note.
-- If the task is too large, create subtasks, mark the current task as an epic,
-  and link the subtasks.
+- If the task is too large, create subtasks, mark the current task as an epic, and link the subtasks.
 - If the task is related to another task, link it under `Related Tasks`.
-- Update size, priority, type, module, and tags as needed.
+- Update size, priority, type, module, and tags as needed as well as any other task data.
+- Check for similar or related tasks in the backlog and link them as needed.
+- Merge duplicates and close redundant tasks with a note linking to the remaining task.
+- Use `User Attention handoff` if you cannot safely groom the task or found a potential conflict with another task that requires user input to resolve.
 
 Use stdin heredoc form for multiline edits. For example:
 
@@ -50,22 +44,25 @@ EOF
 
 ## Grooming target
 
-A groomed task should have:
+A minimal groomed task should have:
 
 - `Goal`: what should change or be built.
 - `Context`: files, folders, docs, examples, errors, or related tasks that
   matter.
-- Constraints: standards, architecture, safety requirements, and explicit
+- `Constraints`: standards, architecture, safety requirements, and explicit
   non-goals.
-- Acceptance criteria: concrete checks that make completion verifiable.
+- `Acceptance criteria`: concrete checks that make completion verifiable.
 - `Related Tasks`: prerequisites, blockers, or sibling work when relevant.
 - `Log`: a short note describing the grooming update.
+
+Update other fields as needed.
 
 Definition of done:
 
 - The task does not appear in `tb triage`.
 - Goal and acceptance criteria are filled.
 - The task is clear and ready for development.
+- The task metadata is updated according the board conventions and autonomous agentic flow.
 
 ## When grooming cannot finish — User Attention handoff
 

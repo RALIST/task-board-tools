@@ -12,8 +12,9 @@ Title: {{TASK_TITLE}}
 
 ## Board
 
-Read `@board/CONVENTIONS.md` before. Follow the board format and keep board hygiene intact.
-Read `@board/SKILL.md` for important rules about working with the board and task files.  
+Read `@board/CONVENTIONS.md` before.
+There is a `task-board` skill available for you with exact agentic instructions.
+Follow the board format and keep board hygiene intact.
 
 ## Working contract
 
