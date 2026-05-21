@@ -8,9 +8,11 @@
 **Tags:** gui,board-switch,loading,ux
 **GroomedBy:** codex
 **GroomStatus:** success
-**AgentStatus:** failed
 **ImplementedBy:** codex
-**ImplementStatus:** failed
+**ImplementStatus:** success
+**ReviewRef:** 30daff0
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -42,6 +44,36 @@ When the GUI opens a different board, make the selected board feel active immedi
 - [ ] Tests cover switch-start loading state, stale-card hiding, failed pre-commit rollback, committed refresh failure, and overlapping switch ordering.
 - [ ] Verification includes `cd gui/frontend && npm run check`, `cd gui/frontend && npm test -- --run`, and `cd gui && go test ./...` if backend switch code is touched.
 - [ ] Manual test note: run the desktop GUI, switch from a small board to a large board such as Writer Studio, confirm the target board/loading state appears immediately instead of old cards staying silently visible, then switch back and confirm the same behavior.
+
+## Review Target
+
+branch: main commit: 30daff0
+
+Summary:
+- Preserved the board-switch loading coordinator and stale-card clearing from 479891e.
+- Reconciled overlapping direct opens through current coordinator behavior so an older committed open can win after a newer invalid candidate rejects.
+- Started persisted-board startup grace before the initial refresh resolves, so launch on an already-open huge board shows grace immediately instead of waiting for LoadBoard.
+
+Verification:
+- cd gui/frontend && npm test -- --run src/lib/boardSwitch.test.ts src/lib/stores/board.test.ts (25 tests passed)
+- cd gui/frontend && npm run check (0 errors, 0 warnings)
+- cd gui/frontend && npm test -- --run (294 tests passed)
+- cd gui/frontend && npm run lint (passed)
+- git diff --check -- gui/frontend/src/lib/boardSwitch.ts gui/frontend/src/lib/boardSwitch.test.ts gui/frontend/src/lib/stores/board.ts gui/frontend/src/routes/+page.svelte (passed)
+- code review: no CRITICAL or IMPORTANT findings after fixes
+
+Backend verification note:
+- cd gui && go test ./... was attempted and failed in existing internal/agent prompt coverage: PromptGroom missing {{TASK_TITLE}} and {{TASK_BODY}}. This is outside TB-318 frontend board-switch scope and is tracked by TB-338.
+
+Manual note:
+- Desktop GUI Writer Studio switch smoke not completed in this pass. Prior smoke memory shows opening Writer Studio can launch real autonomous work from recent-board startup; I did not risk that side effect. Automated coverage exercises switch-start loading, stale-card hiding, invalid pre-commit rollback, committed refresh failure, overlapping open reconciliation, stale event guards, and persisted-board startup grace ordering.
+
+## Review Findings
+
+No CRITICAL issues found.
+No IMPORTANT issues found.
+
+Second review checked startup order at gui/frontend/src/lib/boardSwitch.ts and gui/frontend/src/routes/+page.svelte, plus regression coverage in gui/frontend/src/lib/boardSwitch.test.ts. Residual gaps: manual desktop Writer Studio smoke not run because prior smoke showed that opening Writer Studio can launch real autonomous work; automated coverage covers the board-switch ordering and stale-card cases.
 
 ## Related Tasks
 
@@ -81,4 +113,35 @@ When the GUI opens a different board, make the selected board feel active immedi
 - 2026-05-21: Edited agentstatus=queued
 - 2026-05-21: Edited agentstatus=running
 - 2026-05-21: Edited agentstatus=failed, implemented-by=codex, implement-status=failed
+- 2026-05-21: Moved to ready
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited reviewref=20c82ea
+- 2026-05-21: Edited review-target
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Edited reviewref=479891e
+- 2026-05-21: Edited review-target
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Failed code review — moved to ready with review-failed marker
+- 2026-05-21: Edited agentstatus=none, reviewed-by=codex, review-status=success
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=lost, implemented-by=codex, implement-status=lost
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited review-target
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=30daff0
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Failed code review — moved to ready with review-failed marker
+- 2026-05-21: Edited review-findings
+- 2026-05-21: Cleared review-failed marker on resubmit
+- 2026-05-21: Submitted to code-review
 
