@@ -282,6 +282,53 @@ describe('Column virtualization', () => {
     expect(selected).toEqual([targetID]);
   });
 
+  it('preserves supplied task order and card badges after virtualized scrolling', async () => {
+    const ordered = Array.from({ length: 3000 }, (_, index) => task(`TB-${3000 - index}`));
+    const scrollTop = VIRTUAL_COLUMN_ITEM_HEIGHT * 1000;
+    const range = virtualTaskRange(ordered.length, scrollTop, VIRTUAL_COLUMN_ITEM_HEIGHT * 4);
+    const badgeTask = ordered[range.start + 2];
+    badgeTask.tags = ['gui', 'virtual-badge'];
+    badgeTask.agent = 'codex';
+    badgeTask.agentStatus = 'running';
+    component = mount(Column, {
+      target: document.body,
+      props: {
+        title: 'Done',
+        status: 'done',
+        tasks: ordered,
+      },
+    });
+    await tick();
+
+    const list = scrollList();
+    setViewport(list, VIRTUAL_COLUMN_ITEM_HEIGHT * 4);
+    list.scrollTop = scrollTop;
+    list.dispatchEvent(new Event('scroll'));
+    await tick();
+
+    const renderedIDs = Array.from(document.querySelectorAll<HTMLElement>('.card')).map((card) =>
+      card.dataset.taskId,
+    );
+    expect(renderedIDs).toEqual(ordered.slice(range.start, range.end).map((t) => t.id));
+    const badgeCard = document.querySelector<HTMLElement>(`[data-task-id="${badgeTask.id}"]`);
+    expect(badgeCard?.querySelector('.tag')?.textContent).toBe('gui');
+    expect(badgeCard?.querySelector('.agent')?.textContent).toContain('codex');
+  });
+
+  it('keeps large backlog columns fully mounted and draggable', async () => {
+    component = mount(Column, {
+      target: document.body,
+      props: { title: 'Backlog', status: 'backlog', tasks: tasks(260, 'backlog') },
+    });
+    await tick();
+    await tick();
+
+    expect(dndMocks.dndzone).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('.card')).toHaveLength(260);
+    expect(document.querySelector('.show-more')).toBeNull();
+    expect(document.querySelector('.virtual-dnd-note')).toBeNull();
+  });
+
   it('guards drag and drop for virtualized done columns', async () => {
     component = mount(Column, {
       target: document.body,
@@ -291,5 +338,16 @@ describe('Column virtualization', () => {
 
     expect(dndMocks.dndzone).not.toHaveBeenCalled();
     expect(document.querySelector('.virtual-dnd-note')?.textContent).toContain('Drag disabled');
+  });
+
+  it('keeps archive columns non-draggable without showing a virtualized DnD guard', async () => {
+    component = mount(Column, {
+      target: document.body,
+      props: { title: 'Archive', status: 'archive', tasks: tasks(3000, 'archive') },
+    });
+    await tick();
+
+    expect(dndMocks.dndzone).not.toHaveBeenCalled();
+    expect(document.querySelector('.virtual-dnd-note')).toBeNull();
   });
 });
