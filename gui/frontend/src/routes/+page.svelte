@@ -162,6 +162,7 @@
 
     if (projectRoot) {
       await refresh();
+      startStartupGraceForBoard(projectRoot);
       bootStatus = 'ready';
     } else if (recents.length > 0) {
       try {
