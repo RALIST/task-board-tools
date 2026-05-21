@@ -2,6 +2,7 @@ import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '$lib/api';
 import Column from './Column.svelte';
+import ColumnHarness from './Column.harness.test.svelte';
 import { VIRTUAL_COLUMN_ITEM_HEIGHT, virtualTaskRange } from '$lib/columnVisibility';
 
 vi.mock('@wailsio/runtime', () => ({
@@ -207,6 +208,31 @@ function setViewport(list: HTMLElement, height: number) {
 }
 
 describe('Column virtualization', () => {
+  it('refreshes draggable card content when a patched task keeps the same ID', async () => {
+    const stale = task('TB-325', 'ready');
+    stale.title = 'Stale card title';
+    component = mount(ColumnHarness, {
+      target: document.body,
+      props: { initialTasks: [stale], status: 'ready', title: 'Ready' },
+    });
+    await tick();
+
+    expect(document.querySelector('[data-task-id="TB-325"] .ttl')?.textContent).toBe('Stale card title');
+
+    const fresh = {
+      ...stale,
+      title: 'Fresh card title',
+      tags: ['gui', 'live-updates'],
+      agent: 'codex',
+      agentStatus: 'needs-user',
+      implementStatus: 'running',
+    } as Task;
+    (component as { setTasks: (tasks: Task[]) => void }).setTasks([fresh]);
+    await tick();
+
+    expect(document.querySelector('[data-task-id="TB-325"] .ttl')?.textContent).toBe('Fresh card title');
+  });
+
   it.each([
     ['done', 'Done'],
     ['archive', 'Archive'],

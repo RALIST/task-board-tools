@@ -3,7 +3,8 @@
 //
 //   - "board:reloaded"    — column membership or folder-task contents changed
 //     (Create / Remove / Rename)
-//   - "task:updated:<id>" — a single task file was rewritten (Write)
+//   - "task:updated:<id>" — a single task file was rewritten (Write or
+//     atomic rename)
 //
 // A 200ms debounce window coalesces the fan-out that every logical CLI
 // mutation produces (a "move" is remove + create + regenerate). The watcher
@@ -103,6 +104,7 @@ type Watcher struct {
 	debouncer *debouncer
 	boardDir  string
 	watchDirs map[string]struct{}
+	taskFiles map[string]struct{}
 }
 
 // New creates a Watcher. The Watcher is inert until Start is called.
@@ -177,6 +179,7 @@ func (w *Watcher) attach(boardDir string) error {
 	}
 
 	watchDirs := make(map[string]struct{})
+	taskFiles := make(map[string]struct{})
 	added := 0
 	for _, d := range statusDirs {
 		full := filepath.Join(boardDir, d)
@@ -185,6 +188,7 @@ func (w *Watcher) attach(boardDir string) error {
 			continue
 		}
 		added++
+		addExistingTaskFiles(taskFiles, full)
 		w.addExistingFolderTaskWatches(fsw, watchDirs, full)
 	}
 	if added == 0 {
@@ -203,6 +207,7 @@ func (w *Watcher) attach(boardDir string) error {
 	w.cancelPmp = cancel
 	w.debouncer = newDebouncer(debounceWindow, w.flushBoard)
 	w.watchDirs = watchDirs
+	w.taskFiles = taskFiles
 	w.mu.Unlock()
 
 	// Cancelling the old pump's context also closes its fsnotify.Watcher
@@ -241,6 +246,22 @@ func (w *Watcher) addExistingFolderTaskWatches(fsw *fsnotify.Watcher, watchDirs 
 	}
 }
 
+func addExistingTaskFiles(taskFiles map[string]struct{}, statusDir string) {
+	entries, err := os.ReadDir(statusDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(statusDir, entry.Name())
+		if taskIDFromPath(path) != "" {
+			taskFiles[filepath.Clean(path)] = struct{}{}
+		}
+	}
+}
+
 func (w *Watcher) detach() {
 	w.mu.Lock()
 	cancel := w.cancelPmp
@@ -249,6 +270,7 @@ func (w *Watcher) detach() {
 	w.debouncer = nil
 	w.fsw = nil
 	w.watchDirs = nil
+	w.taskFiles = nil
 	w.mu.Unlock()
 
 	if cancel != nil {
@@ -259,6 +281,27 @@ func (w *Watcher) detach() {
 	}
 }
 
+func (w *Watcher) isKnownTaskFile(path string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, ok := w.taskFiles[filepath.Clean(path)]
+	return ok
+}
+
+func (w *Watcher) rememberTaskFile(path string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.taskFiles != nil {
+		w.taskFiles[filepath.Clean(path)] = struct{}{}
+	}
+}
+
+func (w *Watcher) forgetTaskFile(path string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.taskFiles, filepath.Clean(path))
+}
+
 func (w *Watcher) handle(ev fsnotify.Event) {
 	if isIgnored(ev.Name) {
 		return
@@ -266,6 +309,24 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	w.reconcileDirWatches(ev)
 	switch {
 	case ev.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0:
+		if id := taskIDFromPath(ev.Name); id != "" {
+			exists := pathExists(ev.Name)
+			if ev.Op&(fsnotify.Create|fsnotify.Rename) != 0 && exists {
+				w.emitter.Emit("task:updated:"+id, id)
+			}
+			if filepath.Base(ev.Name) == folderTaskFileName {
+				return
+			}
+			wasKnown := w.isKnownTaskFile(ev.Name)
+			if exists {
+				w.rememberTaskFile(ev.Name)
+				if wasKnown {
+					return
+				}
+			} else {
+				w.forgetTaskFile(ev.Name)
+			}
+		}
 		w.scheduleBoardReload()
 	case ev.Op&fsnotify.Write != 0:
 		if id := taskIDFromPath(ev.Name); id != "" {

@@ -42,6 +42,7 @@
   import { pushToast } from '$lib/stores/toast';
   import { registerAgentEventHandlers } from '$lib/stores/runs';
   import { registerTriageEventHandlers } from '$lib/stores/triage';
+  import { registerBoardTaskUpdateHandlers } from '$lib/boardTaskUpdates';
   import {
     refresh as refreshAutoGroom,
     registerAutoGroomEventHandlers,
@@ -196,11 +197,9 @@
         pushToast(error ? `Attach failed: ${error}` : 'Attach failed');
       }
     }));
-    offEvents.push(Events.On('task:updated', async (raw: any) => {
-      const name: string = raw?.name ?? '';
-      const id = name.replace(/^task:updated:/, '');
-      if (id) await patchTask(id);
-    }));
+    offEvents.push(
+      registerBoardTaskUpdateHandlers(board, (name, handler) => Events.On(name, handler as any), patchTask),
+    );
 
     // Agent run lifecycle — populate runsStore from Wails events so any
     // drawer / log panel re-renders without re-reading the JSONL.

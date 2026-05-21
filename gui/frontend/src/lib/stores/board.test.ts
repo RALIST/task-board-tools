@@ -1,9 +1,9 @@
 import { get } from 'svelte/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BoardSnapshot, StatusMode, Task } from '../api';
+import type { BoardSnapshot, StatusMode, Task, TaskDetail } from '../api';
 
 const loadBoard = vi.fn<(mode?: StatusMode) => Promise<BoardSnapshot>>();
-const getTask = vi.fn();
+const getTask = vi.fn<(id: string) => Promise<TaskDetail>>();
 
 vi.mock('../api', () => ({
   loadBoard: (mode?: StatusMode) => loadBoard(mode),
@@ -16,6 +16,7 @@ const {
   loaded,
   loadError,
   refresh,
+  patchTask,
   statusMode,
   switchingTo,
 } = await import('./board');
@@ -177,15 +178,131 @@ describe('board store refresh ordering', () => {
     expect(get(loadError)).toBeNull();
     expect(loadBoard).toHaveBeenCalledTimes(3);
   });
+
+  it('patches one card in place with fresh metadata while preserving board counters', async () => {
+    const stale = task('TB-1', 'Stale title', 'ready');
+    const neighbor = task('TB-2', 'Neighbor card', 'ready');
+    board.set({
+      backlog: [],
+      ready: [stale, neighbor],
+      inProgress: [],
+      codeReview: [],
+      done: [],
+      archive: [],
+      wipLimits: { ready: 4, 'in-progress': 2 },
+      wipCounts: { ready: 2, 'in-progress': 0 },
+      wipEnforcement: 'strict',
+    } as BoardSnapshot);
+    getTask.mockResolvedValueOnce({
+      metadata: {
+        ...stale,
+        title: 'Fresh title',
+        type: 'feature',
+        priority: 'P1',
+        module: 'gui',
+        size: 'M',
+        tags: ['gui', 'live-updates', 'review-failed'],
+        agent: 'codex',
+        agentStatus: 'needs-user',
+        agentResumable: true,
+        groomedBy: 'codex',
+        groomStatus: 'success',
+        implementedBy: 'codex',
+        implementStatus: 'running',
+        reviewedBy: 'codex',
+        reviewStatus: 'failed',
+      },
+      body: '',
+    });
+
+    await patchTask('TB-1');
+
+    const snap = get(board);
+    expect(snap.ready.map((t) => t.id)).toEqual(['TB-1', 'TB-2']);
+    expect(snap.ready[0]).toMatchObject({
+      title: 'Fresh title',
+      type: 'feature',
+      priority: 'P1',
+      module: 'gui',
+      size: 'M',
+      tags: ['gui', 'live-updates', 'review-failed'],
+      agent: 'codex',
+      agentStatus: 'needs-user',
+      agentResumable: true,
+      groomStatus: 'success',
+      implementStatus: 'running',
+      reviewStatus: 'failed',
+    });
+    expect(snap.wipLimits).toEqual({ ready: 4, 'in-progress': 2 });
+    expect(snap.wipCounts).toEqual({ ready: 2, 'in-progress': 0 });
+    expect(snap.wipEnforcement).toBe('strict');
+  });
+
+  it('keeps the newest task patch when older patch requests finish later', async () => {
+    const stale = task('TB-1', 'Stale title', 'ready');
+    const olderPatch = deferred<TaskDetail>();
+    const newerPatch = deferred<TaskDetail>();
+    board.set({
+      ...newEmptyBoard(),
+      ready: [stale],
+    });
+    getTask
+      .mockImplementationOnce(() => olderPatch.promise)
+      .mockImplementationOnce(() => newerPatch.promise);
+
+    const older = patchTask('TB-1');
+    const newer = patchTask('TB-1');
+
+    newerPatch.resolve({ metadata: { ...stale, title: 'Newer title' }, body: '' });
+    await newer;
+    expect(get(board).ready[0]?.title).toBe('Newer title');
+
+    olderPatch.resolve({ metadata: { ...stale, title: 'Older title' }, body: '' });
+    await older;
+    expect(get(board).ready[0]?.title).toBe('Newer title');
+  });
+
+  it('does not let a task patch started before a full refresh overwrite refreshed board data', async () => {
+    const stale = task('TB-1', 'Stale title', 'ready');
+    const patch = deferred<TaskDetail>();
+    board.set({
+      ...newEmptyBoard(),
+      ready: [stale],
+    });
+    getTask.mockImplementationOnce(() => patch.promise);
+    loadBoard.mockResolvedValueOnce({
+      ...newEmptyBoard(),
+      ready: [{ ...stale, title: 'Refresh title' }],
+    });
+
+    const stalePatch = patchTask('TB-1');
+    await refresh();
+    expect(get(board).ready[0]?.title).toBe('Refresh title');
+
+    patch.resolve({ metadata: { ...stale, title: 'Patch title' }, body: '' });
+    await stalePatch;
+    expect(get(board).ready[0]?.title).toBe('Refresh title');
+  });
 });
 
 function snapshot(id: string, title: string): BoardSnapshot {
   return {
+    ...newEmptyBoard(),
     backlog: [task(id, title, 'backlog')],
+  };
+}
+
+function newEmptyBoard(): BoardSnapshot {
+  return {
+    backlog: [],
     inProgress: [],
-    ready: [], codeReview: [],
+    ready: [],
+    codeReview: [],
     done: [],
-    archive: [], wipLimits: {}, wipCounts: {}, wipEnforcement: 'warn',
+    archive: [],
+    wipLimits: {},
+    wipCounts: {},
+    wipEnforcement: 'warn',
   } as BoardSnapshot;
 }
 

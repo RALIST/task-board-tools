@@ -160,6 +160,41 @@ func TestWrite_FiresTaskUpdated(t *testing.T) {
 	}
 }
 
+func TestAtomicRename_FiresTaskUpdated(t *testing.T) {
+	board := makeBoard(t)
+	taskPath := filepath.Join(board, "in-progress", "TB-30.md")
+	if err := os.WriteFile(taskPath, []byte("# TB-30"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	em := &captureEmitter{}
+	startWatcher(t, board, em)
+
+	tmp := filepath.Join(board, "in-progress", ".TB-30.md.tmp.12345")
+	if err := os.WriteFile(tmp, []byte("# TB-30 v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, taskPath); err != nil {
+		t.Fatal(err)
+	}
+
+	got := waitFor(t, 1*time.Second, func() bool {
+		for _, e := range em.snapshot() {
+			if e.Name == "task:updated:TB-30" {
+				return true
+			}
+		}
+		return false
+	})
+	if !got {
+		t.Fatalf("no task:updated:TB-30 received: %+v", em.snapshot())
+	}
+	time.Sleep(400 * time.Millisecond)
+	if count := countEvents(em, "board:reloaded"); count != 0 {
+		t.Fatalf("task file atomic rename produced %d board:reloaded events, want 0: %+v", count, em.snapshot())
+	}
+}
+
 func TestIgnore_BOARDMdDoesNotFire(t *testing.T) {
 	board := makeBoard(t)
 	em := &captureEmitter{}

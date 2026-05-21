@@ -68,6 +68,40 @@ func TestFolderTaskPromotion_EmitsTaskUpdatedAfterRename(t *testing.T) {
 	}
 }
 
+func TestFolderTaskMarkdownAtomicRename_FiresTaskUpdated(t *testing.T) {
+	board := makeBoard(t)
+	taskDir := filepath.Join(board, "in-progress", "TB-8")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	taskFile := filepath.Join(taskDir, "TASK.md")
+	if err := os.WriteFile(taskFile, []byte("# TB-8: old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	em := &captureEmitter{}
+	startWatcher(t, board, em)
+
+	tmp := filepath.Join(taskDir, ".TASK.md.tmp.12345")
+	if err := os.WriteFile(tmp, []byte("# TB-8: fresh"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, taskFile); err != nil {
+		t.Fatal(err)
+	}
+
+	got := waitFor(t, 1*time.Second, func() bool {
+		return countEvents(em, "task:updated:TB-8") > 0
+	})
+	if !got {
+		t.Fatalf("no task:updated:TB-8 received after TASK.md rename: %+v", em.snapshot())
+	}
+	time.Sleep(400 * time.Millisecond)
+	if count := countEvents(em, "board:reloaded"); count != 0 {
+		t.Fatalf("TASK.md rename produced %d board:reloaded events, want 0: %+v", count, em.snapshot())
+	}
+}
+
 // TestAttachmentAdd_FiresOneBoardReloaded simulates `tb attach`: writes a
 // staging temp file under the attachments dir, renames it into place, then
 // rewrites TASK.md (atomic temp+rename). The whole burst should produce a

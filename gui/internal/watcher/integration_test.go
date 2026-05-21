@@ -174,3 +174,38 @@ func TestIntegration_TBAttachFiresOneBoardReloaded(t *testing.T) {
 		t.Fatalf("tb attach produced %d board:reloaded events (want 1): %+v", count, em.snapshot())
 	}
 }
+
+func TestIntegration_TBEditFolderTaskFiresTaskUpdated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("posix-only test")
+	}
+	tbBin := locateTBBinary(t)
+
+	project := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(tbBin, args...)
+		cmd.Dir = project
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("tb %v: %v\n%s", args, err, out)
+		}
+	}
+
+	run("init")
+	run("create", "Edit integration test")
+
+	boardDir := filepath.Join(project, "board")
+	taskID := findFirstTaskID(t, filepath.Join(boardDir, "backlog"))
+
+	em := &captureEmitter{}
+	startWatcher(t, boardDir, em)
+
+	run("edit", taskID, "--title", "Edited by watcher integration")
+
+	got := waitFor(t, 1*time.Second, func() bool {
+		return countEvents(em, "task:updated:"+taskID) > 0
+	})
+	if !got {
+		t.Fatalf("tb edit produced no task:updated:%s event: %+v", taskID, em.snapshot())
+	}
+}

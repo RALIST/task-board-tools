@@ -28,6 +28,8 @@ export const switchingTo = writable<string | null>(null);
 let refreshInFlight: Promise<void> | null = null;
 let refreshQueued = false;
 let switchSeq = 0;
+let boardLoadSeq = 0;
+const patchSeqByID = new Map<string, number>();
 
 // statusMode controls whether refresh() requests the archive bucket. The
 // FilterBar's "Show archived" toggle writes this; callers shouldn't poke
@@ -36,6 +38,7 @@ export const statusMode = writable<StatusMode>('active');
 
 export function beginBoardSwitch(projectRoot: string): void {
   switchSeq += 1;
+  boardLoadSeq += 1;
   switchingTo.set(projectRoot);
   board.set(newEmptySnapshot());
   loadError.set(null);
@@ -72,6 +75,7 @@ async function refreshOnce(): Promise<void> {
     const mode = get(statusMode);
     const snap = await loadBoard(mode);
     if (seq !== switchSeq) return;
+    boardLoadSeq += 1;
     board.set(snap);
     loadError.set(null);
     loaded.set(true);
@@ -82,6 +86,7 @@ async function refreshOnce(): Promise<void> {
     // from rendering under the newly selected project root when a board
     // switch fails (TB-145). Use a fresh object so mutators (e.g.
     // optimisticMove) can't poison the module-level reference.
+    boardLoadSeq += 1;
     board.set(newEmptySnapshot());
     loadError.set(stringifyError(err));
     loaded.set(false);
@@ -100,8 +105,14 @@ export function setStatusMode(mode: StatusMode): void {
 // matches its current status. Used by the `task:updated:<id>` Wails event
 // stream so a metadata edit never triggers a full LoadBoard.
 export async function patchTask(id: string): Promise<void> {
+  const seq = switchSeq;
+  const loadSeq = boardLoadSeq;
+  const patchSeq = (patchSeqByID.get(id) ?? 0) + 1;
+  patchSeqByID.set(id, patchSeq);
+
   try {
     const detail = await getTask(id);
+    if (seq !== switchSeq || loadSeq !== boardLoadSeq || patchSeqByID.get(id) !== patchSeq) return;
     const next = spliceTask(get(board), detail.metadata);
     board.set(next);
   } catch {
@@ -111,9 +122,8 @@ export async function patchTask(id: string): Promise<void> {
 }
 
 function spliceTask(snap: BoardSnapshot, t: Task): BoardSnapshot {
-  // Remove the task from every column first, then insert into the correct
-  // one. Cheaper than diffing.
-  const withoutTask = {
+  const next = {
+    ...snap,
     backlog: snap.backlog.filter((x) => x.id !== t.id),
     ready: (snap.ready ?? []).filter((x) => x.id !== t.id),
     inProgress: snap.inProgress.filter((x) => x.id !== t.id),
@@ -122,31 +132,81 @@ function spliceTask(snap: BoardSnapshot, t: Task): BoardSnapshot {
     archive: (snap.archive ?? []).filter((x) => x.id !== t.id),
   } as BoardSnapshot;
 
-  switch (t.status) {
+  const target = columnForStatus(t.status);
+  if (target === null) return next;
+  if (target === 'archive' && get(statusMode) !== 'all') return next;
+
+  const original = columnTasks(snap, target);
+  const insertAt = original.findIndex((x) => x.id === t.id);
+  const current = columnTasks(next, target);
+  const index = insertAt === -1 ? current.length : Math.min(insertAt, current.length);
+  setColumnTasks(next, target, [
+    ...current.slice(0, index),
+    t,
+    ...current.slice(index),
+  ]);
+  return next;
+}
+
+type BoardColumn = 'backlog' | 'ready' | 'inProgress' | 'codeReview' | 'done' | 'archive';
+
+function columnForStatus(status: string): BoardColumn | null {
+  switch (status) {
     case 'backlog':
-      withoutTask.backlog = [...withoutTask.backlog, t];
+      return 'backlog';
+    case 'ready':
+      return 'ready';
+    case 'in-progress':
+      return 'inProgress';
+    case 'code-review':
+      return 'codeReview';
+    case 'done':
+      return 'done';
+    case 'archive':
+      return 'archive';
+    default:
+      return null;
+  }
+}
+
+function columnTasks(snap: BoardSnapshot, column: BoardColumn): Task[] {
+  switch (column) {
+    case 'backlog':
+      return snap.backlog;
+    case 'ready':
+      return snap.ready ?? [];
+    case 'inProgress':
+      return snap.inProgress;
+    case 'codeReview':
+      return snap.codeReview ?? [];
+    case 'done':
+      return snap.done;
+    case 'archive':
+      return snap.archive ?? [];
+  }
+}
+
+function setColumnTasks(snap: BoardSnapshot, column: BoardColumn, tasks: Task[]): void {
+  switch (column) {
+    case 'backlog':
+      snap.backlog = tasks;
       break;
     case 'ready':
-      withoutTask.ready = [...(withoutTask.ready ?? []), t];
+      snap.ready = tasks;
       break;
-    case 'in-progress':
-      withoutTask.inProgress = [...withoutTask.inProgress, t];
+    case 'inProgress':
+      snap.inProgress = tasks;
       break;
-    case 'code-review':
-      withoutTask.codeReview = [...(withoutTask.codeReview ?? []), t];
+    case 'codeReview':
+      snap.codeReview = tasks;
       break;
     case 'done':
-      withoutTask.done = [...withoutTask.done, t];
+      snap.done = tasks;
       break;
     case 'archive':
-      // Only surface archive entries when the store is in 'all' mode;
-      // otherwise drop so the active board doesn't show archived cards.
-      if (get(statusMode) === 'all') {
-        withoutTask.archive = [...withoutTask.archive, t];
-      }
+      snap.archive = tasks;
       break;
   }
-  return withoutTask;
 }
 
 // optimisticMove updates the local snapshot synchronously so a drag-drop

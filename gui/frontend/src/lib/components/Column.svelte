@@ -62,13 +62,13 @@
   // index against the array we hand it).
   $effect(() => {
     if (dragging) return;
-    if (sameItemIDs(untrack(() => items), visibleTasks)) return;
+    if (sameItems(untrack(() => items), visibleTasks)) return;
     items = visibleTasks.map((t) => ({ id: t.id, task: t }));
   });
 
-  function sameItemIDs(current: Array<{ id: string }>, next: Task[]): boolean {
+  function sameItems(current: Array<{ id: string; task: Task }>, next: Task[]): boolean {
     if (current.length !== next.length) return false;
-    return current.every((item, i) => item.id === next[i]?.id);
+    return current.every((item, i) => item.id === next[i]?.id && item.task === next[i]);
   }
 
   function handleConsider(e: CustomEvent<DndEvent<{ id: string; task: Task }>>) {
