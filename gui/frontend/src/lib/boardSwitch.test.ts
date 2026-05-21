@@ -54,6 +54,37 @@ describe('board switch coordinator', () => {
     expect(onActivated).toHaveBeenCalledWith('/tmp/target-board');
   });
 
+  it('reports activation from board:opened before committed refresh finishes', async () => {
+    const pending = deferred<void>();
+    const committed = deferred<void>();
+    const calls: string[] = [];
+    const openBoard = vi.fn().mockReturnValueOnce(pending.promise);
+    const onCommitted = vi.fn(async () => {
+      calls.push('commit:start');
+      await committed.promise;
+      calls.push('commit:done');
+    });
+    const onActivated = vi.fn(() => {
+      calls.push('activate');
+    });
+    const coordinator = createBoardSwitchCoordinator({ openBoard, onCommitted, onActivated });
+
+    const directOpen = coordinator.open('/tmp/target-board');
+    const opened = coordinator.handleOpenedEvent('/tmp/target-board', '/tmp/target-board');
+    await Promise.resolve();
+
+    expect(onActivated).toHaveBeenCalledTimes(1);
+    expect(calls).toContain('activate');
+    expect(calls).not.toContain('commit:done');
+    await Promise.resolve();
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+
+    committed.resolve();
+    await opened;
+    pending.resolve();
+    await directOpen;
+  });
+
   it('does not report activation when OpenBoard resolves without board:opened', async () => {
     const openBoard = vi.fn().mockResolvedValueOnce(undefined);
     const onCommitted = vi.fn().mockResolvedValue(undefined);
@@ -117,6 +148,108 @@ describe('board switch coordinator', () => {
 
     expect(onCommitted).toHaveBeenCalledTimes(1);
     expect(onCommitted).toHaveBeenCalledWith('/tmp/new-board');
+  });
+
+  it('commits an older backend-committed open after a newer open rejects before commit', async () => {
+    const first = deferred<void>();
+    const second = deferred<void>();
+    const openBoard = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const onCommitted = vi.fn().mockResolvedValue(undefined);
+    const onActivated = vi.fn().mockResolvedValue(undefined);
+    const coordinator = createBoardSwitchCoordinator({ openBoard, onCommitted, onActivated });
+
+    const firstOpen = coordinator.open('/tmp/committed-board');
+    const secondOpen = coordinator.open('/tmp/not-a-board');
+    await expect(coordinator.handleOpenedEvent('/tmp/committed-board', '/tmp/committed-board')).resolves.toBe(false);
+    expect(onCommitted).not.toHaveBeenCalled();
+
+    second.reject(new Error('path has no .tb.yaml'));
+    await expect(secondOpen).rejects.toThrow(/no \.tb\.yaml/);
+
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+    expect(onCommitted).toHaveBeenCalledWith('/tmp/committed-board');
+    expect(onActivated).toHaveBeenCalledTimes(1);
+    expect(onActivated).toHaveBeenCalledWith('/tmp/committed-board');
+
+    first.resolve();
+    await firstOpen;
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+    expect(onActivated).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a delayed older direct-open event after a newer open rejects before commit', async () => {
+    const first = deferred<void>();
+    const second = deferred<void>();
+    const openBoard = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const onCommitted = vi.fn().mockResolvedValue(undefined);
+    const coordinator = createBoardSwitchCoordinator({ openBoard, onCommitted });
+
+    const firstOpen = coordinator.open('/tmp/committed-board');
+    const secondOpen = coordinator.open('/tmp/not-a-board');
+    second.reject(new Error('path has no .tb.yaml'));
+    await expect(secondOpen).rejects.toThrow(/no \.tb\.yaml/);
+
+    await expect(coordinator.handleOpenedEvent('/tmp/committed-board', '/tmp/committed-board')).resolves.toBe(true);
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+    expect(onCommitted).toHaveBeenCalledWith('/tmp/committed-board');
+
+    first.resolve();
+    await firstOpen;
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits an older direct-open completion after a newer open rejects before commit', async () => {
+    const first = deferred<void>();
+    const second = deferred<void>();
+    const openBoard = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const onCommitted = vi.fn().mockResolvedValue(undefined);
+    const onActivated = vi.fn().mockResolvedValue(undefined);
+    const coordinator = createBoardSwitchCoordinator({ openBoard, onCommitted, onActivated });
+
+    const firstOpen = coordinator.open('/tmp/committed-board');
+    const secondOpen = coordinator.open('/tmp/not-a-board');
+    second.reject(new Error('path has no .tb.yaml'));
+    await expect(secondOpen).rejects.toThrow(/no \.tb\.yaml/);
+    expect(onCommitted).not.toHaveBeenCalled();
+
+    first.resolve();
+    await firstOpen;
+
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+    expect(onCommitted).toHaveBeenCalledWith('/tmp/committed-board');
+    expect(onActivated).not.toHaveBeenCalled();
+  });
+
+  it('commits an older direct-open completion when it resolves before a newer open rejects', async () => {
+    const first = deferred<void>();
+    const second = deferred<void>();
+    const openBoard = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const onCommitted = vi.fn().mockResolvedValue(undefined);
+    const coordinator = createBoardSwitchCoordinator({ openBoard, onCommitted });
+
+    const firstOpen = coordinator.open('/tmp/committed-board');
+    const secondOpen = coordinator.open('/tmp/not-a-board');
+    first.resolve();
+    await firstOpen;
+    expect(onCommitted).not.toHaveBeenCalled();
+
+    second.reject(new Error('path has no .tb.yaml'));
+    await expect(secondOpen).rejects.toThrow(/no \.tb\.yaml/);
+
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+    expect(onCommitted).toHaveBeenCalledWith('/tmp/committed-board');
   });
 
   it('does not report activation for stale board:opened events', async () => {
