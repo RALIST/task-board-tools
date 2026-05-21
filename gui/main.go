@@ -29,6 +29,10 @@ var singleInstanceKey = [32]byte{
 	0x65, 0x79, 0x2d, 0x76, 0x31, 0x2e, 0x30, 0x2e, // "ey-v1.0."
 }
 
+func shouldTerminateAfterLastWindowClosed() bool {
+	return !shell.TraySupported()
+}
+
 func main() {
 	var window *application.WebviewWindow
 
@@ -194,7 +198,7 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: !shell.TraySupported(),
+			ApplicationShouldTerminateAfterLastWindowClosed: shouldTerminateAfterLastWindowClosed(),
 		},
 	})
 	appRef = app

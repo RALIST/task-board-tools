@@ -573,6 +573,36 @@ func TestRecoverStale_CancelledCarveOut(t *testing.T) {
 	}
 }
 
+func TestRecoverStale_ShutdownCancelledCarveOut(t *testing.T) {
+	events := []agent.Event{
+		{TS: "2026-05-21T10:00:00Z", RunID: "r_shutdown", TaskID: "TB-1", Event: agent.EvQueued, Agent: "claude"},
+		{TS: "2026-05-21T10:00:01Z", RunID: "r_shutdown", TaskID: "TB-1", Event: agent.EvStarted, Agent: "claude", PID: 999999},
+		{TS: "2026-05-21T10:00:02Z", RunID: "r_shutdown", TaskID: "TB-1", Event: agent.EvFinished, Status: agent.StatusCancelled, ExitCode: -1, Reason: "shutdown"},
+	}
+	rec, _, boardDir, c := recoveryFixture(t, "TB-1", "claude", events)
+	rec.liveFn = func(pid int, expected string) bool { return false }
+
+	before := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if err := rec.RecoverStale(context.Background(), boardDir); err != nil {
+		t.Fatalf("RecoverStale: %v", err)
+	}
+	after := readJSONL(t, agent.StatePath(boardDir, "TB-1"))
+	if len(after) != len(before) {
+		t.Fatalf("shutdown cancelled carve-out should not append recovery event; before=%d after=%d", len(before), len(after))
+	}
+	last := after[len(after)-1]
+	if last.Status != agent.StatusCancelled || last.Reason != "shutdown" {
+		t.Fatalf("last event = %+v, want original shutdown cancellation", last)
+	}
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
+		t.Fatalf("AgentStatus not cancelled:\n%s", out)
+	}
+}
+
 func TestRecoverStale_FolderCancelledCarveOut(t *testing.T) {
 	events := []agent.Event{
 		{TS: "2026-05-14T10:00:00Z", RunID: "r_foldercancel", TaskID: "TB-2", Event: agent.EvQueued, Agent: "claude"},

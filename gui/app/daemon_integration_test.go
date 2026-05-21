@@ -436,6 +436,79 @@ func TestDaemonShutdown_FlushesCancelledJSONL(t *testing.T) {
 	}
 }
 
+func TestDaemonShutdown_ConcurrentCloseWritesCancelledOnce(t *testing.T) {
+	runner := &shutdownRunner{started: make(chan struct{})}
+	d, _, boardDir, c := daemonIntegrationFixture(t, runner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := d.Activate(ctx, boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	if err := c.Edit(ctx, "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("edit queued: %v", err)
+	}
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:     time.Now().UTC().Format(time.RFC3339),
+		RunID:  "r_shutdown_once",
+		TaskID: "TB-1",
+		Event:  agent.EvQueued,
+		Agent:  "claude",
+		Mode:   "implement",
+	}); err != nil {
+		t.Fatalf("append queued: %v", err)
+	}
+	if ok, err := d.Enqueue("TB-1"); err != nil || !ok {
+		t.Fatalf("enqueue: ok=%v err=%v", ok, err)
+	}
+	select {
+	case <-runner.started:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("runner never started")
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- d.Close()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+
+	finished := 0
+	for _, ev := range readJSONL(t, agent.StatePath(boardDir, "TB-1")) {
+		if ev.RunID != "r_shutdown_once" || ev.Event != agent.EvFinished {
+			continue
+		}
+		finished++
+		if ev.Status != agent.StatusCancelled {
+			t.Fatalf("finished status = %s, want cancelled", ev.Status)
+		}
+		if ev.Reason != "shutdown" {
+			t.Fatalf("finished reason = %q, want shutdown", ev.Reason)
+		}
+	}
+	if finished != 1 {
+		t.Fatalf("finished event count = %d, want exactly 1", finished)
+	}
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	if !strings.Contains(string(out), "**AgentStatus:** cancelled") {
+		t.Fatalf("AgentStatus not cancelled:\n%s", out)
+	}
+}
+
 func TestDaemonBoardSwitch_FlushesCancelledJSONL(t *testing.T) {
 	runner := &shutdownRunner{started: make(chan struct{})}
 	d, _, boardDir, c := daemonIntegrationFixture(t, runner)
