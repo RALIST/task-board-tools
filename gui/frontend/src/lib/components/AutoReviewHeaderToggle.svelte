@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { autoReviewStore } from '$lib/stores/autoReview';
   import { preferencesStore } from '$lib/stores/preferences';
 
   interface Props {
@@ -8,7 +9,9 @@
   let { onOpenSettings }: Props = $props();
 
   let enabled = $derived($preferencesStore.autoReviewEnabled === true);
-  let missingDefaultAgent = $derived($preferencesStore.defaultAgent === 'none');
+  let missingDefaultAgent = $derived(
+    $preferencesStore.defaultAgent === 'none' || $autoReviewStore.needsDefaultAgent,
+  );
   let busy = $state(false);
 
   async function toggle() {

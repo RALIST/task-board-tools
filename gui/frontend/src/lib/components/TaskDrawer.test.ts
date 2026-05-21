@@ -36,6 +36,7 @@ const apiMocks = vi.hoisted(() => ({
   resumeAgent: vi.fn(),
   cancelRun: vi.fn(),
   groomTask: vi.fn(),
+  reviewTask: vi.fn(),
   closeTask: vi.fn(),
   renameTask: vi.fn(),
   // TB-235: Submit-for-review failures (e.g. missing ReviewRef) surface
@@ -50,11 +51,62 @@ vi.mock('$lib/stores/toast', () => ({
   pushToast: vi.fn(),
 }));
 
+const runsMocks = vi.hoisted(() => {
+  const taskSubs = new Map<string, Set<(v: any[]) => void>>();
+  let runsByTask: Record<string, any[]> = {};
+  let selected: string | null = null;
+  const selectedSubs = new Set<(v: string | null) => void>();
+  function subsFor(id: string) {
+    let subs = taskSubs.get(id);
+    if (!subs) {
+      subs = new Set();
+      taskSubs.set(id, subs);
+    }
+    return subs;
+  }
+  function notifyTask(id: string) {
+    const value = runsByTask[id] ?? [];
+    for (const cb of subsFor(id)) cb(value);
+  }
+  return {
+    runsForTask: (id: string) => ({
+      subscribe(cb: (v: any[]) => void) {
+        cb(runsByTask[id] ?? []);
+        subsFor(id).add(cb);
+        return () => subsFor(id).delete(cb);
+      },
+    }),
+    selectedRunID: {
+      subscribe(cb: (v: string | null) => void) {
+        cb(selected);
+        selectedSubs.add(cb);
+        return () => selectedSubs.delete(cb);
+      },
+      set(next: string | null) {
+        selected = next;
+        for (const cb of selectedSubs) cb(selected);
+      },
+    },
+    setRunsForTask: vi.fn((taskId: string, list: any[]) => {
+      runsByTask[taskId] = list;
+      notifyTask(taskId);
+    }),
+    upsertRun: vi.fn(),
+    reset() {
+      runsByTask = {};
+      selected = null;
+      for (const id of taskSubs.keys()) notifyTask(id);
+      for (const cb of selectedSubs) cb(selected);
+    },
+  };
+});
+
 vi.mock('$lib/stores/runs', () => ({
-  runsForTask: () => ({ subscribe: (cb: (v: unknown[]) => void) => { cb([]); return () => {}; } }),
-  selectedRunID: { subscribe: (cb: (v: unknown) => void) => { cb(null); return () => {}; }, set: () => {} },
-  setRunsForTask: vi.fn(),
-  upsertRun: vi.fn(),
+  deriveEffectiveRunStatus: (status: string) => status,
+  runsForTask: (id: string) => runsMocks.runsForTask(id),
+  selectedRunID: runsMocks.selectedRunID,
+  setRunsForTask: runsMocks.setRunsForTask,
+  upsertRun: runsMocks.upsertRun,
 }));
 
 vi.mock('$lib/stores/groomSuggestion', () => ({
@@ -62,23 +114,63 @@ vi.mock('$lib/stores/groomSuggestion', () => ({
   groomSuggestedFor: { subscribe: () => () => {} },
 }));
 
-vi.mock('$lib/stores/preferences', () => ({
-  defaultAgent: { subscribe: (cb: (v: string) => void) => { cb('none'); return () => {}; } },
-  preferencesStore: {
-    subscribe: (cb: (v: any) => void) => {
-      cb({
-        maxWorkers: 1,
-        agentTimeoutMinutes: 30,
-        defaultAgent: 'none',
-        cliPath: '',
-        periodicRecoveryEnabled: true,
-        autoGroomEnabled: false,
-        autoGroomSettleMinutes: 5,
-        loaded: true,
-      });
-      return () => {};
+const preferenceMocks = vi.hoisted(() => {
+  let current: any = {
+    maxWorkers: 1,
+    agentTimeoutMinutes: 30,
+    defaultAgent: 'none',
+    cliPath: '',
+    periodicRecoveryEnabled: true,
+    autoGroomEnabled: false,
+    autoGroomSettleMinutes: 5,
+    autoReviewEnabled: false,
+    loaded: true,
+  };
+  const subs = new Set<(v: any) => void>();
+  const defaultSubs = new Set<(v: string) => void>();
+  function notify() {
+    for (const cb of subs) cb(current);
+    for (const cb of defaultSubs) cb(current.defaultAgent);
+  }
+  return {
+    preferencesStore: {
+      subscribe(cb: (v: any) => void) {
+        cb(current);
+        subs.add(cb);
+        return () => subs.delete(cb);
+      },
+      set(next: Partial<typeof current>) {
+        current = { ...current, ...next };
+        notify();
+      },
+      reset() {
+        current = {
+          maxWorkers: 1,
+          agentTimeoutMinutes: 30,
+          defaultAgent: 'none',
+          cliPath: '',
+          periodicRecoveryEnabled: true,
+          autoGroomEnabled: false,
+          autoGroomSettleMinutes: 5,
+          autoReviewEnabled: false,
+          loaded: true,
+        };
+        notify();
+      },
     },
-  },
+    defaultAgent: {
+      subscribe(cb: (v: string) => void) {
+        cb(current.defaultAgent);
+        defaultSubs.add(cb);
+        return () => defaultSubs.delete(cb);
+      },
+    },
+  };
+});
+
+vi.mock('$lib/stores/preferences', () => ({
+  defaultAgent: preferenceMocks.defaultAgent,
+  preferencesStore: preferenceMocks.preferencesStore,
 }));
 
 vi.mock('$lib/stores/autoGroom', () => ({
@@ -97,6 +189,45 @@ vi.mock('$lib/stores/autoGroom', () => ({
       return () => {};
     },
   },
+}));
+
+const autoReviewMocks = vi.hoisted(() => {
+  let current: any = {
+    enabled: false,
+    defaultAgent: 'none',
+    needsDefaultAgent: false,
+    lastScanAt: '',
+    lastSkipReasons: {},
+    loaded: false,
+  };
+  const subs = new Set<(v: any) => void>();
+  return {
+    autoReviewStore: {
+      subscribe(cb: (v: any) => void) {
+        cb(current);
+        subs.add(cb);
+        return () => subs.delete(cb);
+      },
+      set(next: Partial<typeof current>) {
+        current = { ...current, ...next };
+        for (const cb of subs) cb(current);
+      },
+      reset() {
+        current = {
+          enabled: false,
+          defaultAgent: 'none',
+          needsDefaultAgent: false,
+          lastScanAt: '',
+          lastSkipReasons: {},
+          loaded: false,
+        };
+        for (const cb of subs) cb(current);
+      },
+    },
+  };
+});
+vi.mock('$lib/stores/autoReview', () => ({
+  autoReviewStore: autoReviewMocks.autoReviewStore,
 }));
 
 vi.mock('$lib/stores/triage', () => ({
@@ -210,11 +341,16 @@ beforeEach(() => {
   apiMocks.resumeAgent.mockReset();
   apiMocks.cancelRun.mockReset();
   apiMocks.groomTask.mockReset();
+  apiMocks.reviewTask.mockReset();
+  apiMocks.submitReview.mockReset();
   apiMocks.closeTask.mockReset();
 
   apiMocks.getTask.mockResolvedValue(makeDetail());
   apiMocks.listRuns.mockResolvedValue([]);
   boardStore.reset();
+  runsMocks.reset();
+  (preferenceMocks.preferencesStore as { reset: () => void }).reset();
+  (autoReviewMocks.autoReviewStore as { reset: () => void }).reset();
 });
 
 afterEach(async () => {
@@ -1435,6 +1571,62 @@ describe('TaskDrawer submit-for-review error surfacing (TB-235)', () => {
     // user can paste it into their terminal without rewording.
     const calls = pushToast.mock.calls.map(([msg]) => String(msg));
     expect(calls.some((m) => m.includes('--review-ref'))).toBe(true);
+  });
+});
+
+describe('TaskDrawer auto-review state (TB-265)', () => {
+  beforeEach(() => {
+    apiMocks.listAttachments.mockResolvedValue([]);
+  });
+
+  async function openAutoReviewDrawer(detail: TaskDetail) {
+    apiMocks.getTask.mockResolvedValue(detail);
+    component = mount(TaskDrawer, {
+      target: document.body,
+      props: { taskId: detail.metadata.id },
+    });
+    await tick();
+    await flushMicrotasks();
+    await tick();
+  }
+
+  function reviewButton() {
+    return Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find((b) => b.textContent?.trim().startsWith('Review'));
+  }
+
+  it('shows disabled auto-review state while keeping manual Review available', async () => {
+    await openAutoReviewDrawer(makeDetail({ id: 'TB-77', status: 'code-review', agent: 'claude' }));
+
+    expect(document.body.textContent).toContain('Auto-review off');
+    expect(reviewButton()).toBeDefined();
+    expect(reviewButton()?.disabled).toBe(false);
+  });
+
+  it('renders actionable skip reasons for code-review tasks', async () => {
+    (preferenceMocks.preferencesStore as { set: (next: Record<string, unknown>) => void })
+      .set({ autoReviewEnabled: true, defaultAgent: 'claude' });
+    (autoReviewMocks.autoReviewStore as { set: (next: Record<string, unknown>) => void })
+      .set({ lastSkipReasons: { 'TB-77': 'missing ReviewRef' } });
+
+    await openAutoReviewDrawer(makeDetail({ id: 'TB-77', status: 'code-review', agent: 'claude' }));
+
+    const row = document.querySelector('[data-testid="auto-review-drawer-status"]');
+    expect(row?.textContent).toContain('Auto-review needs ReviewRef');
+    expect(reviewButton()).toBeDefined();
+  });
+
+  it('shows queued/running auto-review state from review-mode run history', async () => {
+    (preferenceMocks.preferencesStore as { set: (next: Record<string, unknown>) => void })
+      .set({ autoReviewEnabled: true, defaultAgent: 'claude' });
+    apiMocks.listRuns.mockResolvedValue([
+      { runId: 'r_review', taskId: 'TB-77', agent: 'claude', mode: 'review', status: 'running' },
+    ]);
+
+    await openAutoReviewDrawer(makeDetail({ id: 'TB-77', status: 'code-review', agent: 'claude' }));
+
+    expect(document.querySelector('[data-testid="auto-review-drawer-status"]')?.textContent)
+      .toContain('Auto-review running');
   });
 });
 

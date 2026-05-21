@@ -9,6 +9,7 @@
   import { epicProgress } from '$lib/filtering';
   import { preferencesStore } from '$lib/stores/preferences';
   import { autoGroomStore } from '$lib/stores/autoGroom';
+  import { autoReviewStore } from '$lib/stores/autoReview';
   import { runsForTask, type Run } from '$lib/stores/runs';
 
   interface Props {
@@ -70,6 +71,24 @@
   });
   let showAutoGroomChip = $derived(
     autoGroomEnabledForCard && task.status === 'backlog' && groomRunStatus !== '',
+  );
+  let autoReviewEnabledForCard = $derived($preferencesStore.autoReviewEnabled);
+  let reviewRunStatus = $derived.by<Run['status'] | ''>(() => {
+    if (task.status !== 'code-review') return '';
+    const runs = $cardRuns.filter(
+      (r) => r.mode === 'review' && (r.status === 'queued' || r.status === 'running'),
+    );
+    return runs.length > 0 ? runs[0].status : '';
+  });
+  let showAutoReviewChip = $derived(
+    task.status === 'code-review' && reviewRunStatus !== '',
+  );
+  let autoReviewSkipReason = $derived($autoReviewStore.lastSkipReasons[task.id] ?? '');
+  let showAutoReviewSkip = $derived(
+    autoReviewEnabledForCard &&
+      task.status === 'code-review' &&
+      autoReviewSkipReason !== '' &&
+      !showAutoReviewChip,
   );
   // Settle-waiting pill: the coordinator skipped this task because the
   // settle window has not yet elapsed. Render only on backlog and only
@@ -332,6 +351,18 @@
         title={`${task.id} failed code review — see Review Findings in the drawer`}
         aria-label={`${task.id} failed code review`}>↩</span>
     {/if}
+    {#if showAutoReviewChip}
+      <span
+        class={`auto-review-chip per-action-${reviewRunStatus}`}
+        title={`Auto-review ${reviewRunStatus}`}
+        aria-label={`Auto-review ${reviewRunStatus}`}>R</span>
+    {/if}
+    {#if showAutoReviewSkip}
+      <span
+        class="auto-review-skip"
+        title={`Auto-review skipped: ${autoReviewSkipReason}`}
+        aria-label={`Auto-review skipped: ${autoReviewSkipReason}`}>!</span>
+    {/if}
   </header>
 
   {#if renaming}
@@ -584,6 +615,28 @@
     font-weight: 700;
     line-height: 1;
     cursor: help;
+  }
+  .auto-review-chip,
+  .auto-review-skip {
+    margin-left: 4px;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    cursor: help;
+  }
+  .auto-review-chip {
+    background: rgba(74, 141, 248, 0.18);
+    color: var(--p2);
+  }
+  .auto-review-skip {
+    background: rgba(244, 191, 79, 0.16);
+    color: #f4bf4f;
   }
   .pri-p0 { background: var(--p0); color: white; }
   .pri-p1 { background: var(--p1); color: black; }

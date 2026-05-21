@@ -45,6 +45,10 @@
     registerAutoGroomEventHandlers,
   } from '$lib/stores/autoGroom';
   import {
+    refresh as refreshAutoReview,
+    registerAutoReviewEventHandlers,
+  } from '$lib/stores/autoReview';
+  import {
     hydrate as hydrateUsage,
     registerUsageEventHandler,
   } from '$lib/stores/usage';
@@ -190,6 +194,10 @@
     void refreshAutoGroom();
     offEvents.push(
       registerAutoGroomEventHandlers((name, handler) => Events.On(name, handler as any)),
+    );
+    void refreshAutoReview();
+    offEvents.push(
+      registerAutoReviewEventHandlers((name, handler) => Events.On(name, handler as any)),
     );
     // Per-agent quota usage (TB-107): seed from backend cache, then live-
     // update on agent-usage:updated events from the periodic refresh loop.

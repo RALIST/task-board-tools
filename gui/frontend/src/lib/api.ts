@@ -35,11 +35,13 @@ import {
   RunAgent,
 } from '../../bindings/tools/tb-gui/app/agentservice';
 import { Status as AutoGroomStatusBinding } from '../../bindings/tools/tb-gui/app/autogroomcoordinator';
+import { Status as AutoReviewStatusBinding } from '../../bindings/tools/tb-gui/app/autoreviewcoordinator';
 import * as SettingsService from '../../bindings/tools/tb-gui/app/settingsservice';
 import type { AutoImplementFilter } from '$lib/autoImplementFilter';
 import type {
   Attachment,
   AutoGroomStatus,
+  AutoReviewStatus,
   BoardSnapshot,
   CreateTaskInput,
   CreateTaskResult,
@@ -53,6 +55,7 @@ import type {
 export type {
   Attachment,
   AutoGroomStatus,
+  AutoReviewStatus,
   BoardSnapshot,
   CreateTaskInput,
   CreateTaskResult,
@@ -355,6 +358,10 @@ export async function getProjectRoot(): Promise<string> {
 
 export async function getAutoGroomStatus(): Promise<AutoGroomStatus> {
   return await AutoGroomStatusBinding();
+}
+
+export async function getAutoReviewStatus(): Promise<AutoReviewStatus> {
+  return await AutoReviewStatusBinding();
 }
 
 export async function getMaxWorkers(): Promise<number> {

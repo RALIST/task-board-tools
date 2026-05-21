@@ -26,11 +26,33 @@ const fakeStore = vi.hoisted(() => {
   };
 });
 
+const autoReviewFakeStore = vi.hoisted(() => {
+  type State = { needsDefaultAgent: boolean };
+  type Listener = (state: State) => void;
+  let state: State = { needsDefaultAgent: false };
+  const listeners = new Set<Listener>();
+  return {
+    subscribe(fn: Listener) {
+      listeners.add(fn);
+      fn(state);
+      return () => listeners.delete(fn);
+    },
+    set(next: Partial<State>) {
+      state = { ...state, ...next };
+      for (const fn of listeners) fn(state);
+    },
+  };
+});
+
 vi.mock('$lib/stores/preferences', () => ({
   preferencesStore: {
     subscribe: fakeStore.subscribe,
     setAutoReviewEnabled: (enabled: boolean) => mocks.setAutoReviewEnabled(enabled),
   },
+}));
+
+vi.mock('$lib/stores/autoReview', () => ({
+  autoReviewStore: { subscribe: autoReviewFakeStore.subscribe },
 }));
 
 import AutoReviewHeaderToggle from './AutoReviewHeaderToggle.svelte';
@@ -42,6 +64,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.setAutoReviewEnabled.mockResolvedValue(undefined);
   fakeStore.set({ autoReviewEnabled: false, defaultAgent: 'claude' });
+  autoReviewFakeStore.set({ needsDefaultAgent: false });
 });
 
 afterEach(() => {
@@ -81,6 +104,16 @@ describe('AutoReviewHeaderToggle', () => {
 
   it('opens Settings instead of enabling when default agent is missing', async () => {
     fakeStore.set({ defaultAgent: 'none' });
+    const onOpenSettings = mountToggle(vi.fn());
+    pill().click();
+    await tick();
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(mocks.setAutoReviewEnabled).not.toHaveBeenCalled();
+  });
+
+  it('opens Settings when coordinator reports missing default agent', async () => {
+    autoReviewFakeStore.set({ needsDefaultAgent: true });
     const onOpenSettings = mountToggle(vi.fn());
     pill().click();
     await tick();

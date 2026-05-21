@@ -40,6 +40,7 @@
   import { consumeGroomSuggestion, groomSuggestedFor } from '$lib/stores/groomSuggestion';
   import { defaultAgent as defaultAgentPreference, preferencesStore } from '$lib/stores/preferences';
   import { autoGroomStore } from '$lib/stores/autoGroom';
+  import { autoReviewStore } from '$lib/stores/autoReview';
   import { triageForTask } from '$lib/stores/triage';
   import { board } from '$lib/stores/board';
   import { epicProgress } from '$lib/filtering';
@@ -363,6 +364,22 @@
   let canSubmitReview = $derived(detail?.metadata.status === 'in-progress');
   let canRunReview = $derived(detail?.metadata.status === 'code-review');
   let needsUser = $derived(taskAgentStatus === 'needs-user');
+  let autoReviewEnabledForDrawer = $derived($preferencesStore.autoReviewEnabled);
+  let drawerAutoReviewNeedsDefault = $derived(
+    autoReviewEnabledForDrawer &&
+      ($preferencesStore.defaultAgent === 'none' || $autoReviewStore.needsDefaultAgent),
+  );
+  let drawerAutoReviewSkipReason = $derived(
+    detail ? ($autoReviewStore.lastSkipReasons[detail.metadata.id] ?? '') : '',
+  );
+  let drawerReviewRunStatus = $derived.by<Run['status'] | ''>(() => {
+    if (!canRunReview) return '';
+    const reviewRun = effectiveRuns.find(
+      (r) => r.mode === 'review' && (r.status === 'queued' || r.status === 'running'),
+    );
+    return reviewRun?.status ?? '';
+  });
+  let drawerAutoReviewSkipMessage = $derived(autoReviewSkipMessage(drawerAutoReviewSkipReason));
   let showResume = $derived(taskAgentResumable);
   let canResume = $derived(showResume && !runBusy && !needsUser);
   let resumeSourceStatus = $derived(taskAgentStatus || 'previous');
@@ -410,6 +427,26 @@
     if (diffMs <= 0) return 0;
     return Math.max(1, Math.ceil(diffMs / 60000));
   });
+
+  function autoReviewSkipMessage(reason: string): string {
+    if (!reason) return '';
+    if (reason.includes('missing ReviewRef')) {
+      return 'Auto-review needs ReviewRef before it can run.';
+    }
+    if (reason.includes('needs-user')) {
+      return 'Auto-review is waiting for user input to be cleared.';
+    }
+    if (reason.includes('worker capacity')) {
+      return 'Auto-review is waiting for worker capacity.';
+    }
+    if (reason.includes('active run') || reason.includes('queued') || reason.includes('running')) {
+      return 'Auto-review skipped because a run is already active.';
+    }
+    if (reason.includes('duplicate')) {
+      return 'Auto-review already ran for this review target.';
+    }
+    return `Auto-review skipped: ${reason}`;
+  }
   // Epic progress derived from the live board store (mirrors Card.svelte).
   // Drives the "Progress" row in the Details rail; gated on the `epic` tag
   // so non-epic tasks never see it.
@@ -1688,6 +1725,26 @@
                   {/if}
                 </div>
               {/if}
+              {#if canRunReview}
+                <div class="auto-review-status" data-testid="auto-review-drawer-status">
+                  {#if !autoReviewEnabledForDrawer}
+                    <p class="auto-review-off">Auto-review off. Manual review remains available.</p>
+                  {:else if drawerAutoReviewNeedsDefault}
+                    <p class="auto-review-needs-default" role="alert">
+                      Auto-review is enabled but no default agent is set. Choose claude or codex
+                      in Settings.
+                    </p>
+                  {:else if drawerReviewRunStatus}
+                    <p class="auto-review-running">Auto-review {drawerReviewRunStatus}</p>
+                  {:else if drawerAutoReviewSkipReason}
+                    <p class="auto-review-skip-row" title={drawerAutoReviewSkipReason}>
+                      {drawerAutoReviewSkipMessage}
+                    </p>
+                  {:else}
+                    <p class="auto-review-on">Auto-review on</p>
+                  {/if}
+                </div>
+              {/if}
               <div class="agent-buttons">
                 <button
                   class="primary compact"
@@ -2227,10 +2284,12 @@
     gap: 6px;
     flex-wrap: wrap;
   }
-  .auto-groom-status {
+  .auto-groom-status,
+  .auto-review-status {
     margin: 6px 0 8px;
   }
-  .auto-groom-status p {
+  .auto-groom-status p,
+  .auto-review-status p {
     margin: 0;
     padding: 7px 10px;
     border-radius: 5px;
@@ -2255,6 +2314,24 @@
     display: inline-block;
     padding: 4px 9px;
     font-size: 10.5px;
+  }
+  .auto-review-needs-default {
+    border: 1px solid rgba(244, 191, 79, 0.45);
+    background: rgba(244, 191, 79, 0.08);
+    color: #f4bf4f;
+  }
+  .auto-review-skip-row,
+  .auto-review-off {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--fg-dim);
+  }
+  .auto-review-running,
+  .auto-review-on {
+    border: 1px solid rgba(74, 141, 248, 0.32);
+    background: rgba(74, 141, 248, 0.1);
+    color: var(--accent);
+    font-weight: 500;
   }
   .pill {
     font-size: 10px;

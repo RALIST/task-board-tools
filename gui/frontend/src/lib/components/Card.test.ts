@@ -40,6 +40,7 @@ const preferenceMocks = vi.hoisted(() => {
     periodicRecoveryEnabled: true,
     autoGroomEnabled: false,
     autoGroomSettleMinutes: 5,
+    autoReviewEnabled: false,
     loaded: true,
   };
   const subs = new Set<(v: any) => void>();
@@ -63,6 +64,7 @@ const preferenceMocks = vi.hoisted(() => {
           periodicRecoveryEnabled: true,
           autoGroomEnabled: false,
           autoGroomSettleMinutes: 5,
+          autoReviewEnabled: false,
           loaded: true,
         };
         for (const cb of subs) cb(current);
@@ -116,6 +118,45 @@ const autoGroomMocks = vi.hoisted(() => {
 });
 vi.mock('$lib/stores/autoGroom', () => ({
   autoGroomStore: autoGroomMocks.autoGroomStore,
+}));
+
+const autoReviewMocks = vi.hoisted(() => {
+  let current: any = {
+    enabled: false,
+    defaultAgent: 'none',
+    needsDefaultAgent: false,
+    lastScanAt: '',
+    lastSkipReasons: {},
+    loaded: false,
+  };
+  const subs = new Set<(v: any) => void>();
+  return {
+    autoReviewStore: {
+      subscribe(cb: (v: any) => void) {
+        cb(current);
+        subs.add(cb);
+        return () => subs.delete(cb);
+      },
+      set(next: Partial<typeof current>) {
+        current = { ...current, ...next };
+        for (const cb of subs) cb(current);
+      },
+      reset() {
+        current = {
+          enabled: false,
+          defaultAgent: 'none',
+          needsDefaultAgent: false,
+          lastScanAt: '',
+          lastSkipReasons: {},
+          loaded: false,
+        };
+        for (const cb of subs) cb(current);
+      },
+    },
+  };
+});
+vi.mock('$lib/stores/autoReview', () => ({
+  autoReviewStore: autoReviewMocks.autoReviewStore,
 }));
 
 // runs store: same vi.hoisted treatment so tests can put a fake groom run
@@ -235,6 +276,7 @@ beforeEach(() => {
   boardStore.reset();
   (preferenceMocks.preferencesStore as { reset: () => void }).reset();
   (autoGroomMocks.autoGroomStore as { reset: () => void }).reset();
+  (autoReviewMocks.autoReviewStore as { reset: () => void }).reset();
   runsMocks.reset();
 });
 
@@ -715,5 +757,62 @@ describe('Card.svelte auto-groom slot (TB-175)', () => {
     await tick();
 
     expect(document.querySelector('.auto-groom-chip')).toBeNull();
+  });
+});
+
+describe('Card.svelte auto-review state (TB-265)', () => {
+  it('renders a review run chip for code-review tasks with queued review runs', async () => {
+    runsMocks.setRuns('TB-1', [
+      { runId: 'r_1', taskId: 'TB-1', agent: 'claude', mode: 'review', status: 'queued' },
+    ]);
+
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'code-review' }) },
+    });
+    await tick();
+
+    const chip = document.querySelector('.auto-review-chip');
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent?.trim()).toBe('R');
+  });
+
+  it('renders a skip chip for code-review tasks with auto-review skip reasons', async () => {
+    preferenceMocks.preferencesStore.set({ autoReviewEnabled: true });
+    autoReviewMocks.autoReviewStore.set({ lastSkipReasons: { 'TB-1': 'missing ReviewRef' } });
+
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'code-review' }) },
+    });
+    await tick();
+
+    const chip = document.querySelector('.auto-review-skip');
+    expect(chip).not.toBeNull();
+    expect(chip?.getAttribute('title')).toContain('missing ReviewRef');
+  });
+
+  it('does not show stale auto-review chip after task leaves code-review', async () => {
+    runsMocks.setRuns('TB-1', [
+      { runId: 'r_1', taskId: 'TB-1', agent: 'claude', mode: 'review', status: 'running' },
+    ]);
+
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'done' }) },
+    });
+    await tick();
+
+    expect(document.querySelector('.auto-review-chip')).toBeNull();
+  });
+
+  it('keeps review-failed marker visible on ready tasks after failed review', async () => {
+    component = mount(Card, {
+      target: document.body,
+      props: { task: makeTask({ id: 'TB-1', status: 'ready', tags: ['review-failed'] }) },
+    });
+    await tick();
+
+    expect(document.querySelector('.review-failed-indicator')).not.toBeNull();
   });
 });
