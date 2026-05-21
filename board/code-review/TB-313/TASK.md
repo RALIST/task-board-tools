@@ -8,9 +8,10 @@
 **Agent:** codex
 **GroomedBy:** codex
 **GroomStatus:** success
-**AgentStatus:** failed
 **ImplementedBy:** codex
-**ImplementStatus:** failed
+**ImplementStatus:** success
+**AgentStatus:** success
+**ReviewRef:** 49063fa
 **Branch:** —
 
 ## Goal
@@ -44,6 +45,42 @@ Replace the TB-312 done/archive batch cap with true column virtualization or equ
 - [ ] Frontend verification passes: `cd gui/frontend && npm run check`, `cd gui/frontend && npm test -- --run`, and `cd gui/frontend && npm run lint`.
 - [ ] Manual test note: run the desktop GUI against a large board such as Writer Studio, scroll large `done` / `archive` columns, open tasks near the top and far down the list, confirm renderer CPU settles after scrolling, and confirm any guarded DnD case is visibly disabled.
 
+## User Attention
+
+No active user attention.
+
+Prior TB-318 verification blocker is resolved in current main: `npm run check` and full Vitest no longer fail on missing board-switch exports.
+
+Manual desktop smoke against Writer Studio was not run in this pass because prior TB-312 smoke showed opening Writer Studio can launch real autonomous work, and an existing local `tb-gui`/`wails3 dev` instance was already running during continuation. Automated large-column regression coverage now uses 3000-task done/archive fixtures and scroll/order/open checks.
+
+## Review Target
+
+branch: main
+commit: 49063fa
+
+Summary:
+- Added TB-313 regression coverage for virtualized done/archive order and badge preservation after scrolling.
+- Added coverage that large backlog columns stay fully mounted/draggable rather than receiving the completed-history virtual cap.
+- Added coverage that archive columns stay non-draggable without the virtualized DnD guard copy.
+
+Scope note:
+- Core virtualization implementation was already present on main before this continuation (`Column.svelte`, `columnVisibility.ts`). This commit closes acceptance coverage gaps without touching backend board loading, CLI format, watcher behavior, or board-switch UX.
+- Separate TB-323 drag-start crash WIP is dirty in the working tree and intentionally not included in commit 49063fa.
+
+## Reviewer Notes
+
+Verification:
+- Clean staged-patch worktree at HEAD+TB-313 patch: `cd gui/frontend && npm run check` — 0 errors, 0 warnings.
+- Clean staged-patch worktree at HEAD+TB-313 patch: `cd gui/frontend && npm test -- --run` — 28 files passed, 299 tests passed.
+- Clean staged-patch worktree at HEAD+TB-313 patch: `cd gui/frontend && npm run lint` — passed.
+- Main worktree after commit: `cd gui/frontend && npm run check` — 0 errors, 0 warnings.
+- Main worktree after commit: `cd gui/frontend && npm test -- --run` — 28 files passed, 304 tests passed; includes unrelated TB-323 WIP tests.
+- Main worktree after commit: `cd gui/frontend && npm run lint` — passed.
+- Code review subagent: PASS, no CRITICAL/IMPORTANT findings for TB-313 frontend files.
+
+Manual note:
+- Desktop GUI smoke against Writer Studio was not run. Prior TB-312 smoke showed opening Writer Studio can trigger real autonomous work; during continuation an existing `tb-gui`/`wails3 dev` instance was already running and Computer Use timed out reading it, so I did not kill or commandeer that session. Automated coverage exercises 3000-task done/archive rendering, scroll/open, ordering, badges, large backlog non-cap behavior, and DnD guard states.
+
 ## Related Tasks
 
 - **TB-312** — introduced the temporary done/archive batch render cap and recorded the large-board smoke context this task replaces.
@@ -72,4 +109,25 @@ Replace the TB-312 done/archive batch cap with true column virtualization or equ
 - 2026-05-21: Edited agentstatus=queued
 - 2026-05-21: Edited agentstatus=running
 - 2026-05-21: Edited agentstatus=failed, implemented-by=codex, implement-status=failed
+- 2026-05-21: Moved to ready
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited user-attention
+- 2026-05-21: Edited agentstatus=needs-user
+- 2026-05-21: Moved to ready
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=none
+- 2026-05-21: Moved to ready
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited user-attention
+- 2026-05-21: Edited review-target
+- 2026-05-21: Edited reviewer-notes
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=49063fa
+- 2026-05-21: Submitted to code-review
 
