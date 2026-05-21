@@ -87,6 +87,15 @@ var ErrAutoImplementDefaultAgentRequired = errors.New(
 var ErrAutoImplementQueryRequired = errors.New(
 	"auto-implement requires a non-empty filter query")
 
+// AutoReviewEnabledDefault is the default for the auto-review feature. Off
+// so existing users opt in deliberately.
+const AutoReviewEnabledDefault = false
+
+// ErrAutoReviewDefaultAgentRequired is returned when the user tries to enable
+// auto-review without picking a supported default_agent.
+var ErrAutoReviewDefaultAgentRequired = errors.New(
+	"auto-review requires Default Agent set to claude or codex")
+
 // Preferences is the persisted tuning knob set. Fields are JSON-tagged
 // in snake_case so a future settings UI (M7) can serialise the same
 // shape directly from a hand-edited form.
@@ -100,6 +109,7 @@ type Preferences struct {
 	AutoGroomSettleMinutes  int                 `json:"auto_groom_settle_minutes"`
 	AutoImplementEnabled    bool                `json:"auto_implement_enabled"`
 	AutoImplementQuery      AutoImplementFilter `json:"auto_implement_query"`
+	AutoReviewEnabled       bool                `json:"auto_review_enabled"`
 }
 
 // preferencesPath returns the absolute path the preferences file lives
@@ -187,18 +197,15 @@ func (s *SettingsService) GetDefaultAgent() string {
 }
 
 // SetDefaultAgent persists the default agent selection after normalizing it
-// to the supported enum. Notifies the auto-groom coordinator (if wired) so
-// it can re-evaluate the no-default-agent gate immediately.
+// to the supported enum. Notifies automation coordinators (if wired) so they
+// can re-evaluate the no-default-agent gate immediately.
 func (s *SettingsService) SetDefaultAgent(agent string) error {
 	if err := s.updatePreferences(func(prefs *Preferences) {
 		prefs.DefaultAgent = agent
 	}); err != nil {
 		return err
 	}
-	if controller, ok := s.activator.(AutoGroomController); ok {
-		controller.NotifyDefaultAgentChanged()
-	}
-	if controller, ok := s.activator.(AutoImplementController); ok {
+	if controller, ok := s.activator.(DefaultAgentController); ok {
 		controller.NotifyDefaultAgentChanged()
 	}
 	return nil
@@ -347,6 +354,52 @@ func (s *SettingsService) SetAutoImplementQuery(filter AutoImplementFilter) erro
 	return nil
 }
 
+// GetAutoReviewEnabled reports whether the auto-review coordinator may enqueue
+// review-mode runs for code-review tasks. Off by default.
+func (s *SettingsService) GetAutoReviewEnabled() bool {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return AutoReviewEnabledDefault
+	}
+	return prefs.AutoReviewEnabled
+}
+
+// SetAutoReviewEnabled persists the auto-review toggle. Enabling requires a
+// supported default agent. Validation happens inside the read-validate-write
+// transaction so failed enables leave the preferences file untouched.
+func (s *SettingsService) SetAutoReviewEnabled(enabled bool) error {
+	if err := s.updatePreferencesWithValidator(func(prefs *Preferences) error {
+		if enabled && prefs.DefaultAgent != "claude" && prefs.DefaultAgent != "codex" {
+			return ErrAutoReviewDefaultAgentRequired
+		}
+		prefs.AutoReviewEnabled = enabled
+		return nil
+	}); err != nil {
+		return err
+	}
+	if controller, ok := s.activator.(AutoReviewController); ok {
+		controller.NotifyAutoReviewEnabled()
+	}
+	return nil
+}
+
+// AutoReviewController is implemented by composite activators that own the
+// auto-review coordinator lifecycle. SettingsService calls these hooks when
+// preferences change so the future coordinator reacts without waiting for the
+// next watcher tick.
+type AutoReviewController interface {
+	NotifyAutoReviewEnabled()
+	NotifyDefaultAgentChanged()
+}
+
+// DefaultAgentController is implemented by activators that fan default-agent
+// changes out to all automation coordinators. Kept separate so a composite
+// activator that satisfies multiple automation interfaces is notified once.
+type DefaultAgentController interface {
+	NotifyDefaultAgentChanged()
+}
+
 // AutoImplementController is implemented by composite activators that
 // own the auto-implement coordinator lifecycle (parallels
 // AutoGroomController). The SettingsService pokes these methods when
@@ -459,6 +512,7 @@ func defaultPreferences() Preferences {
 		AutoGroomSettleMinutes: AutoGroomSettleMinutesDefault,
 		AutoImplementEnabled:   AutoImplementEnabledDefault,
 		AutoImplementQuery:     AutoImplementFilter{},
+		AutoReviewEnabled:      AutoReviewEnabledDefault,
 	}
 }
 

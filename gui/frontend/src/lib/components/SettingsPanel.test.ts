@@ -11,6 +11,7 @@ import { emptyAutoImplementFilter } from '$lib/autoImplementFilter';
 const mocks = vi.hoisted(() => ({
   setAutoImplementEnabled: vi.fn<(value: boolean) => Promise<void>>(),
   setAutoImplementQuery: vi.fn<(value: unknown) => Promise<void>>(),
+  setAutoReviewEnabled: vi.fn<(value: boolean) => Promise<void>>(),
   load: vi.fn<() => Promise<void>>(),
   pushToast: vi.fn(),
   enableClaudeUsageTap: vi.fn<() => Promise<unknown>>(),
@@ -66,6 +67,7 @@ const fakeStore = vi.hoisted(() => {
     autoGroomEnabled: false,
     autoGroomSettleMinutes: 5,
     autoImplementEnabled: false,
+    autoReviewEnabled: false,
     autoImplementQuery: {
       search: '',
       types: [] as string[],
@@ -108,6 +110,7 @@ vi.mock('$lib/stores/preferences', () => ({
     setAutoGroomSettleMinutes: vi.fn().mockResolvedValue(undefined),
     setAutoImplementEnabled: (v: boolean) => mocks.setAutoImplementEnabled(v),
     setAutoImplementQuery: (v: unknown) => mocks.setAutoImplementQuery(v),
+    setAutoReviewEnabled: (v: boolean) => mocks.setAutoReviewEnabled(v),
   },
 }));
 
@@ -122,6 +125,7 @@ beforeEach(() => {
   mocks.getClaudeUsageTap.mockResolvedValue({ enabled: false, projectRoot: '' });
   fakeStore.set({
     autoImplementEnabled: false,
+    autoReviewEnabled: false,
     autoImplementQuery: { ...emptyAutoImplementFilter },
     defaultAgent: 'claude',
     maxWorkersLimit: 8,
@@ -227,5 +231,35 @@ describe('SettingsPanel auto-implement', () => {
     expect(visibleText()).not.toContain('No filter saved');
     expect(visibleText()).not.toContain('Edit in board filter');
     expect(visibleText()).not.toContain('Build the filter on the board');
+  });
+
+  it('shows needs-default-agent warning when auto-review is enabled without an agent', async () => {
+    fakeStore.set({ defaultAgent: 'none' });
+    mountPanel();
+    await tick();
+    const toggle = findCheckbox('auto-review-toggle');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    toggle.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    expect(visibleText()).toContain('Set a default agent before auto-review can run');
+  });
+
+  it('saves auto-review enablement through the preferences store', async () => {
+    mocks.setAutoReviewEnabled.mockResolvedValue(undefined);
+    mountPanel();
+    await tick();
+    const toggle = findCheckbox('auto-review-toggle');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    toggle.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    const save = document.querySelector<HTMLButtonElement>('button.primary');
+    expect(save?.disabled).toBe(false);
+    save?.click();
+    await tick();
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.setAutoReviewEnabled).toHaveBeenCalledWith(true);
   });
 });

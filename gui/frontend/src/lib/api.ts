@@ -83,6 +83,8 @@ type SettingsServiceBindings = typeof SettingsService & {
   SetAutoImplementEnabled: (enabled: boolean) => Promise<void>;
   GetAutoImplementQuery: () => Promise<AutoImplementFilter>;
   SetAutoImplementQuery: (filter: AutoImplementFilter) => Promise<void>;
+  GetAutoReviewEnabled: () => Promise<boolean>;
+  SetAutoReviewEnabled: (enabled: boolean) => Promise<void>;
 };
 
 const settingsService = SettingsService as unknown as SettingsServiceBindings;
@@ -429,6 +431,14 @@ export async function getAutoImplementQuery(): Promise<AutoImplementFilter> {
 
 export async function setAutoImplementQuery(filter: AutoImplementFilter): Promise<void> {
   await requireSettingsMethod('SetAutoImplementQuery')(filter);
+}
+
+export async function getAutoReviewEnabled(): Promise<boolean> {
+  return await requireSettingsMethod('GetAutoReviewEnabled')();
+}
+
+export async function setAutoReviewEnabled(enabled: boolean): Promise<void> {
+  await requireSettingsMethod('SetAutoReviewEnabled')(enabled);
 }
 
 // Error-message heuristics — the Wails bridge stringifies Go errors, so

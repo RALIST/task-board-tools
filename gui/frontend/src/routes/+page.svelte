@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { Events, System, Window } from '@wailsio/runtime';
+  import AutoReviewHeaderToggle from '$lib/components/AutoReviewHeaderToggle.svelte';
   import Board from '$lib/components/Board.svelte';
   import CreateTaskDialog from '$lib/components/CreateTaskDialog.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
@@ -424,6 +425,7 @@
         <span class="dot" aria-hidden="true"></span>
         Auto-impl
       </button>
+      <AutoReviewHeaderToggle onOpenSettings={() => (settingsOpen = true)} />
       <button class="pick" onclick={() => (settingsOpen = true)}>Settings</button>
       <button class="pick" onclick={pickAndOpen}>Open board…</button>
     </div>

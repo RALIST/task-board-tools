@@ -5,6 +5,7 @@ import {
   getAutoGroomSettleMinutes,
   getAutoImplementEnabled,
   getAutoImplementQuery,
+  getAutoReviewEnabled,
   getCLIPath,
   getDefaultAgent,
   getMaxWorkers,
@@ -15,6 +16,7 @@ import {
   setAutoGroomSettleMinutes as apiSetAutoGroomSettleMinutes,
   setAutoImplementEnabled as apiSetAutoImplementEnabled,
   setAutoImplementQuery as apiSetAutoImplementQuery,
+  setAutoReviewEnabled as apiSetAutoReviewEnabled,
   setCLIPath as apiSetCLIPath,
   setDefaultAgent as apiSetDefaultAgent,
   setMaxWorkers as apiSetMaxWorkers,
@@ -39,6 +41,7 @@ export interface PreferencesState {
   autoGroomSettleMinutes: number;
   autoImplementEnabled: boolean;
   autoImplementQuery: AutoImplementFilter;
+  autoReviewEnabled: boolean;
   loaded: boolean;
 }
 
@@ -53,6 +56,7 @@ const DEFAULT_STATE: PreferencesState = {
   autoGroomSettleMinutes: 5,
   autoImplementEnabled: false,
   autoImplementQuery: { ...emptyAutoImplementFilter },
+  autoReviewEnabled: false,
   loaded: false,
 };
 
@@ -78,6 +82,7 @@ export async function loadPreferences(): Promise<void> {
         autoGroomSettleMinutes,
         autoImplementEnabled,
         autoImplementQuery,
+        autoReviewEnabled,
       ] = await Promise.all([
         getMaxWorkers(),
         getMaxWorkersLimit(),
@@ -89,6 +94,7 @@ export async function loadPreferences(): Promise<void> {
         getAutoGroomSettleMinutes(),
         getAutoImplementEnabled(),
         getAutoImplementQuery(),
+        getAutoReviewEnabled(),
       ]);
 
       const normalizedMaxWorkersLimit = normalizeStoredInt(
@@ -123,6 +129,7 @@ export async function loadPreferences(): Promise<void> {
         ),
         autoImplementEnabled: autoImplementEnabled === true,
         autoImplementQuery: normalizeAutoImplementQuery(autoImplementQuery),
+        autoReviewEnabled: autoReviewEnabled === true,
         loaded: true,
       });
     } catch (err) {
@@ -191,6 +198,12 @@ export async function setAutoImplementQuery(value: AutoImplementFilter): Promise
   );
 }
 
+export async function setAutoReviewEnabled(value: boolean): Promise<void> {
+  await optimisticWrite('autoReviewEnabled', value, 'auto-review', () =>
+    apiSetAutoReviewEnabled(value),
+  );
+}
+
 export const preferencesStore = {
   subscribe: preferences.subscribe,
   load: loadPreferences,
@@ -203,6 +216,7 @@ export const preferencesStore = {
   setAutoGroomSettleMinutes,
   setAutoImplementEnabled,
   setAutoImplementQuery,
+  setAutoReviewEnabled,
 };
 
 export function _resetPreferencesStoreForTesting(): void {

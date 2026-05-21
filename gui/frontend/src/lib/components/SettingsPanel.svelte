@@ -40,6 +40,7 @@
   let autoGroomInput = $state(false);
   let autoGroomSettleInput = $state('5');
   let autoImplementInput = $state(false);
+  let autoReviewInput = $state(false);
   // TB-297: Settings only owns the enable/disable preference. The
   // persisted filter is read here solely to render prerequisite warnings.
   let savedFilter = $state<AutoImplementFilter>({ ...emptyAutoImplementFilter });
@@ -59,6 +60,7 @@
     autoGroomSettleMinutes: 5,
     autoImplementEnabled: false,
     autoImplementQuery: { ...emptyAutoImplementFilter },
+    autoReviewEnabled: false,
   });
 
   let nextMaxWorkers = $derived(
@@ -79,7 +81,8 @@
       periodicRecoveryInput !== baseline.periodicRecoveryEnabled ||
       autoGroomInput !== baseline.autoGroomEnabled ||
       nextAutoGroomSettle !== baseline.autoGroomSettleMinutes ||
-      autoImplementInput !== baseline.autoImplementEnabled,
+      autoImplementInput !== baseline.autoImplementEnabled ||
+      autoReviewInput !== baseline.autoReviewEnabled,
   );
   let autoGroomNeedsDefaultAgent = $derived(
     autoGroomInput && defaultAgentInput === 'none',
@@ -91,6 +94,9 @@
   // filter cannot fail to parse. Mirrors Go-side IsEmpty check.
   let autoImplementFilterEmpty = $derived(isAutoImplementFilterEmpty(savedFilter));
   let autoImplementNeedsQuery = $derived(autoImplementInput && autoImplementFilterEmpty);
+  let autoReviewNeedsDefaultAgent = $derived(
+    autoReviewInput && defaultAgentInput === 'none',
+  );
 
   $effect(() => {
     const prefs = $preferencesStore;
@@ -213,6 +219,13 @@
           failures.push('auto-implement');
         }
       }
+      if (autoReviewInput !== baseline.autoReviewEnabled) {
+        try {
+          await preferencesStore.setAutoReviewEnabled(autoReviewInput);
+        } catch {
+          failures.push('auto-review');
+        }
+      }
 
       const current = get(preferencesStore);
       baseline = toEditable(current);
@@ -252,6 +265,7 @@
     autoGroomInput = baseline.autoGroomEnabled;
     autoGroomSettleInput = String(baseline.autoGroomSettleMinutes);
     autoImplementInput = baseline.autoImplementEnabled;
+    autoReviewInput = baseline.autoReviewEnabled;
     savedFilter = baseline.autoImplementQuery;
   }
 
@@ -267,6 +281,7 @@
       autoGroomSettleMinutes: prefs.autoGroomSettleMinutes,
       autoImplementEnabled: prefs.autoImplementEnabled,
       autoImplementQuery: prefs.autoImplementQuery,
+      autoReviewEnabled: prefs.autoReviewEnabled,
     };
   }
 
@@ -447,6 +462,24 @@
         {#if autoImplementNeedsQuery}
           <p class="inline-warning" role="alert">
             Auto-implement needs a saved filter to know which tasks to pick.
+          </p>
+        {/if}
+
+        <label class="field checkbox-field">
+          <span>Enable auto review</span>
+          <input
+            type="checkbox"
+            data-testid="auto-review-toggle"
+            bind:checked={autoReviewInput} />
+          <small>
+            When on, the GUI reviews <code>code-review</code> tasks with ReviewRef
+            using the default agent.
+          </small>
+        </label>
+
+        {#if autoReviewNeedsDefaultAgent}
+          <p class="inline-warning" role="alert">
+            Set a default agent before auto-review can run.
           </p>
         {/if}
       </section>

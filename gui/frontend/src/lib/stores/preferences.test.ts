@@ -31,6 +31,8 @@ const getAutoImplementEnabled = vi.fn<() => Promise<boolean>>();
 const setAutoImplementEnabled = vi.fn<(enabled: boolean) => Promise<void>>();
 const getAutoImplementQuery = vi.fn<() => Promise<AutoImplementFilter>>();
 const setAutoImplementQuery = vi.fn<(filter: AutoImplementFilter) => Promise<void>>();
+const getAutoReviewEnabled = vi.fn<() => Promise<boolean>>();
+const setAutoReviewEnabled = vi.fn<(enabled: boolean) => Promise<void>>();
 const pushToast = vi.fn();
 
 vi.mock('$lib/api', () => ({
@@ -53,6 +55,8 @@ vi.mock('$lib/api', () => ({
   setAutoImplementEnabled: (enabled: boolean) => setAutoImplementEnabled(enabled),
   getAutoImplementQuery: () => getAutoImplementQuery(),
   setAutoImplementQuery: (filter: AutoImplementFilter) => setAutoImplementQuery(filter),
+  getAutoReviewEnabled: () => getAutoReviewEnabled(),
+  setAutoReviewEnabled: (enabled: boolean) => setAutoReviewEnabled(enabled),
 }));
 
 vi.mock('./toast', () => ({
@@ -68,6 +72,7 @@ const {
   setAutoGroomSettleMinutes: storeSetAutoGroomSettleMinutes,
   setAutoImplementEnabled: storeSetAutoImplementEnabled,
   setAutoImplementQuery: storeSetAutoImplementQuery,
+  setAutoReviewEnabled: storeSetAutoReviewEnabled,
   setCLIPath: storeSetCLIPath,
   setDefaultAgent: storeSetDefaultAgent,
   setMaxWorkers: storeSetMaxWorkers,
@@ -88,6 +93,7 @@ describe('preferencesStore', () => {
     getAutoGroomSettleMinutes.mockResolvedValue(5);
     getAutoImplementEnabled.mockResolvedValue(false);
     getAutoImplementQuery.mockResolvedValue({ ...emptyAutoImplementFilter });
+    getAutoReviewEnabled.mockResolvedValue(false);
     setMaxWorkers.mockResolvedValue();
     setAgentTimeoutMinutes.mockResolvedValue();
     setDefaultAgent.mockResolvedValue();
@@ -97,6 +103,7 @@ describe('preferencesStore', () => {
     setAutoGroomSettleMinutes.mockResolvedValue();
     setAutoImplementEnabled.mockResolvedValue();
     setAutoImplementQuery.mockResolvedValue();
+    setAutoReviewEnabled.mockResolvedValue();
   });
 
   it('hydrates preferences and marks the store loaded', async () => {
@@ -110,6 +117,7 @@ describe('preferencesStore', () => {
     getAutoGroomSettleMinutes.mockResolvedValue(10);
     getAutoImplementEnabled.mockResolvedValue(true);
     getAutoImplementQuery.mockResolvedValue(acFilter);
+    getAutoReviewEnabled.mockResolvedValue(true);
 
     await loadPreferences();
 
@@ -124,6 +132,7 @@ describe('preferencesStore', () => {
       autoGroomSettleMinutes: 10,
       autoImplementEnabled: true,
       autoImplementQuery: acFilter,
+      autoReviewEnabled: true,
       loaded: true,
     });
   });
@@ -142,6 +151,7 @@ describe('preferencesStore', () => {
     expect(getAutoGroomSettleMinutes).toHaveBeenCalledTimes(1);
     expect(getAutoImplementEnabled).toHaveBeenCalledTimes(1);
     expect(getAutoImplementQuery).toHaveBeenCalledTimes(1);
+    expect(getAutoReviewEnabled).toHaveBeenCalledTimes(1);
   });
 
   it('round-trips all set methods through the api', async () => {
@@ -154,6 +164,7 @@ describe('preferencesStore', () => {
     await storeSetPeriodicRecoveryEnabled(false);
     await storeSetAutoGroomEnabled(true);
     await storeSetAutoGroomSettleMinutes(15);
+    await storeSetAutoReviewEnabled(true);
 
     expect(setMaxWorkers).toHaveBeenCalledWith(4);
     expect(setAgentTimeoutMinutes).toHaveBeenCalledWith(60);
@@ -162,6 +173,7 @@ describe('preferencesStore', () => {
     expect(setPeriodicRecoveryEnabled).toHaveBeenCalledWith(false);
     expect(setAutoGroomEnabled).toHaveBeenCalledWith(true);
     expect(setAutoGroomSettleMinutes).toHaveBeenCalledWith(15);
+    expect(setAutoReviewEnabled).toHaveBeenCalledWith(true);
     expect(get(preferencesStore)).toMatchObject({
       maxWorkers: 4,
       maxWorkersLimit: 8,
@@ -171,6 +183,7 @@ describe('preferencesStore', () => {
       periodicRecoveryEnabled: false,
       autoGroomEnabled: true,
       autoGroomSettleMinutes: 15,
+      autoReviewEnabled: true,
     });
   });
 
@@ -279,6 +292,19 @@ describe('preferencesStore', () => {
     expect(get(preferencesStore)).toMatchObject({ autoImplementEnabled: false });
     expect(pushToast).toHaveBeenCalledWith(
       'Could not save auto-implement: default-agent required',
+      undefined,
+    );
+  });
+
+  it('rolls back an auto-review enable when the backend rejects', async () => {
+    await loadPreferences();
+    setAutoReviewEnabled.mockRejectedValueOnce(new Error('default-agent required'));
+
+    await expect(storeSetAutoReviewEnabled(true)).rejects.toThrow('default-agent required');
+
+    expect(get(preferencesStore)).toMatchObject({ autoReviewEnabled: false });
+    expect(pushToast).toHaveBeenCalledWith(
+      'Could not save auto-review: default-agent required',
       undefined,
     );
   });

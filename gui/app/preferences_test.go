@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -55,6 +56,9 @@ func TestPreferences_MissingFileReturnsDefaults(t *testing.T) {
 	}
 	if got := s.GetAutoGroomSettleMinutes(); got != AutoGroomSettleMinutesDefault {
 		t.Errorf("auto_groom_settle_minutes: got %d, want %d", got, AutoGroomSettleMinutesDefault)
+	}
+	if got := s.GetAutoReviewEnabled(); got != AutoReviewEnabledDefault {
+		t.Errorf("auto_review_enabled: got %v, want %v", got, AutoReviewEnabledDefault)
 	}
 }
 
@@ -334,6 +338,73 @@ func TestSetAutoImplementEnabled_RevalidatesInsideWrite(t *testing.T) {
 	}
 	if s.GetAutoImplementEnabled() {
 		t.Errorf("auto-implement enabled despite stale prereqs")
+	}
+}
+
+func TestSetAutoReviewEnabled_RequiresDefaultAgent(t *testing.T) {
+	s, _ := newSettingsForPrefs(t)
+	err := s.SetAutoReviewEnabled(true)
+	if !errors.Is(err, ErrAutoReviewDefaultAgentRequired) {
+		t.Fatalf("SetAutoReviewEnabled error = %v, want ErrAutoReviewDefaultAgentRequired", err)
+	}
+	if got := s.GetAutoReviewEnabled(); got {
+		t.Errorf("preferences mutated despite validation failure")
+	}
+}
+
+func TestSetAutoReviewEnabled_AcceptsValidDefaultAgent(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := s.SetDefaultAgent("claude"); err != nil {
+		t.Fatalf("SetDefaultAgent: %v", err)
+	}
+	if err := s.SetAutoReviewEnabled(true); err != nil {
+		t.Fatalf("SetAutoReviewEnabled(true): %v", err)
+	}
+	if got := s.GetAutoReviewEnabled(); !got {
+		t.Errorf("auto-review should be enabled")
+	}
+	sEnabled := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := sEnabled.GetAutoReviewEnabled(); !got {
+		t.Errorf("fresh read after enable: got false, want true")
+	}
+	if err := s.SetAutoReviewEnabled(false); err != nil {
+		t.Fatalf("SetAutoReviewEnabled(false): %v", err)
+	}
+	if got := s.GetAutoReviewEnabled(); got {
+		t.Errorf("auto-review should be disabled")
+	}
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetAutoReviewEnabled(); got {
+		t.Errorf("fresh read: got true, want false")
+	}
+}
+
+func TestSetAutoReviewEnabled_ValidationLeavesFileUnchanged(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := s.SetMaxWorkers(3); err != nil {
+		t.Fatalf("SetMaxWorkers: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+
+	err = s.SetAutoReviewEnabled(true)
+	if !errors.Is(err, ErrAutoReviewDefaultAgentRequired) {
+		t.Fatalf("SetAutoReviewEnabled error = %v, want ErrAutoReviewDefaultAgentRequired", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("preferences changed despite validation failure:\nbefore=%s\nafter=%s", before, after)
 	}
 }
 
