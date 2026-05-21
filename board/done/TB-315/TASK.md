@@ -45,3 +45,5 @@ Verification: cd gui && go test ./internal/daemon -run 'TestDaemon_DispatcherWai
 - 2026-05-21: Edited reviewer-notes
 - 2026-05-21: Edited reviewref=main
 - 2026-05-21: Submitted to code-review
+- 2026-05-21: Moved to done
+

@@ -1,15 +1,15 @@
 # This file contains the configuration for this project.
 # When you update `info` or `fileAssociations`, run `wails3 task common:update:build-assets` to update the assets.
 # Note that this will overwrite any changes you have made to the assets.
-version: '3'
+version: "3"
 
 # This information is used to generate the build assets.
 info:
   companyName: "task-board-tools"
-  productName: "Task Board Tools"
+  productName: "Kanban Board"
   productIdentifier: "com.taskboard.tbgui"
-  description: "Task Board Tools GUI — kanban over markdown tasks"
-  copyright: "© 2026 task-board-tools"
+  description: "Kanban Board GUI — kanban over markdown tasks"
+  copyright: "© 2026 Alexander Danilov"
   comments: "Wails3 + SvelteKit desktop companion for the tb CLI"
   version: "0.1.0"
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
@@ -50,6 +50,7 @@ dev_mode:
       - "*.go"
       - "*.js" # Watch for changes to JS/TS files included using the //wails:include directive.
       - "*.ts" # The frontend directory will be excluded entirely by the setting above.
+      - "*.svelte"
     git_ignore: true
   executes:
     - cmd: wails3 build DEV=true

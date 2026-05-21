@@ -21,13 +21,8 @@ Don't rely on this file for details — those docs are the source of truth. We h
 ## Rules
 
 - Always read `@board/CONVENTIONS.md` for the task board workflow and follow the conventions and guidelines.
-- Use subganets when possible to speedup work and reduce context switching.
 - Create new tasks for any bug/follow-up work that you identify while working on an existing task. This helps keep track of all the work that needs to be done and ensures that nothing falls through the cracks.
 - Rebuild and relink cli binary after changes in /cli/; the `tb` binary is not tracked by git and must be built locally.
-- always run code review session after each meaningful unit of work through subagent to maintain code quality
-- alwayd create follow up tickets for any work that is identified while working on an existing task to ensure that it gets tracked and completed
-- commit your work with clear, descriptive messages that reference the relevant task IDs (e.g., `TB-26 atomic next-id writes`), and avoid staging unrelated changes to keep commits focused and reviewable.
-- keep docs up to date
 
 ## Architecture invariants (do not break)
 

@@ -61,4 +61,5 @@ TB-246 separately tracks regenerating `gui/build/darwin/Assets.car` on a working
 - 2026-05-19: Edited acceptance
 - 2026-05-19: Edited agentstatus=success, groomed-by=codex, groom-status=success
 - 2026-05-19: Edited agentstatus=success, groomed-by=codex, groom-status=success
+- 2026-05-21: Moved to done
 

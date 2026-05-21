@@ -5,7 +5,6 @@
 | ID | Title | Progress | Status | Module |
 |----|-------|----------|--------|--------|
 | TB-109 | Worktree-isolated task execution | 0/12 | backlog | cli |
-| TB-262 | Auto-review | 0/4 | backlog | gui |
 | TB-186 | Change parent task | 0/3 | backlog | gui |
 | TB-292 | Epic: mirror project settings between GUI and .tb.yaml | 0/3 | ready | gui |
 | TB-303 | Epic: remove generic AgentStatus field | 0/4 | ready | workflow |
@@ -26,6 +25,7 @@
 | TB-182 | Add special labes\tags\status for user attention | 3/3 | agent |
 | TB-194 | Code-review column | 6/6 | workflow |
 | TB-239 | Canonical Kanban: add ready column + WIP/pull mechanics | 0/0 | core |
+| TB-262 | Auto-review | 4/4 | gui |
 | TB-267 | Auto-implement: respect epic child order | 0/0 | gui |
 | TB-6 | M6: Groom flow for AI-assisted task refinement | 11/11 | gui |
 | TB-7 | M7: Polish — settings, shortcuts, tray, menus | 10/10 | gui |
@@ -38,14 +38,13 @@
 |----|-------|----------|--------|--------|
 | — | — | — | — | — |
 
-## Code Review (2/3)
+## Code Review (0/3)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| TB-312 | GUI: Open project selection does not switch board | P1 | gui | — |
-| TB-315 | Auto-groom and auto-resume must respect worker budget | P1 | gui | — |
+| — | — | — | — | — |
 
-## Ready (10/10 ⚠)
+## Ready (13/10 ⚠)
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
@@ -59,6 +58,9 @@
 | TB-304 | Auto-groom: respect ready WIP limit | bug | P2 | M | gui |
 | TB-305 | CLI: install project task-board skills during init | improvement | P2 | M | cli |
 | TB-306 | Generated conventions and skill should omit autonomous flows | bug | P2 | M | cli |
+| TB-313 | GUI: virtualize large kanban columns | improvement | P2 | M | gui |
+| TB-317 | CLI: add --agent-status filter for running agent tasks | feature | P2 | S | cli |
+| TB-318 | GUI: show loading state during board switch | bug | P2 | M | gui |
 
 ## Backlog
 
@@ -86,17 +88,11 @@
 | TB-192 | GUI backend: expose parent reassignment | improvement | P2 | S | gui |
 | TB-193 | TaskDrawer: edit parent epic from task page | improvement | P2 | M | gui/frontend |
 | TB-246 | Regenerate darwin/Assets.car on working Xcode env | tech-debt | P2 | S | gui |
-| TB-248 | Manual macOS verification of Task Board Tools branding | improvement | P2 | S | gui |
 | TB-254 | Stale recovery should write per-mode pairs for recovered terminal runs | tech-debt | P2 | S | gui |
 | TB-255 | TaskDrawer marks stale per-action attribution during same-mode run | improvement | P2 | S | gui |
 | TB-256 | Test TestRunQueuedAgentSync_ResumeRehydratesParentContext should assert per-mode write on daemon replay | tech-debt | P2 | S | gui |
 | TB-259 | Per-task chat panel via claude/codex CLIs | feature | P1 | L | gui |
 | TB-260 | Ability to edit agent prompts | feature | P2 | L | gui |
-| TB-262 | Auto-review | feature | P1 | L | gui |
-| TB-263 | GUI: persist auto-review setting and controls | feature | P1 | M | gui |
-| TB-264 | GUI: enqueue code-review tasks for review-mode daemon runs | feature | P1 | M | gui |
-| TB-265 | GUI: surface auto-review state and decisions | feature | P1 | S | gui |
-| TB-272 | CLI: add managed review pass flow | feature | P1 | M | workflow |
 | TB-273 | CLI: make tb init interactive | improvement | P1 | M | cli |
 | TB-285 | CLI: tb scan --apply creates folder-form tasks | bug | P0 | S | cli |
 | TB-298 | Allow DnD into the Archive column | improvement | P2 | S | gui-frontend |
@@ -106,7 +102,6 @@
 | TB-309 | Frontend: remove generic AgentStatus display dependency | improvement | P2 | M | gui-frontend |
 | TB-310 | Docs and board cleanup for AgentStatus removal | tech-debt | P2 | M | docs |
 | TB-311 | Manual smoke board-switch cancellation in desktop GUI | spike | P2 | S | gui |
-| TB-313 | GUI: virtualize large kanban columns | improvement | P2 | M | gui |
 | TB-314 | GUI: opening a board can start queued agent runs during smoke/load tests | bug | P1 | M | gui |
 | TB-316 | Profile GUI idle CPU usage | bug | P1 | S | gui |
 
@@ -114,6 +109,8 @@
 
 | ID | Title | Type | Module |
 |----|-------|------|--------|
+| TB-315 | Auto-groom and auto-resume must respect worker budget | bug | gui |
+| TB-312 | GUI: Open project selection does not switch board | bug | gui |
 | TB-302 | GUI board switch cancels old-board auto-runs cleanly | bug | gui |
 | TB-300 | Auto-implement: respect WIP and CPU worker budget | bug | gui |
 | TB-297 | Remove auto-implement filter from settings UI | tech-debt | gui |
@@ -124,17 +121,23 @@
 | TB-288 | FilterBar-driven auto-implement query (replaces text DSL) | feature | gui |
 | TB-287 | Flaky race in TestDaemonPeriodicRecovery_ReconcilesStaleRunningWithoutRestart | bug | gui |
 | TB-286 | Show readable GUI error toasts | bug | gui-frontend |
+| TB-272 | CLI: add managed review pass flow | feature | workflow |
 | TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
 | TB-270 | Align agent prompts with staged kanban workflow | improvement | agent |
 | TB-268 | Review-failed handoff clears retry-blocking agent state | bug | workflow |
 | TB-267 | Auto-implement: respect epic child order | feature | gui |
 | TB-266 | Daemon: reconcile autonomous stage transitions | improvement | gui |
+| TB-265 | GUI: surface auto-review state and decisions | feature | gui |
+| TB-264 | GUI: enqueue code-review tasks for review-mode daemon runs | feature | gui |
+| TB-263 | GUI: persist auto-review setting and controls | feature | gui |
+| TB-262 | Auto-review | feature | gui |
 | TB-261 | Safely clean up orphaned agent processes | improvement | gui |
 | TB-253 | GUI Run History shows multiple concurrent RUNNING rows for one task | bug | gui |
 | TB-252 | Allow Resume when session_id is present regardless of AgentStatus | improvement | gui |
 | TB-251 | Distinguish agent-failed from daemon-lost in recovery | improvement | gui |
 | TB-250 | Resolve GUI golangci-lint baseline findings | tech-debt | tooling |
 | TB-249 | Resolve CLI golangci-lint baseline findings | tech-debt | tooling |
+| TB-248 | Manual macOS verification of Task Board Tools branding | improvement | gui |
 | TB-247 | Triage TB-205 knip first-pass findings | tech-debt | gui-frontend |
 | TB-244 | Periodic re-recovery for stale agent runs | improvement | gui |
 | TB-242 | Agent runner blocks on stdout EOF when child processes inherit pipes | bug | gui |
@@ -156,11 +159,3 @@
 | TB-224 | Support task-root attachments | improvement | cli/gui |
 | TB-223 | Audit secondary docs for stale layout/status | improvement | docs |
 | TB-222 | Refresh README for current repo layout | improvement | docs |
-| TB-221 | Prepare repository for GitHub push | tech-debt | tooling |
-| TB-219 | Manual QA: running agent remains queued and cannot be cancelled | bug | gui |
-| TB-218 | QA probe GUI create dialog | bug | gui/frontend |
-| TB-217 | Manual QA: attachment removal mis-parses dash-leading filename | bug | cli |
-| TB-216 | QA probe legacy file parity | bug | cli |
-| TB-215 | QA probe groom placeholder | bug | gui |
-| TB-214 | QA probe daemon pickup | bug | gui |
-| TB-213 | QA probe agent run | bug | gui |
