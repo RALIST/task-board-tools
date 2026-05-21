@@ -25,6 +25,7 @@
     type RecentBoard,
   } from '$lib/api';
   import {
+    beginBoardSwitch,
     board,
     loaded,
     loadError,
@@ -33,6 +34,7 @@
     refresh,
     revert,
     setStatusMode,
+    switchingTo,
   } from '$lib/stores/board';
   import { applyFilter, observedEpics } from '$lib/filtering';
   import { filter } from '$lib/stores/filter';
@@ -61,6 +63,7 @@
   } from '$lib/stores/startupGrace';
   import { shortcutAction } from '$lib/shortcuts';
   import { isAutoImplementFilterEmpty } from '$lib/autoImplementFilter';
+  import { createBoardSwitchCoordinator, shouldAcceptBoardReload } from '$lib/boardSwitch';
 
   let projectRoot = $state('');
   let recents = $state<RecentBoard[]>([]);
@@ -75,6 +78,12 @@
   let initBoardRoot = $state('');
 
   const offEvents: Array<() => void> = [];
+  let boardCommitSeq = 0;
+  const boardSwitch = createBoardSwitchCoordinator({
+    openBoard,
+    onCommitted: commitOpenedBoard,
+    onActivated: startStartupGraceForBoard,
+  });
 
   // Live-derived filtered view.
   let filtered = $derived(applyFilter($board, $filter));
@@ -143,17 +152,20 @@
     try { projectRoot = await getProjectRoot(); } catch { projectRoot = ''; }
     try { recents = await listRecentBoards(); } catch { recents = []; }
 
+    offEvents.push(Events.On('board:reloaded', async () => { await refreshVisibleBoard(); }));
+    offEvents.push(Events.On('board:opened', async (info: any) => {
+      const root = info?.data?.projectRoot ?? info?.projectRoot ?? '';
+      let activeRoot: string | null = null;
+      try { activeRoot = await getProjectRoot(); } catch { /* stale/missing roots are ignored below */ }
+      await boardSwitch.handleOpenedEvent(root, activeRoot);
+    }));
+
     if (projectRoot) {
-      startStartupGraceForBoard(projectRoot);
       await refresh();
       bootStatus = 'ready';
     } else if (recents.length > 0) {
       try {
-        await openBoard(recents[0].projectRoot);
-        projectRoot = recents[0].projectRoot;
-        startStartupGraceForBoard(projectRoot);
-        await refresh();
-        bootStatus = 'ready';
+        await boardSwitch.open(recents[0].projectRoot);
       } catch (err) {
         pushToast(`Could not reopen ${recents[0].projectRoot}: ${errorString(err)}`);
         bootStatus = 'pick';
@@ -163,17 +175,6 @@
       bootStatus = 'pick';
     }
 
-    offEvents.push(Events.On('board:reloaded', async () => { await refresh(); }));
-    offEvents.push(Events.On('board:opened', async (info: any) => {
-      const root = info?.data?.projectRoot ?? info?.projectRoot ?? '';
-      if (root) {
-        projectRoot = root;
-        startStartupGraceForBoard(root);
-      }
-      bootStatus = 'ready';
-      try { recents = await listRecentBoards(); } catch { recents = []; }
-      await refresh();
-    }));
     offEvents.push(Events.On('settings:open-panel', () => { settingsOpen = true; }));
     // File-drop result toast. Wails surfaces a single WindowFilesDropped per
     // logical drop; main.go routes it to BoardService and emits this event.
@@ -237,12 +238,7 @@
     try {
       path = await pickBoardDialog(suggestBoardDialogDirectory(projectRoot, recents));
       if (!path) return;
-      await openBoard(path);
-      projectRoot = path;
-      startStartupGraceForBoard(path);
-      recents = await listRecentBoards();
-      await refresh();
-      bootStatus = 'ready';
+      await boardSwitch.open(path);
     } catch (err) {
       if (isCancelledError(err)) return;
       if (isNoTbYamlError(err)) {
@@ -261,11 +257,7 @@
     initBoardRoot = '';
     // OpenBoard already emitted board:opened from the backend, but refresh
     // explicitly so a not-yet-listening watcher still gets us to ready.
-    projectRoot = newRoot;
-    startStartupGraceForBoard(newRoot);
-    try { recents = await listRecentBoards(); } catch { /* recents are non-fatal */ }
-    await refresh();
-    bootStatus = 'ready';
+    await commitOpenedBoard(newRoot);
   }
 
   function onInitBoardCancelled() {
@@ -274,15 +266,33 @@
 
   async function openRecent(r: RecentBoard) {
     try {
-      await openBoard(r.projectRoot);
-      projectRoot = r.projectRoot;
-      startStartupGraceForBoard(r.projectRoot);
-      recents = await listRecentBoards();
-      await refresh();
-      bootStatus = 'ready';
+      await boardSwitch.open(r.projectRoot);
     } catch (err) {
       pushToast(`Failed to open ${r.projectRoot}: ${errorString(err)}`);
     }
+  }
+
+  async function refreshVisibleBoard() {
+    let activeRoot: string | null = null;
+    try { activeRoot = await getProjectRoot(); } catch { /* ignore unverified reloads */ }
+    if (!shouldAcceptBoardReload(projectRoot, activeRoot)) return;
+    await refresh();
+  }
+
+  async function commitOpenedBoard(root: string) {
+    const seq = ++boardCommitSeq;
+    projectRoot = root;
+    bootStatus = 'ready';
+    closeTask();
+    if (startupGrace.active && startupGrace.boardKey !== root) cancelStartupGrace();
+    beginBoardSwitch(root);
+
+    const recentsPromise = listRecentBoards().catch(() => null);
+    if (seq !== boardCommitSeq) return;
+    await refresh();
+    const nextRecents = await recentsPromise;
+    if (seq === boardCommitSeq && nextRecents) recents = nextRecents;
+    if (seq === boardCommitSeq) bootStatus = 'ready';
   }
 
   function startStartupGraceForBoard(root: string) {
@@ -493,16 +503,24 @@
       {/if}
     </section>
   {:else}
-    <FilterBar snapshot={$board} {onShowArchiveChange} />
-    <Board
-      snapshot={filtered}
-      showArchive={$filter.showArchive}
-      wipLimits={$board.wipLimits ?? {}}
-      onSelect={openTask}
-      {onDrop}
-    />
+    {#if !$loaded && !$loadError}
+      <section class="board-loading" aria-live="polite" aria-busy="true">
+        <p class="loading-title">Loading board…</p>
+        {#if $switchingTo}
+          <p class="loading-root">{shortPath($switchingTo)}</p>
+        {/if}
+      </section>
+    {:else}
+      <FilterBar snapshot={$board} {onShowArchiveChange} />
+      <Board
+        snapshot={filtered}
+        showArchive={$filter.showArchive}
+        wipLimits={$board.wipLimits ?? {}}
+        onSelect={openTask}
+        {onDrop}
+      />
+    {/if}
     {#if $loadError}<p class="err">{$loadError}</p>{/if}
-    {#if !$loaded}<p class="hint">Loading…</p>{/if}
   {/if}
 </main>
 
@@ -727,6 +745,31 @@
   }
   .empty .link:hover { text-decoration: underline; }
 
+  .board-loading {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 32px;
+    min-height: 0;
+    color: var(--fg-dim);
+  }
+  .loading-title {
+    margin: 0;
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .loading-root {
+    margin: 0;
+    max-width: min(640px, 80vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
+
   .err { padding: 8px 18px; color: var(--p0); font-size: 12px; border-top: 1px solid rgba(255, 90, 82, 0.3); }
-  .hint { padding: 8px 18px; color: var(--fg-dim); font-size: 12px; }
 </style>

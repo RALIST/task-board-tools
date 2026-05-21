@@ -24,13 +24,26 @@ const emptySnapshot: BoardSnapshot = {
 export const loaded = writable<boolean>(false);
 export const board = writable<BoardSnapshot>(emptySnapshot);
 export const loadError = writable<string | null>(null);
+export const switchingTo = writable<string | null>(null);
 let refreshInFlight: Promise<void> | null = null;
 let refreshQueued = false;
+let switchSeq = 0;
 
 // statusMode controls whether refresh() requests the archive bucket. The
 // FilterBar's "Show archived" toggle writes this; callers shouldn't poke
 // the underlying api directly.
 export const statusMode = writable<StatusMode>('active');
+
+export function beginBoardSwitch(projectRoot: string): void {
+  switchSeq += 1;
+  switchingTo.set(projectRoot);
+  board.set(newEmptySnapshot());
+  loadError.set(null);
+  loaded.set(false);
+  if (refreshInFlight) {
+    refreshQueued = true;
+  }
+}
 
 export async function refresh(): Promise<void> {
   if (refreshInFlight) {
@@ -54,29 +67,25 @@ async function drainRefreshQueue(): Promise<void> {
 }
 
 async function refreshOnce(): Promise<void> {
+  const seq = switchSeq;
   try {
     const mode = get(statusMode);
     const snap = await loadBoard(mode);
+    if (seq !== switchSeq) return;
     board.set(snap);
     loadError.set(null);
     loaded.set(true);
+    switchingTo.set(null);
   } catch (err) {
+    if (seq !== switchSeq || refreshQueued) return;
     // Clearing the snapshot prevents the previously-opened board's cards
     // from rendering under the newly selected project root when a board
     // switch fails (TB-145). Use a fresh object so mutators (e.g.
     // optimisticMove) can't poison the module-level reference.
-    board.set({
-      backlog: [],
-      ready: [],
-      inProgress: [],
-      codeReview: [],
-      done: [],
-      archive: [],
-      wipLimits: {},
-      wipCounts: {},
-      wipEnforcement: 'warn',
-    });
+    board.set(newEmptySnapshot());
     loadError.set(stringifyError(err));
+    loaded.set(false);
+    switchingTo.set(null);
   }
 }
 
@@ -167,4 +176,18 @@ export function revert(snap: BoardSnapshot): void {
 function stringifyError(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function newEmptySnapshot(): BoardSnapshot {
+  return {
+    backlog: [],
+    ready: [],
+    inProgress: [],
+    codeReview: [],
+    done: [],
+    archive: [],
+    wipLimits: {},
+    wipCounts: {},
+    wipEnforcement: 'warn',
+  } as BoardSnapshot;
 }
