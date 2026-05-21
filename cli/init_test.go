@@ -1,11 +1,264 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestInitExplicitSkillInstallCreatesClaudeAndCodexDestinations(t *testing.T) {
+	root := t.TempDir()
+	stdout := new(bytes.Buffer)
+
+	if err := runInit([]string{root, "--install-skills=all"}, initRunOptions{
+		stdout: stdout,
+		stderr: io.Discard,
+		stdin:  strings.NewReader(""),
+	}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	boardSkill := readFileForTest(t, filepath.Join(root, "board", "SKILL.md"))
+	claudeSkill := readFileForTest(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md"))
+	codexSkill := readFileForTest(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md"))
+	if claudeSkill != boardSkill {
+		t.Fatalf("claude skill differs from board skill")
+	}
+	if codexSkill != boardSkill {
+		t.Fatalf("codex skill differs from board skill")
+	}
+	assertPathMissing(t, filepath.Join(root, ".codex", "skills", "task-board", "SKILL.md"))
+	assertContains(t, stdout.String(), "Installed project task-board skills")
+	assertContains(t, stdout.String(), ".claude/skills/task-board/SKILL.md")
+	assertContains(t, stdout.String(), ".agents/skills/task-board/SKILL.md")
+}
+
+func TestInitInteractiveSkillPromptDefaultsToInstallAndCanSkip(t *testing.T) {
+	t.Run("default installs both skills", func(t *testing.T) {
+		root := t.TempDir()
+		stdout := new(bytes.Buffer)
+
+		if err := runInit([]string{root}, initRunOptions{
+			stdout:      stdout,
+			stderr:      io.Discard,
+			stdin:       strings.NewReader("\n"),
+			interactive: true,
+		}); err != nil {
+			t.Fatalf("init: %v", err)
+		}
+
+		assertContains(t, stdout.String(), "Install project-local task-board skills")
+		assertContains(t, stdout.String(), "default: all")
+		assertPathExists(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md"))
+		assertPathExists(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md"))
+	})
+
+	t.Run("none skips both skills", func(t *testing.T) {
+		root := t.TempDir()
+		stdout := new(bytes.Buffer)
+
+		if err := runInit([]string{root}, initRunOptions{
+			stdout:      stdout,
+			stderr:      io.Discard,
+			stdin:       strings.NewReader("none\n"),
+			interactive: true,
+		}); err != nil {
+			t.Fatalf("init: %v", err)
+		}
+
+		assertContains(t, stdout.String(), "Install project-local task-board skills")
+		assertContains(t, stdout.String(), "Skipped project task-board skills")
+		assertPathMissing(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md"))
+		assertPathMissing(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md"))
+	})
+}
+
+func TestInitNonInteractiveDefaultDoesNotPromptOrInstallSkills(t *testing.T) {
+	root := t.TempDir()
+	stdout := new(bytes.Buffer)
+
+	if err := runInit([]string{root}, initRunOptions{
+		stdout: stdout,
+		stderr: io.Discard,
+		stdin:  failOnReadReader{},
+	}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	assertNotContains(t, stdout.String(), "Install project-local task-board skills")
+	assertPathMissing(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md"))
+	assertPathMissing(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md"))
+}
+
+func TestInitInvalidInstallSkillsDoesNotMutateProject(t *testing.T) {
+	root := t.TempDir()
+
+	err := runInit([]string{root, "--install-skills=bogus"}, initRunOptions{
+		stdout: io.Discard,
+		stderr: io.Discard,
+		stdin:  strings.NewReader(""),
+	})
+	if err == nil {
+		t.Fatalf("init succeeded, want invalid install-skills error")
+	}
+	if !strings.Contains(err.Error(), "invalid --install-skills value") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertPathMissing(t, filepath.Join(root, configFileName))
+	assertPathMissing(t, filepath.Join(root, "board"))
+	assertPathMissing(t, filepath.Join(root, ".claude"))
+	assertPathMissing(t, filepath.Join(root, ".agents"))
+}
+
+func TestIsTerminalReturnsFalseForDevNull(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open dev null: %v", err)
+	}
+	defer f.Close()
+
+	if isTerminal(f) {
+		t.Fatalf("%s should not be detected as an interactive terminal", os.DevNull)
+	}
+}
+
+func TestInitSkillInstallNoopWhenInstalledBytesMatch(t *testing.T) {
+	root, _ := seedInitializedBoardForRefresh(t, "TB")
+	currentConfig := string(renderConfigTemplate(map[string]string{
+		"board":  "board",
+		"prefix": "TB",
+	}))
+	writeFileForTest(t, filepath.Join(root, configFileName), currentConfig)
+	for _, doc := range generatedBoardDocs("TB", "board") {
+		writeFileForTest(t, filepath.Join(root, "board", doc.name), doc.content)
+	}
+	seedProjectSkillForTest(t, root, ".claude", generatedTaskBoardSkillForTest())
+	seedProjectSkillForTest(t, root, ".agents", generatedTaskBoardSkillForTest())
+	stdout := new(bytes.Buffer)
+
+	if err := runInit([]string{root, "--install-skills=all"}, initRunOptions{
+		stdout: stdout,
+		stderr: io.Discard,
+		stdin:  strings.NewReader(""),
+	}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	assertContains(t, stdout.String(), "Project task-board skills already current")
+	assertPathMissing(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md.bak"))
+	assertPathMissing(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md.bak"))
+}
+
+func TestInitSkillInstallBacksUpCustomizedFilesAndLeavesUnrelatedFiles(t *testing.T) {
+	root := t.TempDir()
+	customClaude := "# Local Claude Skill\n"
+	customCodex := "# Local Codex Skill\n"
+	seedProjectSkillForTest(t, root, ".claude", customClaude)
+	seedProjectSkillForTest(t, root, ".agents", customCodex)
+	writeFileForTest(t, filepath.Join(root, ".claude", "README.md"), "claude notes\n")
+	writeFileForTest(t, filepath.Join(root, ".agents", "README.md"), "agent notes\n")
+	stdout := new(bytes.Buffer)
+
+	if err := runInit([]string{root, "--install-skills=all"}, initRunOptions{
+		stdout: stdout,
+		stderr: io.Discard,
+		stdin:  strings.NewReader(""),
+	}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	assertContains(t, stdout.String(), "backup: SKILL.md.bak")
+	if got := readFileForTest(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md.bak")); got != customClaude {
+		t.Fatalf("claude backup = %q", got)
+	}
+	if got := readFileForTest(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md.bak")); got != customCodex {
+		t.Fatalf("codex backup = %q", got)
+	}
+	assertContains(t, readFileForTest(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md")), "Use when working with a markdown task board")
+	assertContains(t, readFileForTest(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md")), "Use when working with a markdown task board")
+	if got := readFileForTest(t, filepath.Join(root, ".claude", "README.md")); got != "claude notes\n" {
+		t.Fatalf("unrelated .claude file changed: %q", got)
+	}
+	if got := readFileForTest(t, filepath.Join(root, ".agents", "README.md")); got != "agent notes\n" {
+		t.Fatalf("unrelated .agents file changed: %q", got)
+	}
+	assertPathMissing(t, filepath.Join(root, ".codex", "skills", "task-board", "SKILL.md"))
+}
+
+func TestInitExplicitSkillInstallBacksUpCustomizedFileWithoutPrompt(t *testing.T) {
+	root := t.TempDir()
+	customCodex := "# Local Codex Skill\n"
+	seedProjectSkillForTest(t, root, ".agents", customCodex)
+
+	if err := runInit([]string{root, "--install-skills=codex"}, initRunOptions{
+		stdout:      io.Discard,
+		stderr:      io.Discard,
+		stdin:       failOnReadReader{},
+		interactive: true,
+	}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	if got := readFileForTest(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md.bak")); got != customCodex {
+		t.Fatalf("codex backup = %q", got)
+	}
+	assertContains(t, readFileForTest(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md")), "Use when working with a markdown task board")
+}
+
+func TestInitSkillInstallSkipLeavesCustomizedFilesUnchanged(t *testing.T) {
+	root := t.TempDir()
+	customClaude := "# Local Claude Skill\n"
+	customCodex := "# Local Codex Skill\n"
+	seedProjectSkillForTest(t, root, ".claude", customClaude)
+	seedProjectSkillForTest(t, root, ".agents", customCodex)
+	stdout := new(bytes.Buffer)
+
+	if err := runInit([]string{root, "--install-skills=none"}, initRunOptions{
+		stdout: stdout,
+		stderr: io.Discard,
+		stdin:  strings.NewReader(""),
+	}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	assertContains(t, stdout.String(), "Skipped project task-board skills")
+	if got := readFileForTest(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md")); got != customClaude {
+		t.Fatalf("claude skill changed: %q", got)
+	}
+	if got := readFileForTest(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md")); got != customCodex {
+		t.Fatalf("codex skill changed: %q", got)
+	}
+	assertPathMissing(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md.bak"))
+	assertPathMissing(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md.bak"))
+}
+
+func TestInitInteractiveDeclineCustomSkillOverwriteLeavesFileUnchanged(t *testing.T) {
+	root := t.TempDir()
+	customClaude := "# Local Claude Skill\n"
+	seedProjectSkillForTest(t, root, ".claude", customClaude)
+	stdout := new(bytes.Buffer)
+
+	if err := runInit([]string{root}, initRunOptions{
+		stdout:      stdout,
+		stderr:      io.Discard,
+		stdin:       strings.NewReader("claude\nn\n"),
+		interactive: true,
+	}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	assertContains(t, stdout.String(), "Replace customized .claude/skills/task-board/SKILL.md")
+	assertContains(t, stdout.String(), "Skipped .claude/skills/task-board/SKILL.md")
+	if got := readFileForTest(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md")); got != customClaude {
+		t.Fatalf("claude skill changed: %q", got)
+	}
+	assertPathMissing(t, filepath.Join(root, ".claude", "skills", "task-board", "SKILL.md.bak"))
+	assertPathMissing(t, filepath.Join(root, ".agents", "skills", "task-board", "SKILL.md"))
+}
 
 func TestInitRefreshDocsUsesExistingConfigAndPreservesFolderBoardState(t *testing.T) {
 	root, boardDir := seedInitializedBoardForRefresh(t, "TB")
@@ -293,4 +546,23 @@ func seedInitializedBoardForRefresh(t *testing.T, prefix string) (string, string
 	writeFileForTest(t, filepath.Join(boardDir, ".next-id"), "42\n")
 	writeFileForTest(t, filepath.Join(boardDir, "BOARD.md"), "# Board\n\n")
 	return root, boardDir
+}
+
+func generatedTaskBoardSkillForTest() string {
+	return skillTemplate("TB", "board")
+}
+
+func seedProjectSkillForTest(t *testing.T, root, topDir, content string) {
+	t.Helper()
+	path := filepath.Join(root, topDir, "skills", "task-board", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir project skill: %v", err)
+	}
+	writeFileForTest(t, path, content)
+}
+
+type failOnReadReader struct{}
+
+func (failOnReadReader) Read([]byte) (int, error) {
+	return 0, io.ErrUnexpectedEOF
 }

@@ -3,6 +3,7 @@ import {
   getAgentTimeoutMinutes,
   getAutoGroomEnabled,
   getAutoGroomSettleMinutes,
+  getAutomationStartupGraceSeconds,
   getAutoImplementEnabled,
   getAutoImplementQuery,
   getAutoReviewEnabled,
@@ -14,6 +15,7 @@ import {
   setAgentTimeoutMinutes as apiSetAgentTimeoutMinutes,
   setAutoGroomEnabled as apiSetAutoGroomEnabled,
   setAutoGroomSettleMinutes as apiSetAutoGroomSettleMinutes,
+  setAutomationStartupGraceSeconds as apiSetAutomationStartupGraceSeconds,
   setAutoImplementEnabled as apiSetAutoImplementEnabled,
   setAutoImplementQuery as apiSetAutoImplementQuery,
   setAutoReviewEnabled as apiSetAutoReviewEnabled,
@@ -39,6 +41,7 @@ export interface PreferencesState {
   periodicRecoveryEnabled: boolean;
   autoGroomEnabled: boolean;
   autoGroomSettleMinutes: number;
+  automationStartupGraceSeconds: number;
   autoImplementEnabled: boolean;
   autoImplementQuery: AutoImplementFilter;
   autoReviewEnabled: boolean;
@@ -54,6 +57,7 @@ const DEFAULT_STATE: PreferencesState = {
   periodicRecoveryEnabled: true,
   autoGroomEnabled: false,
   autoGroomSettleMinutes: 5,
+  automationStartupGraceSeconds: 30,
   autoImplementEnabled: false,
   autoImplementQuery: { ...emptyAutoImplementFilter },
   autoReviewEnabled: false,
@@ -80,6 +84,7 @@ export async function loadPreferences(): Promise<void> {
         periodicRecoveryEnabled,
         autoGroomEnabled,
         autoGroomSettleMinutes,
+        automationStartupGraceSeconds,
         autoImplementEnabled,
         autoImplementQuery,
         autoReviewEnabled,
@@ -92,6 +97,7 @@ export async function loadPreferences(): Promise<void> {
         getPeriodicRecoveryEnabled(),
         getAutoGroomEnabled(),
         getAutoGroomSettleMinutes(),
+        getAutomationStartupGraceSeconds(),
         getAutoImplementEnabled(),
         getAutoImplementQuery(),
         getAutoReviewEnabled(),
@@ -126,6 +132,12 @@ export async function loadPreferences(): Promise<void> {
           0,
           60,
           DEFAULT_STATE.autoGroomSettleMinutes,
+        ),
+        automationStartupGraceSeconds: normalizeStoredInt(
+          automationStartupGraceSeconds,
+          0,
+          300,
+          DEFAULT_STATE.automationStartupGraceSeconds,
         ),
         autoImplementEnabled: autoImplementEnabled === true,
         autoImplementQuery: normalizeAutoImplementQuery(autoImplementQuery),
@@ -185,6 +197,13 @@ export async function setAutoGroomSettleMinutes(value: number): Promise<void> {
   );
 }
 
+export async function setAutomationStartupGraceSeconds(value: number): Promise<void> {
+  const next = clampSettingInt(value, 0, 300, DEFAULT_STATE.automationStartupGraceSeconds);
+  await optimisticWrite('automationStartupGraceSeconds', next, 'startup grace', () =>
+    apiSetAutomationStartupGraceSeconds(next),
+  );
+}
+
 export async function setAutoImplementEnabled(value: boolean): Promise<void> {
   await optimisticWrite('autoImplementEnabled', value, 'auto-implement', () =>
     apiSetAutoImplementEnabled(value),
@@ -214,6 +233,7 @@ export const preferencesStore = {
   setPeriodicRecoveryEnabled,
   setAutoGroomEnabled,
   setAutoGroomSettleMinutes,
+  setAutomationStartupGraceSeconds,
   setAutoImplementEnabled,
   setAutoImplementQuery,
   setAutoReviewEnabled,

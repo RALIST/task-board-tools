@@ -186,6 +186,7 @@ type Daemon struct {
 	generation       uint64
 	activationCtx    context.Context
 	activationCancel context.CancelCauseFunc
+	startupScanTimer *time.Timer
 }
 
 // ErrNotActivated is returned by Enqueue (and other state-dependent
@@ -336,6 +337,10 @@ func (d *Daemon) BoardDir() string {
 // called first to drain the previous board's in-flight runs before
 // Activate runs again.
 func (d *Daemon) Activate(ctx context.Context, boardDir string) error {
+	return d.ActivateWithStartupGrace(ctx, boardDir, 0)
+}
+
+func (d *Daemon) ActivateWithStartupGrace(ctx context.Context, boardDir string, grace time.Duration) error {
 	if boardDir == "" {
 		return errors.New("daemon: empty boardDir")
 	}
@@ -351,6 +356,7 @@ func (d *Daemon) Activate(ctx context.Context, boardDir string) error {
 	d.activated = true
 	d.activationCtx = activationCtx
 	d.activationCancel = activationCancel
+	generation := d.generation
 	d.boardMu.Unlock()
 
 	// Stale-running recovery FIRST so the subsequent scan reads a
@@ -367,14 +373,56 @@ func (d *Daemon) Activate(ctx context.Context, boardDir string) error {
 		}
 	}
 
-	// Startup queue scan (TB-57).
-	if err := d.scanQueued(ctx); err != nil {
-		// Scan failures are non-fatal — the watcher event sink (TB-58)
-		// will pick up tasks on the next mutation.
-		d.logger.Warn("daemon: startup scan failed; continuing", "err", err)
+	if grace <= 0 {
+		if err := d.scanQueued(ctx); err != nil {
+			// Scan failures are non-fatal — the watcher event sink (TB-58)
+			// will pick up tasks on the next mutation.
+			d.logger.Warn("daemon: startup scan failed; continuing", "err", err)
+		}
+	} else {
+		d.scheduleStartupScan(boardDir, generation, grace)
 	}
 	d.startPeriodicRecovery(boardDir)
 	return nil
+}
+
+func (d *Daemon) scheduleStartupScan(boardDir string, generation uint64, grace time.Duration) {
+	d.boardMu.Lock()
+	if d.startupScanTimer != nil {
+		d.startupScanTimer.Stop()
+	}
+	d.startupScanTimer = time.AfterFunc(grace, func() {
+		d.boardMu.Lock()
+		if !d.activated || d.boardDir != boardDir || d.generation != generation {
+			d.boardMu.Unlock()
+			return
+		}
+		ctx := d.activationCtx
+		d.startupScanTimer = nil
+		d.boardMu.Unlock()
+
+		if ctx == nil {
+			return
+		}
+		if err := d.scanQueued(ctx); err != nil {
+			d.logger.Warn("daemon: startup scan failed; continuing", "err", err)
+		}
+	})
+	d.boardMu.Unlock()
+	d.logger.Info("daemon: startup scan delayed", "grace", grace)
+}
+
+func (d *Daemon) startupGraceActive() bool {
+	d.boardMu.Lock()
+	defer d.boardMu.Unlock()
+	return d.activated && d.startupScanTimer != nil
+}
+
+func (d *Daemon) clearStartupScanTimerLocked() {
+	if d.startupScanTimer != nil {
+		d.startupScanTimer.Stop()
+		d.startupScanTimer = nil
+	}
 }
 
 // Deactivate cancels work owned by the currently-open board and resets
@@ -394,6 +442,7 @@ func (d *Daemon) deactivate(reason string) error {
 		return nil
 	}
 	cancel := d.activationCancel
+	d.clearStartupScanTimerLocked()
 	d.activated = false
 	d.boardDir = ""
 	d.activationCtx = nil
@@ -918,6 +967,9 @@ func (d *Daemon) EnqueueIfReady(ctx context.Context, id string) (bool, error) {
 	if !d.isActivated() {
 		return false, ErrNotActivated
 	}
+	if d.startupGraceActive() {
+		return false, nil
+	}
 	if d.board == nil {
 		return false, errors.New("daemon: no board service")
 	}
@@ -938,6 +990,9 @@ func (d *Daemon) EnqueueIfReady(ctx context.Context, id string) (bool, error) {
 func (d *Daemon) RescanActive(ctx context.Context) (int, error) {
 	if !d.isActivated() {
 		return 0, ErrNotActivated
+	}
+	if d.startupGraceActive() {
+		return 0, nil
 	}
 	if d.board == nil {
 		return 0, errors.New("daemon: no board service")

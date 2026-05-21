@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,7 +81,7 @@ func nextBackupPath(path string) (string, error) {
 	}
 }
 
-func printRefreshResults(boardDir string, results []refreshedDoc) {
+func printRefreshResults(out io.Writer, boardDir string, results []refreshedDoc) {
 	changed := false
 	for _, result := range results {
 		if result.changed {
@@ -89,20 +90,20 @@ func printRefreshResults(boardDir string, results []refreshedDoc) {
 		}
 	}
 	if !changed {
-		fmt.Printf("Board docs already current at %s\n", boardDir)
+		fmt.Fprintf(out, "Board docs already current at %s\n", boardDir)
 		return
 	}
 
-	fmt.Printf("Refreshed board docs at %s\n", boardDir)
+	fmt.Fprintf(out, "Refreshed board docs at %s\n", boardDir)
 	for _, result := range results {
 		if !result.changed {
 			continue
 		}
 		name := filepath.Base(result.path)
 		if result.backupPath == "" {
-			fmt.Printf("  %s\n", name)
+			fmt.Fprintf(out, "  %s\n", name)
 			continue
 		}
-		fmt.Printf("  %s (backup: %s)\n", name, filepath.Base(result.backupPath))
+		fmt.Fprintf(out, "  %s (backup: %s)\n", name, filepath.Base(result.backupPath))
 	}
 }

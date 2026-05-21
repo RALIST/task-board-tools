@@ -8,6 +8,12 @@
 **Tags:** automation,daemon,startup,ux,auto-implement
 **GroomedBy:** codex
 **GroomStatus:** success
+**AgentStatus:** needs-user
+**ImplementedBy:** codex
+**ImplementStatus:** success
+**ReviewRef:** working-tree
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -44,6 +50,35 @@ Give users a short, visible grace window after the GUI opens a board before daem
 - [ ] Verification includes `cd gui && go test ./...`, `cd gui/frontend && npm run check`, and `cd gui/frontend && npm test -- --run`.
 - [ ] Manual test note: launch the GUI with a recent board that has auto-implement enabled and an eligible ready task plus a queued task; confirm neither starts during the grace window, switch boards before expiry and confirm the old board stays untouched, then let the grace expire on the intended board and confirm eligible automation starts once.
 
+## User Attention
+
+Reason: board status mismatch prevents managed review failure handoff.
+Question/Action: TB-301 is currently in `done`, but this review found blocking findings that should return to rework. Please move/restore the task to `code-review` or otherwise authorize the correct board repair, then run `tb review --fail TB-301 -` with the recorded findings.
+Attempted context: read `tb show TB-301`, confirmed top-level `ReviewRef: working-tree`, inspected the TB-301 GUI startup-grace implementation, and wrote blocking findings to `## Review Findings`. Verified `tb review --fail` only accepts `code-review`, while `tb ls --status done` shows `board/done/TB-301/TASK.md`.
+Unblock condition: TB-301 is back in a state where the managed review fail flow can move it to `ready` with `review-failed`, or a human applies the equivalent board repair.
+
+## Review Target
+
+Implementation scope:
+- Backend preference `automation_startup_grace_seconds` with default 30, clamp 0..300, and zero-delay opt-out.
+- Daemon activation keeps stale recovery immediate, registers watcher sinks, then delays startup pickup during grace.
+- Auto-groom, auto-implement, and auto-review activation scans respect same startup grace and cancel on board switch/deactivation.
+- Frontend settings/store/API and compact header grace indicator wired to persisted preference.
+- Architecture, feature, and implementation docs updated.
+
+Verification:
+- cd gui && go test ./...
+- cd gui/frontend && npm run check
+- cd gui/frontend && npm test -- --run
+- git diff --check
+- wails3 generate bindings -ts
+
+## Review Findings
+
+- Blocking: `gui/frontend/src/routes/+page.svelte:101-102` derives the header grace pill only from persisted `automationStartupGraceSeconds`, and `gui/frontend/src/routes/+page.svelte:438-441` always renders `Grace {startupGraceSeconds}s` whenever the preference is nonzero. This is not startup-grace state or a countdown; after the grace window expires it still says `Grace 30s`, so the AC requiring a compact countdown/status indicator near automation controls is not met. Add active board-activation grace state/remaining time and hide or update the indicator after expiry.
+- Blocking: delayed auto coordinator callbacks are not tied to an activation generation. `gui/app/auto_implement.go:154-160` clears state and stops the timer on deactivation, but an already-started callback from `gui/app/auto_implement.go:258-260` still calls `runScan`; `gui/app/auto_implement.go:264-272` then trusts the current active board. If board A's grace timer fires while switching to board B, the stale callback can scan board B before B's own grace expires. Apply the same generation/board guard used by the daemon to auto-implement, auto-groom, and auto-review delayed scans, and add board-switch race coverage.
+- Blocking: auto-groom now blocks ready promotion on warn-mode WIP limits. `gui/app/auto_groom.go:29-31` treats any full ready limit as blocked without checking `WipEnforcement`, `gui/app/auto_groom.go:319-330` skips promotion before calling ready, and `gui/app/board_service.go:510-515` forces `ReadyStrictWIP`. Existing `warn` enforcement should warn but still allow the move; this breaks the AC to keep existing WIP gates intact. Only block when enforcement is strict, and preserve warn-mode promotion behavior.
+
 ## Related Tasks
 
 - **TB-5 / TB-57** — Original daemon startup queue pickup and activation ordering.
@@ -70,4 +105,31 @@ Give users a short, visible grace window after the GUI opens a board before daem
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=lost, implemented-by=codex, implement-status=lost
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited user-attention
+- 2026-05-21: Edited agentstatus=needs-user
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=working-tree, user-attention
+- 2026-05-21: Edited review-target
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Passed code review
+- 2026-05-21: Edited reviewed-by=codex, review-status=success
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited review-findings
+- 2026-05-21: Edited user-attention
+- 2026-05-21: Edited agentstatus=needs-user
 

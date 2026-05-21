@@ -27,6 +27,8 @@ const getAutoGroomEnabled = vi.fn<() => Promise<boolean>>();
 const setAutoGroomEnabled = vi.fn<(enabled: boolean) => Promise<void>>();
 const getAutoGroomSettleMinutes = vi.fn<() => Promise<number>>();
 const setAutoGroomSettleMinutes = vi.fn<(n: number) => Promise<void>>();
+const getAutomationStartupGraceSeconds = vi.fn<() => Promise<number>>();
+const setAutomationStartupGraceSeconds = vi.fn<(n: number) => Promise<void>>();
 const getAutoImplementEnabled = vi.fn<() => Promise<boolean>>();
 const setAutoImplementEnabled = vi.fn<(enabled: boolean) => Promise<void>>();
 const getAutoImplementQuery = vi.fn<() => Promise<AutoImplementFilter>>();
@@ -51,6 +53,8 @@ vi.mock('$lib/api', () => ({
   setAutoGroomEnabled: (enabled: boolean) => setAutoGroomEnabled(enabled),
   getAutoGroomSettleMinutes: () => getAutoGroomSettleMinutes(),
   setAutoGroomSettleMinutes: (n: number) => setAutoGroomSettleMinutes(n),
+  getAutomationStartupGraceSeconds: () => getAutomationStartupGraceSeconds(),
+  setAutomationStartupGraceSeconds: (n: number) => setAutomationStartupGraceSeconds(n),
   getAutoImplementEnabled: () => getAutoImplementEnabled(),
   setAutoImplementEnabled: (enabled: boolean) => setAutoImplementEnabled(enabled),
   getAutoImplementQuery: () => getAutoImplementQuery(),
@@ -70,6 +74,7 @@ const {
   setAgentTimeoutMinutes: storeSetAgentTimeoutMinutes,
   setAutoGroomEnabled: storeSetAutoGroomEnabled,
   setAutoGroomSettleMinutes: storeSetAutoGroomSettleMinutes,
+  setAutomationStartupGraceSeconds: storeSetAutomationStartupGraceSeconds,
   setAutoImplementEnabled: storeSetAutoImplementEnabled,
   setAutoImplementQuery: storeSetAutoImplementQuery,
   setAutoReviewEnabled: storeSetAutoReviewEnabled,
@@ -91,6 +96,7 @@ describe('preferencesStore', () => {
     getPeriodicRecoveryEnabled.mockResolvedValue(true);
     getAutoGroomEnabled.mockResolvedValue(false);
     getAutoGroomSettleMinutes.mockResolvedValue(5);
+    getAutomationStartupGraceSeconds.mockResolvedValue(30);
     getAutoImplementEnabled.mockResolvedValue(false);
     getAutoImplementQuery.mockResolvedValue({ ...emptyAutoImplementFilter });
     getAutoReviewEnabled.mockResolvedValue(false);
@@ -101,6 +107,7 @@ describe('preferencesStore', () => {
     setPeriodicRecoveryEnabled.mockResolvedValue();
     setAutoGroomEnabled.mockResolvedValue();
     setAutoGroomSettleMinutes.mockResolvedValue();
+    setAutomationStartupGraceSeconds.mockResolvedValue();
     setAutoImplementEnabled.mockResolvedValue();
     setAutoImplementQuery.mockResolvedValue();
     setAutoReviewEnabled.mockResolvedValue();
@@ -115,6 +122,7 @@ describe('preferencesStore', () => {
     getPeriodicRecoveryEnabled.mockResolvedValue(false);
     getAutoGroomEnabled.mockResolvedValue(true);
     getAutoGroomSettleMinutes.mockResolvedValue(10);
+    getAutomationStartupGraceSeconds.mockResolvedValue(45);
     getAutoImplementEnabled.mockResolvedValue(true);
     getAutoImplementQuery.mockResolvedValue(acFilter);
     getAutoReviewEnabled.mockResolvedValue(true);
@@ -130,6 +138,7 @@ describe('preferencesStore', () => {
       periodicRecoveryEnabled: false,
       autoGroomEnabled: true,
       autoGroomSettleMinutes: 10,
+      automationStartupGraceSeconds: 45,
       autoImplementEnabled: true,
       autoImplementQuery: acFilter,
       autoReviewEnabled: true,
@@ -149,6 +158,7 @@ describe('preferencesStore', () => {
     expect(getPeriodicRecoveryEnabled).toHaveBeenCalledTimes(1);
     expect(getAutoGroomEnabled).toHaveBeenCalledTimes(1);
     expect(getAutoGroomSettleMinutes).toHaveBeenCalledTimes(1);
+    expect(getAutomationStartupGraceSeconds).toHaveBeenCalledTimes(1);
     expect(getAutoImplementEnabled).toHaveBeenCalledTimes(1);
     expect(getAutoImplementQuery).toHaveBeenCalledTimes(1);
     expect(getAutoReviewEnabled).toHaveBeenCalledTimes(1);
@@ -164,6 +174,7 @@ describe('preferencesStore', () => {
     await storeSetPeriodicRecoveryEnabled(false);
     await storeSetAutoGroomEnabled(true);
     await storeSetAutoGroomSettleMinutes(15);
+    await storeSetAutomationStartupGraceSeconds(45);
     await storeSetAutoReviewEnabled(true);
 
     expect(setMaxWorkers).toHaveBeenCalledWith(4);
@@ -173,6 +184,7 @@ describe('preferencesStore', () => {
     expect(setPeriodicRecoveryEnabled).toHaveBeenCalledWith(false);
     expect(setAutoGroomEnabled).toHaveBeenCalledWith(true);
     expect(setAutoGroomSettleMinutes).toHaveBeenCalledWith(15);
+    expect(setAutomationStartupGraceSeconds).toHaveBeenCalledWith(45);
     expect(setAutoReviewEnabled).toHaveBeenCalledWith(true);
     expect(get(preferencesStore)).toMatchObject({
       maxWorkers: 4,
@@ -183,6 +195,7 @@ describe('preferencesStore', () => {
       periodicRecoveryEnabled: false,
       autoGroomEnabled: true,
       autoGroomSettleMinutes: 15,
+      automationStartupGraceSeconds: 45,
       autoReviewEnabled: true,
     });
   });
@@ -220,6 +233,16 @@ describe('preferencesStore', () => {
 
     await storeSetAutoGroomSettleMinutes(-3);
     expect(setAutoGroomSettleMinutes).toHaveBeenLastCalledWith(0);
+  });
+
+  it('clamps startup grace seconds on write', async () => {
+    await loadPreferences();
+
+    await storeSetAutomationStartupGraceSeconds(999);
+    expect(setAutomationStartupGraceSeconds).toHaveBeenCalledWith(300);
+
+    await storeSetAutomationStartupGraceSeconds(-3);
+    expect(setAutomationStartupGraceSeconds).toHaveBeenLastCalledWith(0);
   });
 
   it('rolls back an auto-groom toggle on rejected promise', async () => {

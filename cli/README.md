@@ -1,6 +1,6 @@
 # tb — Task Board CLI
 
-A lightweight, zero-dependency Go CLI for managing a markdown task board. Concurrency-safe, works from any directory inside a project.
+A lightweight Go CLI for managing a markdown task board. Concurrency-safe, works from any directory inside a project.
 
 ## Install
 
@@ -15,6 +15,7 @@ Initialize a board in your project:
 ```bash
 tb init                                             # creates ./board/ with PR- prefix
 tb init . --board-path=.claude/board --prefix=WS    # custom board path and prefix
+tb init . --install-skills=all                      # install Claude + Codex project skills
 ```
 
 This creates a `.tb.yaml` file at the project root and the board directory structure.
@@ -54,6 +55,8 @@ Running `tb init` again in an existing project reconciles generated project file
 ```bash
 tb init . --prefix=NEW    # changes prefix, keeps existing board path
 ```
+
+In an interactive terminal, `tb init` offers to install project-local task-board skills from the generated board skill template. Scripts never prompt; use `--install-skills=all`, `claude`, `codex`, or `none`. Claude Code installs to `.claude/skills/task-board/SKILL.md`; Codex installs to `.agents/skills/task-board/SKILL.md`. Matching files are left untouched. The default interactive flow asks before replacing customized skill files; explicit/scripted installs save a `.bak` backup before refresh.
 
 ## Commands
 

@@ -366,6 +366,31 @@ func TestAutoImplementCoordinator_DisabledNoEnqueue(t *testing.T) {
 	}
 }
 
+func TestAutoImplementCoordinator_StartupGraceDelaysActivationScan(t *testing.T) {
+	f := newAutoImplementFixture(t, "claude",
+		[]readyTaskSpec{{ID: "TB-100", Type: "bug", Size: "S", Module: "gui", Agent: "claude"}},
+		nil,
+	)
+	f.enableAutoImplement(t, "claude", acFilterFixture())
+	if err := f.coord.ActivateWithStartupGrace(context.Background(), f.boardDir, 80*time.Millisecond); err != nil {
+		t.Fatalf("ActivateWithStartupGrace: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if got := f.queuedTaskIDs(); len(got) != 0 {
+		t.Fatalf("queued during startup grace: %v", got)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		f.waitForActiveDrained(5 * time.Second)
+		if got := f.queuedTaskIDs(); len(got) == 1 && got[0] == "TB-100" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("auto-implement did not queue after grace; events=%+v", f.emitter.snapshot())
+}
+
 // AC: no default agent → no enqueue + needs-default-agent emission.
 func TestAutoImplementCoordinator_NoDefaultEmits(t *testing.T) {
 	f := newAutoImplementFixture(t, "claude",

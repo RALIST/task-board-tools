@@ -83,7 +83,8 @@ func usage() {
 	fmt.Print(`tb — task board CLI
 
 Usage:
-  tb init [path] [--board-path=board] [--prefix=PR] [--refresh-docs]     Initialize or reconcile a board
+  tb init [path] [--board-path=board] [--prefix=PR] [--install-skills=auto|all|claude|codex|none] [--refresh-docs]
+                                                                           Initialize or reconcile a board
   tb board [--json]                                                      Print board status (or JSON snapshot)
   tb create "Title" -m module [-d desc] [-p P2] [-T feature] [-s M] [-t tags] [--parent ID] [--epic] [--legacy-file]
   tb ls [-t tag[,tag...]] [-s size[,size...]] [-m module[,module...]] [-T type[,type...]] [-p priority[,priority...]]
@@ -169,6 +170,12 @@ Project refresh:
   from the current templates. Previous versions are saved as .bak files so local
   customizations can be merged back manually. --refresh-docs is accepted for older
   scripts but is no longer required.
+  In an interactive terminal, tb init offers project-local task-board skills for
+  Claude Code and Codex. Scripts never prompt; pass --install-skills=all, claude,
+  codex, or none explicitly. Claude uses .claude/skills/task-board/SKILL.md;
+  Codex uses .agents/skills/task-board/SKILL.md. Matching skill files are no-ops;
+  customized files require confirmation in the default interactive flow, while
+  explicit/scripted installs save a .bak backup before refresh.
 
 Attachments:
   New attachments are stored in the task directory as <status>/<ID>/<filename>.

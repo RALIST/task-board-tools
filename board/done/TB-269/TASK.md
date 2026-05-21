@@ -7,8 +7,11 @@
 **Tags:** automation,docs,kanban,agent
 **Agent:** codex
 **ImplementedBy:** codex
-**ImplementStatus:** success
+**ImplementStatus:** lost
 **ReviewRef:** 24244a1
+**AgentStatus:** success
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -55,7 +58,7 @@ Verification:
 
 ## Review Findings
 
-- docs/IMPLEMENTATION.md:281 still describes the old code-review failure path as moving tasks back to `backlog`, showing backlog `review-failed` markers, and clearing the tag when resubmitting from backlog to code-review. That contradicts the current staged/canonical contract in the same doc and in docs/FEATURES.md, where failed reviews return to `ready` with `review-failed` and rework is picked up from ready. Update or clearly supersede this completed-work-log paragraph so the source-of-truth docs no longer carry stale backlog-based review semantics.
+- No blocking findings.
 
 ## Related Tasks
 
@@ -104,4 +107,23 @@ Verification:
 - 2026-05-21: Failed code review — moved to ready with review-failed marker
 - 2026-05-21: Cleared review-failed marker on resubmit
 - 2026-05-21: Submitted to code-review
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=lost, implemented-by=codex, implement-status=lost
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=cancelled, reviewed-by=codex, review-status=cancelled
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Passed code review
+- 2026-05-21: Edited agentstatus=success, reviewed-by=codex, review-status=success
 

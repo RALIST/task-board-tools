@@ -54,16 +54,17 @@ type AutoImplementCoordinator struct {
 	now                  func() time.Time
 	beforePullForTesting func(taskID string)
 
-	mu             sync.Mutex
-	boardDir       string
-	activated      bool
-	lastNeedsDef   bool
-	lastNeedsQry   bool
-	lastScanAt     time.Time
-	lastSkip       map[string]string
-	debounceTimer  *time.Timer
-	resumeAttempts map[string]time.Time
-	closed         chan struct{}
+	mu                sync.Mutex
+	boardDir          string
+	activated         bool
+	lastNeedsDef      bool
+	lastNeedsQry      bool
+	lastScanAt        time.Time
+	lastSkip          map[string]string
+	debounceTimer     *time.Timer
+	startupGraceUntil time.Time
+	resumeAttempts    map[string]time.Time
+	closed            chan struct{}
 }
 
 // AutoImplementCoordinatorOptions configures NewAutoImplementCoordinator.
@@ -116,6 +117,10 @@ func (c *AutoImplementCoordinator) SetSettings(s *SettingsService) {
 // Activate is the post-OpenBoard hook. Records boardDir and kicks an
 // initial scan. Subsequent watcher events drive incremental scans.
 func (c *AutoImplementCoordinator) Activate(ctx context.Context, boardDir string) error {
+	return c.ActivateWithStartupGrace(ctx, boardDir, 0)
+}
+
+func (c *AutoImplementCoordinator) ActivateWithStartupGrace(ctx context.Context, boardDir string, grace time.Duration) error {
 	if strings.TrimSpace(boardDir) == "" {
 		return errors.New("AutoImplementCoordinator.Activate: empty boardDir")
 	}
@@ -131,6 +136,10 @@ func (c *AutoImplementCoordinator) Activate(ctx context.Context, boardDir string
 	c.resumeAttempts = map[string]time.Time{}
 	c.lastNeedsDef = false
 	c.lastNeedsQry = false
+	c.startupGraceUntil = time.Time{}
+	if grace > 0 {
+		c.startupGraceUntil = c.now().Add(grace)
+	}
 	c.cancelTimersLocked()
 	if c.closed == nil {
 		c.closed = make(chan struct{})
@@ -147,6 +156,7 @@ func (c *AutoImplementCoordinator) Deactivate() error {
 	defer c.mu.Unlock()
 	c.activated = false
 	c.boardDir = ""
+	c.startupGraceUntil = time.Time{}
 	c.cancelTimersLocked()
 	if c.closed != nil {
 		select {
@@ -236,7 +246,16 @@ func (c *AutoImplementCoordinator) scheduleScan() {
 	if c.debounceTimer != nil {
 		c.debounceTimer.Stop()
 	}
-	c.debounceTimer = time.AfterFunc(scanDebounce, func() {
+	delay := scanDebounce
+	if !c.startupGraceUntil.IsZero() {
+		remaining := c.startupGraceUntil.Sub(c.now())
+		if remaining > 0 {
+			delay = remaining
+		} else {
+			c.startupGraceUntil = time.Time{}
+		}
+	}
+	c.debounceTimer = time.AfterFunc(delay, func() {
 		c.runScan(context.Background())
 	})
 	c.mu.Unlock()

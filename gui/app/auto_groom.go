@@ -24,6 +24,13 @@ var autoGroomStatusDirs = []string{"backlog", "ready", "in-progress", "code-revi
 // scanDebounce coalesces bursts of watcher events into one scan.
 const scanDebounce = 250 * time.Millisecond
 
+const autoGroomReadyWIPFullReason = "ready WIP limit full"
+
+func autoGroomReadyWIPFull(snap BoardSnapshot) bool {
+	limit := snap.WipLimits["ready"]
+	return limit > 0 && snap.WipCounts["ready"] >= limit
+}
+
 // settleJitter is added to the deferred rescan tick that fires when a
 // task's settle window expires. Tiny but non-zero so two tasks expiring
 // in lockstep don't both wake the coordinator on the same nanosecond.
@@ -70,18 +77,20 @@ type AutoGroomCoordinator struct {
 
 	// now is the clock the coordinator uses for settle-window math. Tests
 	// override it to advance a virtual clock without sleeping.
-	now func() time.Time
+	now                   func() time.Time
+	beforeReadyForTesting func(taskID string)
 
-	mu             sync.Mutex
-	boardDir       string
-	activated      bool
-	lastNeedsDef   bool
-	lastScanAt     time.Time
-	lastSkip       map[string]string
-	settleTargets  map[string]time.Time
-	settleTimers   map[string]*time.Timer
-	debounceTimer  *time.Timer
-	resumeAttempts map[string]time.Time
+	mu                sync.Mutex
+	boardDir          string
+	activated         bool
+	lastNeedsDef      bool
+	lastScanAt        time.Time
+	lastSkip          map[string]string
+	settleTargets     map[string]time.Time
+	settleTimers      map[string]*time.Timer
+	debounceTimer     *time.Timer
+	startupGraceUntil time.Time
+	resumeAttempts    map[string]time.Time
 	// closed signals Deactivate has been called; goroutines spawned by the
 	// coordinator should check this before re-arming timers.
 	closed chan struct{}
@@ -149,6 +158,10 @@ func (c *AutoGroomCoordinator) SetSettings(s *SettingsService) {
 // with a different boardDir without a Deactivate in between is a wiring
 // bug — log a warning and replace.
 func (c *AutoGroomCoordinator) Activate(ctx context.Context, boardDir string) error {
+	return c.ActivateWithStartupGrace(ctx, boardDir, 0)
+}
+
+func (c *AutoGroomCoordinator) ActivateWithStartupGrace(ctx context.Context, boardDir string, grace time.Duration) error {
 	if strings.TrimSpace(boardDir) == "" {
 		return errors.New("AutoGroomCoordinator.Activate: empty boardDir")
 	}
@@ -170,6 +183,10 @@ func (c *AutoGroomCoordinator) Activate(ctx context.Context, boardDir string) er
 	c.settleTargets = map[string]time.Time{}
 	c.resumeAttempts = map[string]time.Time{}
 	c.lastNeedsDef = false
+	c.startupGraceUntil = time.Time{}
+	if grace > 0 {
+		c.startupGraceUntil = c.now().Add(grace)
+	}
 	c.cancelTimersLocked()
 	if c.closed == nil {
 		c.closed = make(chan struct{})
@@ -187,6 +204,7 @@ func (c *AutoGroomCoordinator) Deactivate() error {
 	defer c.mu.Unlock()
 	c.activated = false
 	c.boardDir = ""
+	c.startupGraceUntil = time.Time{}
 	c.cancelTimersLocked()
 	if c.closed != nil {
 		select {
@@ -288,8 +306,30 @@ func (c *AutoGroomCoordinator) tryPromote(ctx context.Context, taskID string) {
 		})
 		return
 	}
-	if err := c.board.ReadyTask(ctx, taskID); err != nil {
+	snap, err := c.board.LoadBoard(ctx)
+	if err != nil {
+		c.logger.Warn("auto-groom: ready WIP check failed", "task", taskID, "err", err)
+		c.recordSkip(taskID, "promote-failed: "+err.Error())
+		c.emit("auto-groom:promote-failed", map[string]any{
+			"task_id": taskID,
+			"error":   err.Error(),
+		})
+		return
+	}
+	if autoGroomReadyWIPFull(snap) {
+		c.recordSkip(taskID, autoGroomReadyWIPFullReason)
+		c.emit("auto-groom:guarded-skip", map[string]any{
+			"task_id": taskID,
+			"reasons": []string{autoGroomReadyWIPFullReason},
+		})
+		return
+	}
+	if c.beforeReadyForTesting != nil {
+		c.beforeReadyForTesting(taskID)
+	}
+	if err := c.board.ReadyTaskStrictWIP(ctx, taskID); err != nil {
 		c.logger.Warn("auto-groom: tb ready failed", "task", taskID, "err", err)
+		c.recordSkip(taskID, "promote-failed: "+err.Error())
 		c.emit("auto-groom:promote-failed", map[string]any{
 			"task_id": taskID,
 			"error":   err.Error(),
@@ -349,7 +389,16 @@ func (c *AutoGroomCoordinator) scheduleScan() {
 	if c.debounceTimer != nil {
 		c.debounceTimer.Stop()
 	}
-	c.debounceTimer = time.AfterFunc(scanDebounce, func() {
+	delay := scanDebounce
+	if !c.startupGraceUntil.IsZero() {
+		remaining := c.startupGraceUntil.Sub(c.now())
+		if remaining > 0 {
+			delay = remaining
+		} else {
+			c.startupGraceUntil = time.Time{}
+		}
+	}
+	c.debounceTimer = time.AfterFunc(delay, func() {
 		c.runScan(context.Background())
 	})
 	c.mu.Unlock()
@@ -406,6 +455,16 @@ func (c *AutoGroomCoordinator) scan(ctx context.Context, boardDir string) {
 		c.logger.Warn("auto-groom: triage failed", "err", err)
 		return
 	}
+	snap, err := c.board.LoadBoard(ctx)
+	if err != nil {
+		c.logger.Warn("auto-groom: LoadBoard failed", "err", err)
+		return
+	}
+	backlogIDs := map[string]struct{}{}
+	for _, t := range snap.Backlog {
+		backlogIDs[t.ID] = struct{}{}
+	}
+	readyWIPFull := autoGroomReadyWIPFull(snap)
 
 	// Clear stale per-task state for tasks that are no longer in triage
 	// (either promoted or removed). The durable dedupe in
@@ -433,6 +492,12 @@ func (c *AutoGroomCoordinator) scan(ctx context.Context, boardDir string) {
 	sort.Strings(ids)
 	for _, id := range ids {
 		if _, ok := resumedThisScan[id]; ok {
+			continue
+		}
+		if readyWIPFull {
+			if _, ok := backlogIDs[id]; ok {
+				c.recordSkip(id, autoGroomReadyWIPFullReason)
+			}
 			continue
 		}
 		if remainingWorkers <= 0 {

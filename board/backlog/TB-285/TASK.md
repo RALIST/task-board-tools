@@ -6,6 +6,9 @@
 **Agent:** codex
 **Module:** cli
 **Tags:** scan,folder-form,quick-win
+**AgentStatus:** failed
+**GroomedBy:** codex
+**GroomStatus:** failed
 **Branch:** —
 
 ## Goal
@@ -87,4 +90,10 @@ Make `tb scan --apply` create each generated backlog task in folder form (`<boar
 - 2026-05-20: Edited user-attention
 - 2026-05-20: Edited agentstatus=needs-user
 - 2026-05-21: Edited agentstatus=none
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=lost, groomed-by=codex, groom-status=lost
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=failed, groomed-by=codex, groom-status=failed
 

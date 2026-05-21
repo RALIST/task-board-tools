@@ -507,6 +507,14 @@ func (b *BoardService) ReadyTask(ctx context.Context, id string) error {
 	return c.Ready(ctx, id)
 }
 
+func (b *BoardService) ReadyTaskStrictWIP(ctx context.Context, id string) error {
+	c := b.snapshot()
+	if c == nil {
+		return ErrNoBoard
+	}
+	return c.ReadyStrictWIP(ctx, id)
+}
+
 // PullNext runs `tb pull` to pull the highest-priority oldest task from
 // the ready column into in-progress. Returns nil with no movement when
 // the ready column is empty (the CLI emits the stderr hint).

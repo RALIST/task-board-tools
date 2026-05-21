@@ -32,15 +32,16 @@ type AutoReviewCoordinator struct {
 	budget   AutomationWorkerBudget
 	now      func() time.Time
 
-	mu             sync.Mutex
-	boardDir       string
-	activated      bool
-	lastNeedsDef   bool
-	lastScanAt     time.Time
-	lastSkip       map[string]string
-	debounceTimer  *time.Timer
-	resumeAttempts map[string]time.Time
-	closed         chan struct{}
+	mu                sync.Mutex
+	boardDir          string
+	activated         bool
+	lastNeedsDef      bool
+	lastScanAt        time.Time
+	lastSkip          map[string]string
+	debounceTimer     *time.Timer
+	startupGraceUntil time.Time
+	resumeAttempts    map[string]time.Time
+	closed            chan struct{}
 }
 
 type AutoReviewCoordinatorOptions struct {
@@ -83,6 +84,10 @@ func (c *AutoReviewCoordinator) SetSettings(s *SettingsService) {
 }
 
 func (c *AutoReviewCoordinator) Activate(ctx context.Context, boardDir string) error {
+	return c.ActivateWithStartupGrace(ctx, boardDir, 0)
+}
+
+func (c *AutoReviewCoordinator) ActivateWithStartupGrace(ctx context.Context, boardDir string, grace time.Duration) error {
 	if strings.TrimSpace(boardDir) == "" {
 		return errors.New("AutoReviewCoordinator.Activate: empty boardDir")
 	}
@@ -97,6 +102,10 @@ func (c *AutoReviewCoordinator) Activate(ctx context.Context, boardDir string) e
 	c.lastSkip = map[string]string{}
 	c.resumeAttempts = map[string]time.Time{}
 	c.lastNeedsDef = false
+	c.startupGraceUntil = time.Time{}
+	if grace > 0 {
+		c.startupGraceUntil = c.now().Add(grace)
+	}
 	c.cancelTimersLocked()
 	if c.closed == nil {
 		c.closed = make(chan struct{})
@@ -113,6 +122,7 @@ func (c *AutoReviewCoordinator) Deactivate() error {
 	defer c.mu.Unlock()
 	c.activated = false
 	c.boardDir = ""
+	c.startupGraceUntil = time.Time{}
 	c.cancelTimersLocked()
 	if c.closed != nil {
 		select {
@@ -186,7 +196,16 @@ func (c *AutoReviewCoordinator) scheduleScan() {
 	if c.debounceTimer != nil {
 		c.debounceTimer.Stop()
 	}
-	c.debounceTimer = time.AfterFunc(scanDebounce, func() {
+	delay := scanDebounce
+	if !c.startupGraceUntil.IsZero() {
+		remaining := c.startupGraceUntil.Sub(c.now())
+		if remaining > 0 {
+			delay = remaining
+		} else {
+			c.startupGraceUntil = time.Time{}
+		}
+	}
+	c.debounceTimer = time.AfterFunc(delay, func() {
 		c.runScan(context.Background())
 	})
 	c.mu.Unlock()

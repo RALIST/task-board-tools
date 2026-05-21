@@ -282,6 +282,31 @@ func TestAutoReviewCoordinator_DisabledNoEnqueue(t *testing.T) {
 	}
 }
 
+func TestAutoReviewCoordinator_StartupGraceDelaysActivationScan(t *testing.T) {
+	f := newAutoReviewFixture(t, "claude",
+		[]reviewTaskSpec{{readyTaskSpec: readyTaskSpec{ID: "TB-100", Agent: "claude"}, ReviewRef: "branch:tb-100", ReviewTarget: "Inspect branch."}},
+		nil,
+	)
+	f.enableAutoReview(t, "claude")
+	if err := f.coord.ActivateWithStartupGrace(context.Background(), f.boardDir, 80*time.Millisecond); err != nil {
+		t.Fatalf("ActivateWithStartupGrace: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if got := f.queuedTaskIDs(); len(got) != 0 {
+		t.Fatalf("queued during startup grace: %v", got)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		f.waitForActiveDrained(5 * time.Second)
+		if got := f.queuedTaskIDs(); len(got) == 1 && got[0] == "TB-100" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("auto-review did not queue after grace; events=%+v", f.emitter.snapshot())
+}
+
 func TestAutoReviewCoordinator_NoDefaultEmits(t *testing.T) {
 	f := newAutoReviewFixture(t, "claude",
 		[]reviewTaskSpec{{readyTaskSpec: readyTaskSpec{ID: "TB-100"}, ReviewRef: "branch:tb-100"}},

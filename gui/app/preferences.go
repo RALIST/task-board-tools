@@ -66,6 +66,16 @@ const (
 	AutoGroomSettleMinutesMax = 60
 )
 
+// AutomationStartupGraceSecondsDefault is the board-activation pause before
+// daemon/autonomous startup pickup begins. Zero opts out.
+const AutomationStartupGraceSecondsDefault = 30
+
+// AutomationStartupGraceSecondsMin / Max bracket the startup grace window.
+const (
+	AutomationStartupGraceSecondsMin = 0
+	AutomationStartupGraceSecondsMax = 300
+)
+
 // AutoImplementEnabledDefault is the default for the auto-implement feature.
 // Off so existing users opt in deliberately.
 const AutoImplementEnabledDefault = false
@@ -100,16 +110,17 @@ var ErrAutoReviewDefaultAgentRequired = errors.New(
 // in snake_case so a future settings UI (M7) can serialise the same
 // shape directly from a hand-edited form.
 type Preferences struct {
-	MaxWorkers              int                 `json:"max_workers"`
-	AgentTimeoutMinutes     int                 `json:"agent_timeout_minutes"`
-	DefaultAgent            string              `json:"default_agent"`
-	CLIPath                 string              `json:"cli_path"`
-	DisablePeriodicRecovery bool                `json:"disable_periodic_recovery"`
-	AutoGroomEnabled        bool                `json:"auto_groom_enabled"`
-	AutoGroomSettleMinutes  int                 `json:"auto_groom_settle_minutes"`
-	AutoImplementEnabled    bool                `json:"auto_implement_enabled"`
-	AutoImplementQuery      AutoImplementFilter `json:"auto_implement_query"`
-	AutoReviewEnabled       bool                `json:"auto_review_enabled"`
+	MaxWorkers                    int                 `json:"max_workers"`
+	AgentTimeoutMinutes           int                 `json:"agent_timeout_minutes"`
+	DefaultAgent                  string              `json:"default_agent"`
+	CLIPath                       string              `json:"cli_path"`
+	DisablePeriodicRecovery       bool                `json:"disable_periodic_recovery"`
+	AutoGroomEnabled              bool                `json:"auto_groom_enabled"`
+	AutoGroomSettleMinutes        int                 `json:"auto_groom_settle_minutes"`
+	AutomationStartupGraceSeconds int                 `json:"automation_startup_grace_seconds"`
+	AutoImplementEnabled          bool                `json:"auto_implement_enabled"`
+	AutoImplementQuery            AutoImplementFilter `json:"auto_implement_query"`
+	AutoReviewEnabled             bool                `json:"auto_review_enabled"`
 }
 
 // preferencesPath returns the absolute path the preferences file lives
@@ -436,6 +447,25 @@ func (s *SettingsService) SetAutoGroomSettleMinutes(n int) error {
 	})
 }
 
+// GetAutomationStartupGraceSeconds returns the board-activation grace period
+// before daemon/autonomous pickup starts. Zero preserves immediate pickup.
+func (s *SettingsService) GetAutomationStartupGraceSeconds() int {
+	prefs, err := s.loadPreferences()
+	if err != nil {
+		s.logger.Warn("preferences: read failed; using default", "err", err)
+		return AutomationStartupGraceSecondsDefault
+	}
+	return clampAutomationStartupGraceSeconds(prefs.AutomationStartupGraceSeconds, s.logger)
+}
+
+// SetAutomationStartupGraceSeconds persists the startup grace window after
+// clamping. Runtime changes affect the next board activation.
+func (s *SettingsService) SetAutomationStartupGraceSeconds(n int) error {
+	return s.updatePreferences(func(prefs *Preferences) {
+		prefs.AutomationStartupGraceSeconds = n
+	})
+}
+
 func clampMaxWorkers(n int, logger *slog.Logger) int {
 	if n < MaxWorkersMin {
 		if n != 0 {
@@ -488,6 +518,20 @@ func clampAutoGroomSettleMinutes(n int, logger *slog.Logger) int {
 	return n
 }
 
+func clampAutomationStartupGraceSeconds(n int, logger *slog.Logger) int {
+	if n < AutomationStartupGraceSecondsMin {
+		logger.Warn("preferences: automation_startup_grace_seconds below min; clamping",
+			"value", n, "min", AutomationStartupGraceSecondsMin)
+		return AutomationStartupGraceSecondsMin
+	}
+	if n > AutomationStartupGraceSecondsMax {
+		logger.Warn("preferences: automation_startup_grace_seconds above max; clamping",
+			"value", n, "max", AutomationStartupGraceSecondsMax)
+		return AutomationStartupGraceSecondsMax
+	}
+	return n
+}
+
 func normalizeDefaultAgent(agent string, logger *slog.Logger) string {
 	trimmed := strings.ToLower(strings.TrimSpace(agent))
 	if trimmed == "" {
@@ -505,14 +549,15 @@ func normalizeDefaultAgent(agent string, logger *slog.Logger) string {
 
 func defaultPreferences() Preferences {
 	return Preferences{
-		MaxWorkers:             MaxWorkersDefault,
-		AgentTimeoutMinutes:    AgentTimeoutMinutesDefault,
-		DefaultAgent:           "none",
-		AutoGroomEnabled:       AutoGroomEnabledDefault,
-		AutoGroomSettleMinutes: AutoGroomSettleMinutesDefault,
-		AutoImplementEnabled:   AutoImplementEnabledDefault,
-		AutoImplementQuery:     AutoImplementFilter{},
-		AutoReviewEnabled:      AutoReviewEnabledDefault,
+		MaxWorkers:                    MaxWorkersDefault,
+		AgentTimeoutMinutes:           AgentTimeoutMinutesDefault,
+		DefaultAgent:                  "none",
+		AutoGroomEnabled:              AutoGroomEnabledDefault,
+		AutoGroomSettleMinutes:        AutoGroomSettleMinutesDefault,
+		AutomationStartupGraceSeconds: AutomationStartupGraceSecondsDefault,
+		AutoImplementEnabled:          AutoImplementEnabledDefault,
+		AutoImplementQuery:            AutoImplementFilter{},
+		AutoReviewEnabled:             AutoReviewEnabledDefault,
 	}
 }
 
@@ -521,6 +566,7 @@ func normalizePreferences(prefs Preferences, logger *slog.Logger) Preferences {
 	prefs.AgentTimeoutMinutes = clampAgentTimeoutMinutes(prefs.AgentTimeoutMinutes, logger)
 	prefs.DefaultAgent = normalizeDefaultAgent(prefs.DefaultAgent, logger)
 	prefs.AutoGroomSettleMinutes = clampAutoGroomSettleMinutes(prefs.AutoGroomSettleMinutes, logger)
+	prefs.AutomationStartupGraceSeconds = clampAutomationStartupGraceSeconds(prefs.AutomationStartupGraceSeconds, logger)
 	prefs.AutoImplementQuery = prefs.AutoImplementQuery.normalize()
 	return prefs
 }
@@ -575,6 +621,9 @@ func (s *SettingsService) loadPreferences() (Preferences, error) {
 	if jsonErr := json.Unmarshal(b, &raw); jsonErr == nil {
 		if _, present := raw["auto_groom_settle_minutes"]; !present {
 			p.AutoGroomSettleMinutes = AutoGroomSettleMinutesDefault
+		}
+		if _, present := raw["automation_startup_grace_seconds"]; !present {
+			p.AutomationStartupGraceSeconds = AutomationStartupGraceSecondsDefault
 		}
 		// TB-288: detect the pre-TB-288 text-DSL string form so we can
 		// log the migration. AutoImplementFilter.UnmarshalJSON handles

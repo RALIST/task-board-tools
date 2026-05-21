@@ -8,6 +8,12 @@
 **Tags:** auto-groom,wip,daemon
 **GroomedBy:** codex
 **GroomStatus:** success
+**AgentStatus:** success
+**ImplementedBy:** codex
+**ImplementStatus:** success
+**ReviewRef:** working-tree
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -39,6 +45,31 @@ Make auto-groom treat `wip_limit_ready` as a hard automation cap: when the ready
 - [ ] Tests cover warn-mode ready-WIP preflight skip before queueing, post-groom promotion blocked by ready WIP, strict/managed promotion failure fallback, no-limit behavior, and preservation of manual CLI WIP semantics.
 - [ ] Verification passes with `cd gui && go test ./...`.
 
+## Review Target
+
+Implementation scope:
+- Auto-groom preflights ready WIP before queueing backlog candidates.
+- Post-groom promotion re-checks ready WIP and uses a strict automation-only ready path so warn-mode manual CLI semantics remain unchanged.
+- Skip diagnostics preserve untouched backlog metadata before queueing and avoid over-limit ready promotion.
+- Regression tests cover warn preflight skip, zero-limit behavior, post-groom skip, strict race fallback, and manual warn semantics.
+
+Verification:
+- cd gui && go test ./...
+- cd cli && go test ./...
+- git diff --check
+
+## Review Findings
+
+Second review: Critical issues none. Important issues none.
+
+Prior review finding fixed: auto-groom promotion now calls `ReadyTaskStrictWIP`, backed by a hidden CLI strict-WIP override, so automation cannot overfill ready in warn mode.
+
+Verification passed:
+- cd gui && go test ./...
+- cd cli && go test ./...
+- focused ReadyWIP tests
+- git diff --check
+
 ## Attachments
 
 ## Log
@@ -54,4 +85,27 @@ Make auto-groom treat `wip_limit_ready` as a hard automation cap: when the ready
 - 2026-05-20: Edited acceptance
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=lost, implemented-by=codex, implement-status=lost
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=working-tree
+- 2026-05-21: Edited review-target
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Passed code review
+- 2026-05-21: Edited reviewed-by=codex, review-status=success
 

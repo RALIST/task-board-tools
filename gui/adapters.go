@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"time"
 
 	tbapp "tools/tb-gui/app"
 	"tools/tb-gui/internal/daemon"
@@ -92,22 +93,31 @@ func (t teeShim) Emit(name string, data ...any) {
 type boardActivator struct {
 	daemon        *daemon.Daemon
 	agent         *tbapp.AgentService
+	settings      *tbapp.SettingsService
 	autoGroom     *tbapp.AutoGroomCoordinator
 	autoImplement *tbapp.AutoImplementCoordinator
 	autoReview    *tbapp.AutoReviewCoordinator
 }
 
 func (a *boardActivator) Activate(ctx context.Context, boardDir string) error {
-	if err := a.daemon.Activate(ctx, boardDir); err != nil {
+	grace := a.startupGrace()
+	if err := a.daemon.ActivateWithStartupGrace(ctx, boardDir, grace); err != nil {
 		return err
 	}
-	if err := a.autoGroom.Activate(ctx, boardDir); err != nil {
+	if err := a.autoGroom.ActivateWithStartupGrace(ctx, boardDir, grace); err != nil {
 		return err
 	}
-	if err := a.autoImplement.Activate(ctx, boardDir); err != nil {
+	if err := a.autoImplement.ActivateWithStartupGrace(ctx, boardDir, grace); err != nil {
 		return err
 	}
-	return a.autoReview.Activate(ctx, boardDir)
+	return a.autoReview.ActivateWithStartupGrace(ctx, boardDir, grace)
+}
+
+func (a *boardActivator) startupGrace() time.Duration {
+	if a.settings == nil {
+		return 0
+	}
+	return time.Duration(a.settings.GetAutomationStartupGraceSeconds()) * time.Second
 }
 
 func (a *boardActivator) Deactivate() error {

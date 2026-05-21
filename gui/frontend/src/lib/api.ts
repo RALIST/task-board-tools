@@ -82,6 +82,8 @@ type SettingsServiceBindings = typeof SettingsService & {
   SetAutoGroomEnabled: (enabled: boolean) => Promise<void>;
   GetAutoGroomSettleMinutes: () => Promise<number>;
   SetAutoGroomSettleMinutes: (n: number) => Promise<void>;
+  GetAutomationStartupGraceSeconds: () => Promise<number>;
+  SetAutomationStartupGraceSeconds: (n: number) => Promise<void>;
   GetAutoImplementEnabled: () => Promise<boolean>;
   SetAutoImplementEnabled: (enabled: boolean) => Promise<void>;
   GetAutoImplementQuery: () => Promise<AutoImplementFilter>;
@@ -422,6 +424,14 @@ export async function getAutoGroomSettleMinutes(): Promise<number> {
 
 export async function setAutoGroomSettleMinutes(n: number): Promise<void> {
   await requireSettingsMethod('SetAutoGroomSettleMinutes')(n);
+}
+
+export async function getAutomationStartupGraceSeconds(): Promise<number> {
+  return await requireSettingsMethod('GetAutomationStartupGraceSeconds')();
+}
+
+export async function setAutomationStartupGraceSeconds(n: number): Promise<void> {
+  await requireSettingsMethod('SetAutomationStartupGraceSeconds')(n);
 }
 
 export async function getAutoImplementEnabled(): Promise<boolean> {

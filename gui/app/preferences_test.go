@@ -57,6 +57,9 @@ func TestPreferences_MissingFileReturnsDefaults(t *testing.T) {
 	if got := s.GetAutoGroomSettleMinutes(); got != AutoGroomSettleMinutesDefault {
 		t.Errorf("auto_groom_settle_minutes: got %d, want %d", got, AutoGroomSettleMinutesDefault)
 	}
+	if got := s.GetAutomationStartupGraceSeconds(); got != AutomationStartupGraceSecondsDefault {
+		t.Errorf("automation_startup_grace_seconds: got %d, want %d", got, AutomationStartupGraceSecondsDefault)
+	}
 	if got := s.GetAutoReviewEnabled(); got != AutoReviewEnabledDefault {
 		t.Errorf("auto_review_enabled: got %v, want %v", got, AutoReviewEnabledDefault)
 	}
@@ -77,6 +80,37 @@ func TestSetMaxWorkers_RoundTrip(t *testing.T) {
 	})
 	if got := s2.GetMaxWorkers(); got != 3 {
 		t.Errorf("fresh read: got %d, want 3", got)
+	}
+}
+
+func TestSetAutomationStartupGraceSeconds_RoundTripAndClamp(t *testing.T) {
+	s, path := newSettingsForPrefs(t)
+	if err := s.SetAutomationStartupGraceSeconds(45); err != nil {
+		t.Fatalf("SetAutomationStartupGraceSeconds: %v", err)
+	}
+	if got := s.GetAutomationStartupGraceSeconds(); got != 45 {
+		t.Fatalf("after set: got %d, want 45", got)
+	}
+
+	s2 := NewSettingsService(SettingsOptions{
+		Logger:    slog.Default(),
+		PrefsPath: path,
+	})
+	if got := s2.GetAutomationStartupGraceSeconds(); got != 45 {
+		t.Fatalf("fresh read: got %d, want 45", got)
+	}
+
+	if err := s.SetAutomationStartupGraceSeconds(999); err != nil {
+		t.Fatalf("SetAutomationStartupGraceSeconds high: %v", err)
+	}
+	if got := s.GetAutomationStartupGraceSeconds(); got != AutomationStartupGraceSecondsMax {
+		t.Fatalf("high clamp: got %d, want %d", got, AutomationStartupGraceSecondsMax)
+	}
+	if err := s.SetAutomationStartupGraceSeconds(-5); err != nil {
+		t.Fatalf("SetAutomationStartupGraceSeconds low: %v", err)
+	}
+	if got := s.GetAutomationStartupGraceSeconds(); got != AutomationStartupGraceSecondsMin {
+		t.Fatalf("low clamp: got %d, want %d", got, AutomationStartupGraceSecondsMin)
 	}
 }
 

@@ -99,6 +99,7 @@
   // task is missing prerequisites (no default agent, blank query) we
   // disable the pill and surface a tooltip pointing the user to Settings.
   let autoImplementEnabled = $derived($preferencesStore.autoImplementEnabled);
+  let startupGraceSeconds = $derived($preferencesStore.automationStartupGraceSeconds);
   let autoImplementMissingPrereqs = $derived(
     $preferencesStore.defaultAgent === 'none' ||
       isAutoImplementFilterEmpty($preferencesStore.autoImplementQuery),
@@ -434,6 +435,11 @@
         Auto-impl
       </button>
       <AutoReviewHeaderToggle onOpenSettings={() => (settingsOpen = true)} />
+      {#if startupGraceSeconds > 0}
+        <span class="startup-grace-pill" title="Automation startup grace after opening a board">
+          Grace {startupGraceSeconds}s
+        </span>
+      {/if}
       <button class="pick" onclick={() => (settingsOpen = true)}>Settings</button>
       <button class="pick" onclick={pickAndOpen}>Open board…</button>
     </div>
@@ -630,6 +636,18 @@
   .auto-groom-toggle.needs-default .dot {
     background: #f4bf4f;
     box-shadow: 0 0 0 2px rgba(244, 191, 79, 0.25);
+  }
+
+  .startup-grace-pill {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(139, 210, 189, 0.42);
+    border-radius: 999px;
+    color: #8bd2bd;
+    font-size: 11.5px;
+    line-height: 1.2;
+    padding: 4px 10px;
+    white-space: nowrap;
   }
 
   .empty {

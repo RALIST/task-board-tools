@@ -167,10 +167,10 @@ func (r *StageReconciler) reconcileAutoGroom(ctx context.Context, boardDir strin
 	}
 	fp := reconcileFingerprint("ready", t.ID, run.RunID, string(run.Status), wipFingerprint(snap, "ready"))
 	return r.attemptRepair(ctx, boardDir, t.ID, reconcileTransitionAutoGroomReady, fp, "ready", func() error {
-		if blocked, reason := wipStrictBlocked(snap, "ready"); blocked {
-			return errors.New(reason)
+		if autoGroomReadyWIPFull(snap) {
+			return errors.New(autoGroomReadyWIPFullReason)
 		}
-		return r.board.ReadyTask(ctx, t.ID)
+		return r.board.ReadyTaskStrictWIP(ctx, t.ID)
 	})
 }
 

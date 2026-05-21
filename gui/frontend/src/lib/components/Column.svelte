@@ -4,11 +4,9 @@
   import Card from './Card.svelte';
   import { dndzone, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
   import {
-    COLUMN_TASK_BATCH_SIZE,
-    hiddenTaskCount,
-    nextVisibleTaskLimit,
-    shouldBatchRenderColumn,
-    visibleTaskCount,
+    shouldVirtualizeColumn,
+    virtualTaskRange,
+    type VirtualTaskRange,
   } from '$lib/columnVisibility';
 
   export type DropTarget = 'backlog' | 'ready' | 'in-progress' | 'code-review' | 'done';
@@ -29,17 +27,25 @@
 
   let dragOver = $state(false);
   let dragging = $state(false);
-  let visibleLimit = $state(COLUMN_TASK_BATCH_SIZE);
+  let scrollTop = $state(0);
+  let viewportHeight = $state(0);
+  let scrollList = $state<HTMLUListElement | null>(null);
   let lastTasks = $state<Task[] | null>(null);
-  let batchRender = $derived(shouldBatchRenderColumn(status));
-  let visibleCount = $derived(batchRender ? visibleTaskCount(tasks.length, visibleLimit) : tasks.length);
-  let hiddenCount = $derived(batchRender ? hiddenTaskCount(tasks.length, visibleLimit) : 0);
-  let visibleTasks = $derived(tasks.slice(0, visibleCount));
+  let virtualized = $derived(shouldVirtualizeColumn(status, tasks.length));
+  let virtualRange = $derived.by<VirtualTaskRange>(() => {
+    if (!virtualized) return { start: 0, end: tasks.length, paddingTop: 0, paddingBottom: 0 };
+    return virtualTaskRange(tasks.length, scrollTop, viewportHeight);
+  });
+  let visibleTasks = $derived(tasks.slice(virtualRange.start, virtualRange.end));
+  let dndEnabled = $derived(draggable && status !== 'archive' && !virtualized);
+  let dndGuarded = $derived(draggable && status !== 'archive' && virtualized);
 
   $effect(() => {
     const previousTasks = untrack(() => lastTasks);
     if (tasks !== previousTasks) {
-      visibleLimit = COLUMN_TASK_BATCH_SIZE;
+      scrollTop = 0;
+      viewportHeight = scrollList?.clientHeight ?? 0;
+      if (scrollList) scrollList.scrollTop = 0;
       lastTasks = tasks;
     }
   });
@@ -93,8 +99,10 @@
     }
   }
 
-  function showMore() {
-    visibleLimit = nextVisibleTaskLimit(visibleLimit, tasks.length);
+  function handleScroll(e: Event) {
+    const node = e.currentTarget as HTMLUListElement;
+    scrollTop = node.scrollTop;
+    viewportHeight = node.clientHeight;
   }
 </script>
 
@@ -109,9 +117,11 @@
       <span class="count">{tasks.length}</span>
     {/if}
   </header>
-  {#if draggable && status !== 'archive'}
+  {#if dndEnabled}
     <ul
+      bind:this={scrollList}
       use:dndzone={{ items, type: 'task', flipDurationMs: 150, dropTargetStyle: {} }}
+      onscroll={handleScroll}
       onconsider={handleConsider}
       onfinalize={handleFinalize}>
       {#each items as item (item.id)}
@@ -127,17 +137,32 @@
     {#if tasks.length === 0}
       <p class="empty">No tasks</p>
     {:else}
-      <ul class="static">
+      <ul
+        class="static"
+        class:virtualized
+        bind:this={scrollList}
+        onscroll={handleScroll}
+        aria-label={`${title} tasks`}>
+        {#if virtualized && virtualRange.paddingTop > 0}
+          <li
+            class="virtual-spacer"
+            style={`height: ${virtualRange.paddingTop}px`}
+            aria-hidden="true"></li>
+        {/if}
         {#each visibleTasks as t (t.id)}
           <li><Card task={t} {onSelect} /></li>
         {/each}
+        {#if virtualized && virtualRange.paddingBottom > 0}
+          <li
+            class="virtual-spacer"
+            style={`height: ${virtualRange.paddingBottom}px`}
+            aria-hidden="true"></li>
+        {/if}
       </ul>
+      {#if dndGuarded}
+        <p class="virtual-dnd-note">Drag disabled while this large column uses lazy rendering.</p>
+      {/if}
     {/if}
-  {/if}
-  {#if hiddenCount > 0}
-    <button type="button" class="show-more" onclick={showMore}>
-      Show {Math.min(COLUMN_TASK_BATCH_SIZE, hiddenCount)} more
-    </button>
   {/if}
 </article>
 
@@ -195,6 +220,14 @@
     flex: 1;
   }
   li { margin: 0; }
+  .virtualized {
+    scrollbar-gutter: stable;
+  }
+  .virtual-spacer {
+    margin: 0;
+    padding: 0;
+    pointer-events: none;
+  }
   .empty {
     color: var(--fg-dim);
     text-align: center;
@@ -202,22 +235,14 @@
     font-size: 11px;
     font-style: italic;
   }
-  .show-more {
+  .virtual-dnd-note {
     border: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     background: rgba(255, 255, 255, 0.035);
     color: var(--fg-muted);
-    cursor: pointer;
-    font: inherit;
+    margin: 0;
     font-size: 12px;
     padding: 8px 10px;
     text-align: center;
-    transition: background 120ms ease, color 120ms ease;
-  }
-  .show-more:hover,
-  .show-more:focus-visible {
-    background: rgba(255, 255, 255, 0.07);
-    color: var(--fg);
-    outline: none;
   }
 </style>

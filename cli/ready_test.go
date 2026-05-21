@@ -234,6 +234,55 @@ func TestPromoteToReadyHonoursStrictWipLimit(t *testing.T) {
 	}
 }
 
+func TestPromoteToReadyWarnWipLimitAllowsManualPromotion(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	prevLimits := cfg.WipLimits
+	prevEnforcement := cfg.WipEnforcement
+	cfg.WipLimits = map[string]int{"ready": 1}
+	cfg.WipEnforcement = "warn"
+	t.Cleanup(func() {
+		cfg.WipLimits = prevLimits
+		cfg.WipEnforcement = prevEnforcement
+	})
+
+	writeReadyTestTask(t, boardDir, "ready", "TB-1", readyGroomedTask)
+	writeReadyTestTask(t, boardDir, "backlog", "TB-2", readyGroomedTask)
+
+	stderr := captureStderr(t, func() {
+		if _, err := promoteToReady("TB-2"); err != nil {
+			t.Fatalf("promoteToReady warn mode should allow promotion: %v", err)
+		}
+	})
+	if !strings.Contains(stderr, "WIP limit reached for ready") {
+		t.Fatalf("expected WIP warning, got stderr: %s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, "ready", "TB-2.md")); err != nil {
+		t.Fatalf("warn mode should promote into ready: %v", err)
+	}
+}
+
+func TestPromoteToReadyStrictWipOverrideBlocksWarnModePromotion(t *testing.T) {
+	boardDir := newCommandTestBoard(t)
+	prevLimits := cfg.WipLimits
+	prevEnforcement := cfg.WipEnforcement
+	cfg.WipLimits = map[string]int{"ready": 1}
+	cfg.WipEnforcement = "warn"
+	t.Cleanup(func() {
+		cfg.WipLimits = prevLimits
+		cfg.WipEnforcement = prevEnforcement
+	})
+
+	writeReadyTestTask(t, boardDir, "ready", "TB-1", readyGroomedTask)
+	writeReadyTestTask(t, boardDir, "backlog", "TB-2", readyGroomedTask)
+
+	if _, err := promoteToReadyWithOptions("TB-2", readyOptions{strictWIP: true}); err == nil {
+		t.Fatalf("strict WIP override should block promotion")
+	}
+	if _, err := os.Stat(filepath.Join(boardDir, "backlog", "TB-2.md")); err != nil {
+		t.Fatalf("strict WIP override should leave task in backlog: %v", err)
+	}
+}
+
 func TestEnforceWipLimitReportsCollectTasksError(t *testing.T) {
 	boardDir := newCommandTestBoard(t)
 	prevLimits := cfg.WipLimits

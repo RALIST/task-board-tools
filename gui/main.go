@@ -135,12 +135,14 @@ func main() {
 	tee := daemon.TeeEmitter{A: emitter, B: daemon.TeeEmitter{A: sink, B: daemon.TeeEmitter{A: boardSink, B: daemon.TeeEmitter{A: autoGroom, B: daemon.TeeEmitter{A: autoImplement, B: autoReview}}}}}
 	w := watcher.New(teeShim{tee: tee}, logger)
 
+	activator := &boardActivator{daemon: d, agent: agentService, autoGroom: autoGroom, autoImplement: autoImplement, autoReview: autoReview}
 	settingsService = tbapp.NewSettingsService(tbapp.SettingsOptions{
 		Logger:    logger,
 		Board:     boardService,
 		Watcher:   w,
-		Activator: &boardActivator{daemon: d, agent: agentService, autoGroom: autoGroom, autoImplement: autoImplement, autoReview: autoReview},
+		Activator: activator,
 	})
+	activator.settings = settingsService
 	// Late-bind the SettingsService so both coordinators can read
 	// preferences on every scan.
 	autoGroom.SetSettings(settingsService)

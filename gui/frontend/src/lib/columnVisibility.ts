@@ -1,18 +1,37 @@
-export const COLUMN_TASK_BATCH_SIZE = 120;
+export const VIRTUAL_COLUMN_THRESHOLD = 240;
+export const VIRTUAL_COLUMN_ITEM_HEIGHT = 112;
+export const VIRTUAL_COLUMN_OVERSCAN = 8;
+export const VIRTUAL_COLUMN_FALLBACK_VIEWPORT_HEIGHT = 672;
 
-export function shouldBatchRenderColumn(status: string): boolean {
-  return status === 'done' || status === 'archive';
+export type VirtualTaskRange = {
+  start: number;
+  end: number;
+  paddingTop: number;
+  paddingBottom: number;
+};
+
+// Active workflow columns stay fully mounted because their DnD zones depend on
+// complete column membership. Completed-history columns are browse-only at
+// large sizes, so lazy viewport rendering is safe there.
+export function shouldVirtualizeColumn(status: string, total: number): boolean {
+  return (status === 'done' || status === 'archive') && total > VIRTUAL_COLUMN_THRESHOLD;
 }
 
-export function visibleTaskCount(total: number, limit: number = COLUMN_TASK_BATCH_SIZE): number {
-  if (total <= 0) return 0;
-  return Math.min(total, Math.max(0, limit));
-}
+export function virtualTaskRange(total: number, scrollTop: number, viewportHeight: number): VirtualTaskRange {
+  const count = Math.max(0, Math.floor(total));
+  if (count === 0) return { start: 0, end: 0, paddingTop: 0, paddingBottom: 0 };
 
-export function hiddenTaskCount(total: number, limit: number = COLUMN_TASK_BATCH_SIZE): number {
-  return Math.max(0, total - visibleTaskCount(total, limit));
-}
+  const safeScrollTop = Math.max(0, scrollTop);
+  const viewport = viewportHeight > 0 ? viewportHeight : VIRTUAL_COLUMN_FALLBACK_VIEWPORT_HEIGHT;
+  const firstVisible = Math.min(count - 1, Math.floor(safeScrollTop / VIRTUAL_COLUMN_ITEM_HEIGHT));
+  const visibleSlots = Math.max(1, Math.ceil(viewport / VIRTUAL_COLUMN_ITEM_HEIGHT));
+  const start = Math.max(0, firstVisible - VIRTUAL_COLUMN_OVERSCAN);
+  const end = Math.min(count, firstVisible + visibleSlots + VIRTUAL_COLUMN_OVERSCAN);
 
-export function nextVisibleTaskLimit(currentLimit: number, total: number): number {
-  return Math.min(total, Math.max(COLUMN_TASK_BATCH_SIZE, currentLimit) + COLUMN_TASK_BATCH_SIZE);
+  return {
+    start,
+    end,
+    paddingTop: start * VIRTUAL_COLUMN_ITEM_HEIGHT,
+    paddingBottom: (count - end) * VIRTUAL_COLUMN_ITEM_HEIGHT,
+  };
 }

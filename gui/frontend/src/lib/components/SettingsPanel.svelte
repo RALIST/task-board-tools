@@ -39,6 +39,7 @@
   let periodicRecoveryInput = $state(true);
   let autoGroomInput = $state(false);
   let autoGroomSettleInput = $state('5');
+  let startupGraceInput = $state('30');
   let autoImplementInput = $state(false);
   let autoReviewInput = $state(false);
   // TB-297: Settings only owns the enable/disable preference. The
@@ -58,6 +59,7 @@
     periodicRecoveryEnabled: true,
     autoGroomEnabled: false,
     autoGroomSettleMinutes: 5,
+    automationStartupGraceSeconds: 30,
     autoImplementEnabled: false,
     autoImplementQuery: { ...emptyAutoImplementFilter },
     autoReviewEnabled: false,
@@ -73,6 +75,9 @@
   let nextAutoGroomSettle = $derived(
     clampNumber(autoGroomSettleInput, 0, 60, baseline.autoGroomSettleMinutes),
   );
+  let nextStartupGrace = $derived(
+    clampNumber(startupGraceInput, 0, 300, baseline.automationStartupGraceSeconds),
+  );
   let dirty = $derived(
     nextMaxWorkers !== baseline.maxWorkers ||
       nextAgentTimeout !== baseline.agentTimeoutMinutes ||
@@ -81,6 +86,7 @@
       periodicRecoveryInput !== baseline.periodicRecoveryEnabled ||
       autoGroomInput !== baseline.autoGroomEnabled ||
       nextAutoGroomSettle !== baseline.autoGroomSettleMinutes ||
+      nextStartupGrace !== baseline.automationStartupGraceSeconds ||
       autoImplementInput !== baseline.autoImplementEnabled ||
       autoReviewInput !== baseline.autoReviewEnabled,
   );
@@ -157,6 +163,7 @@
     snapMaxWorkers();
     snapAgentTimeout();
     snapAutoGroomSettle();
+    snapStartupGrace();
 
     const failures: string[] = [];
     saving = true;
@@ -208,6 +215,13 @@
           await preferencesStore.setAutoGroomSettleMinutes(nextAutoGroomSettle);
         } catch {
           failures.push('auto-groom settle window');
+        }
+      }
+      if (nextStartupGrace !== baseline.automationStartupGraceSeconds) {
+        try {
+          await preferencesStore.setAutomationStartupGraceSeconds(nextStartupGrace);
+        } catch {
+          failures.push('startup grace');
         }
       }
       // TB-297: the FilterBar "Save as auto-implement" button is the
@@ -264,6 +278,7 @@
     periodicRecoveryInput = baseline.periodicRecoveryEnabled;
     autoGroomInput = baseline.autoGroomEnabled;
     autoGroomSettleInput = String(baseline.autoGroomSettleMinutes);
+    startupGraceInput = String(baseline.automationStartupGraceSeconds);
     autoImplementInput = baseline.autoImplementEnabled;
     autoReviewInput = baseline.autoReviewEnabled;
     savedFilter = baseline.autoImplementQuery;
@@ -279,6 +294,7 @@
       periodicRecoveryEnabled: prefs.periodicRecoveryEnabled,
       autoGroomEnabled: prefs.autoGroomEnabled,
       autoGroomSettleMinutes: prefs.autoGroomSettleMinutes,
+      automationStartupGraceSeconds: prefs.automationStartupGraceSeconds,
       autoImplementEnabled: prefs.autoImplementEnabled,
       autoImplementQuery: prefs.autoImplementQuery,
       autoReviewEnabled: prefs.autoReviewEnabled,
@@ -295,6 +311,10 @@
 
   function snapAutoGroomSettle() {
     autoGroomSettleInput = String(nextAutoGroomSettle);
+  }
+
+  function snapStartupGrace() {
+    startupGraceInput = String(nextStartupGrace);
   }
 
   function clampNumber(raw: string, min: number, max: number, fallback: number): number {
@@ -407,6 +427,18 @@
             type="checkbox"
             bind:checked={periodicRecoveryInput} />
           <small>Reconcile stale running agent rows while the app stays open.</small>
+        </label>
+
+        <label class="field">
+          <span>Startup grace</span>
+          <input
+            type="number"
+            min="0"
+            max="300"
+            step="1"
+            bind:value={startupGraceInput}
+            onblur={snapStartupGrace} />
+          <small>Seconds before queued and autonomous work starts after opening a board. 0 = no delay.</small>
         </label>
 
         <label class="field checkbox-field">

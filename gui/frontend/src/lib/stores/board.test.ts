@@ -10,7 +10,15 @@ vi.mock('../api', () => ({
   getTask: (id: string) => getTask(id),
 }));
 
-const { board, loaded, loadError, refresh, statusMode } = await import('./board');
+const {
+  beginBoardSwitch,
+  board,
+  loaded,
+  loadError,
+  refresh,
+  statusMode,
+  switchingTo,
+} = await import('./board');
 
 describe('board store refresh ordering', () => {
   beforeEach(() => {
@@ -19,6 +27,79 @@ describe('board store refresh ordering', () => {
     loaded.set(false);
     loadError.set(null);
     statusMode.set('active');
+    switchingTo.set(null);
+  });
+
+  it('clears stale cards and exposes the target board while a switch refresh loads', async () => {
+    const taskBoardInitial = snapshot('TB-90', 'Board switching is not working');
+    const writerStudio = deferred<BoardSnapshot>();
+
+    loadBoard.mockResolvedValueOnce(taskBoardInitial);
+    await refresh();
+    expect(get(board).backlog[0]?.id).toBe('TB-90');
+    expect(get(loaded)).toBe(true);
+
+    loadBoard.mockImplementationOnce(() => writerStudio.promise);
+    beginBoardSwitch('/Users/ralist/projects/books/writer-studio');
+    const switchRefresh = refresh();
+
+    expect(get(board).backlog).toHaveLength(0);
+    expect(get(board).done).toHaveLength(0);
+    expect(get(loaded)).toBe(false);
+    expect(get(loadError)).toBeNull();
+    expect(get(switchingTo)).toBe('/Users/ralist/projects/books/writer-studio');
+
+    writerStudio.resolve(snapshot('WS-001', 'Proofreading chunker epic'));
+    await switchRefresh;
+
+    expect(get(board).backlog[0]?.id).toBe('WS-001');
+    expect(get(loaded)).toBe(true);
+    expect(get(loadError)).toBeNull();
+    expect(get(switchingTo)).toBeNull();
+  });
+
+  it('keeps stale cards hidden and shows the error when a committed switch refresh fails', async () => {
+    const taskBoardInitial = snapshot('TB-90', 'Board switching is not working');
+    const failure = new Error('cannot load active board: duplicate task TB-1');
+
+    loadBoard.mockResolvedValueOnce(taskBoardInitial);
+    await refresh();
+    expect(get(board).backlog[0]?.id).toBe('TB-90');
+
+    loadBoard.mockRejectedValueOnce(failure);
+    beginBoardSwitch('/tmp/committed-broken-board');
+    await refresh();
+
+    expect(get(board).backlog).toHaveLength(0);
+    expect(get(board).inProgress).toHaveLength(0);
+    expect(get(board).done).toHaveLength(0);
+    expect(get(loaded)).toBe(false);
+    expect(get(loadError)).toBe(failure.message);
+    expect(get(switchingTo)).toBeNull();
+  });
+
+  it('ignores a stale refresh result after a newer board switch starts', async () => {
+    const initial = snapshot('TB-90', 'Initial board');
+    const stale = deferred<BoardSnapshot>();
+    const newer = snapshot('WS-001', 'Newer board');
+
+    loadBoard.mockResolvedValueOnce(initial);
+    await refresh();
+    expect(get(board).backlog[0]?.id).toBe('TB-90');
+
+    loadBoard
+      .mockImplementationOnce(() => stale.promise)
+      .mockResolvedValueOnce(newer);
+
+    const staleRefresh = refresh();
+    beginBoardSwitch('/tmp/newer-board');
+    const newRefresh = refresh();
+    stale.resolve(snapshot('OLD-1', 'Older board'));
+    await Promise.all([staleRefresh, newRefresh]);
+
+    expect(get(board).backlog[0]?.id).toBe('WS-001');
+    expect(get(loadError)).toBeNull();
+    expect(get(switchingTo)).toBeNull();
   });
 
   it('runs one follow-up load for a burst of refresh requests', async () => {

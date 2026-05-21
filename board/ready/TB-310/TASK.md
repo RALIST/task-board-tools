@@ -12,6 +12,8 @@
 
 After CLI and GUI no longer require AgentStatus, update canonical docs/templates and clean live board/task fixtures so the project no longer advertises or emits the generic field.
 
+BLOCKED_BY TB-303
+
 ## Context
 
 - Parent epic: TB-303.
@@ -42,3 +44,5 @@ After CLI and GUI no longer require AgentStatus, update canonical docs/templates
 - 2026-05-20: Edited context
 - 2026-05-20: Edited constraints
 - 2026-05-20: Edited acceptance
+- 2026-05-21: Committed — moved to ready
+- 2026-05-21: Edited body via GUI

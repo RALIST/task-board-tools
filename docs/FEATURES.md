@@ -185,9 +185,9 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ### F5.1 — Queued-task daemon ☑
 - Daemon goroutine starts on app launch, stops on shutdown.
-- Picks up any task with `**AgentStatus:** queued` via two paths: (a) startup scan after `SettingsService.OpenBoard` activates the daemon, and (b) the watcher event sink, which sees the atomic-rename `board:reloaded` event from `tb edit --agent-status queued`.
+- Picks up any task with `**AgentStatus:** queued` via two paths: (a) startup scan after `SettingsService.OpenBoard` activates the daemon and the configured startup grace expires, and (b) the watcher event sink, which sees the atomic-rename `board:reloaded` event from `tb edit --agent-status queued` outside the grace window.
 - Default worker pool: 1.
-- **Acceptance**: `tb edit WS-2 -a claude --agent-status queued` in terminal; daemon picks it up within 5s.
+- **Acceptance**: `tb edit WS-2 -a claude --agent-status queued` in terminal; with `automation_startup_grace_seconds: 0`, daemon picks it up within 5s.
 
 ### F5.2 — Stale-running recovery ☑
 - On daemon activation, scans for tasks with `AgentStatus: running`.
@@ -237,7 +237,7 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 
 ### F7.1 — Settings UI ☑
 - Settings panel: agent timeout, max workers, default agent, CLI binary path.
-- `preferences.json` persists all four knobs; timeout is read per run, CLI path reloads the active board client, and default agent is shown as a visual dropdown default for unassigned tasks.
+- `preferences.json` persists all runtime knobs; timeout is read per run, CLI path reloads the active board client, `automation_startup_grace_seconds` defaults to `30` with range `[0,300]` and `0` for immediate pickup, and default agent is shown as a visual dropdown default for unassigned tasks.
 - **Acceptance**: change timeout in UI; next run respects it.
 
 ### F7.2 — Keyboard shortcuts ☑
@@ -302,8 +302,9 @@ Status notation: ☐ planned · ⬚ partial · ☑ done.
 ## M11 — Staged autonomous workflow (TB-172 / TB-177 / TB-262)
 
 - ☑ **Contract:** autonomous operation is three independently toggleable stages, not one global automation switch. `auto-groom` owns backlog grooming into `ready`; `auto-implement` owns committed ready work into `in-progress` and then `code-review`; `auto-review` owns review-mode pass/fail from `code-review`.
-- ☑ **Auto-groom (TB-172):** Settings exposes `auto_groom_enabled` and `auto_groom_settle_minutes`, with a board-header quick toggle backed by the same preference. When enabled and a valid `default_agent` exists, backlog tasks reported by triage after the settle window are queued as `mode=groom` within the shared `max_workers` budget; successful clean grooming promotes through the managed ready gate. Disabled, no-default, and worker-capacity-full paths leave tasks untouched and keep manual Groom available.
+- ☑ **Auto-groom (TB-172):** Settings exposes `auto_groom_enabled` and `auto_groom_settle_minutes`, with a board-header quick toggle backed by the same preference. When enabled and a valid `default_agent` exists, backlog tasks reported by triage after the settle window are queued as `mode=groom` within the shared `max_workers` budget; successful clean grooming promotes through the managed ready gate only while the configured ready-column WIP cap has capacity. Disabled, no-default, ready-WIP-full, and worker-capacity-full paths leave tasks untouched and keep manual Groom available.
 - ☑ **Auto-implement (TB-177):** Settings exposes `auto_implement_enabled` and a saved query, mirrored by a compact board-header control. When enabled with a valid default agent and query, matching `ready` tasks are eligible when their generic `AgentStatus` is blank or otherwise nonblocking for a new implement run. The stage uses assigned-agent/default-agent fallback, reserves shared `max_workers` capacity, moves through the canonical pull path into `in-progress`, and the implementation agent submits with `ReviewRef` to `code-review`. Backlog tasks are never auto-implemented.
+- ☑ **Startup grace (TB-301):** Settings exposes `automation_startup_grace_seconds` so board activation gives users a short pause before daemon queued-task pickup, auto-groom activation scans, and auto-implement activation scans. Stale recovery remains immediate; board switch/deactivation cancels pending startup work for the old board.
 - ☑ **Auto-implement dependency gate (TB-267):** child tasks in the same epic are considered in numeric task-ID order. A later child is skipped while any lower-ID same-parent child is not closed/done, and diagnostics identify the blocker instead of silently guessing.
 - ☑ **Review-failed retry state (TB-268):** a failed review returns to `ready` with `review-failed` and clears retry-blocking generic `AgentStatus` so auto-implement can pick up eligible rework. Per-mode review attribution and JSONL history remain the audit trail.
 - ☑ **Auto-review (TB-262):** Settings exposes `auto_review_enabled`, defaulted off and validated against `default_agent`, with a compact board-header control. When enabled, eligible `code-review` tasks with concrete `ReviewRef` are queued as `mode=review` with `initiator=auto-review`; missing `ReviewRef` writes a `needs-user` handoff. Pass moves to `done` through `tb review --pass`; fail uses `tb review --fail` back to `ready` with `review-failed`. Dedupe/recovery use objective JSONL queued events for `initiator=auto-review`; no pass/fail is inferred from prose.

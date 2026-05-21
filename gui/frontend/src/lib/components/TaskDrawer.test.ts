@@ -123,6 +123,7 @@ const preferenceMocks = vi.hoisted(() => {
     periodicRecoveryEnabled: true,
     autoGroomEnabled: false,
     autoGroomSettleMinutes: 5,
+    automationStartupGraceSeconds: 30,
     autoReviewEnabled: false,
     loaded: true,
   };
@@ -152,6 +153,7 @@ const preferenceMocks = vi.hoisted(() => {
           periodicRecoveryEnabled: true,
           autoGroomEnabled: false,
           autoGroomSettleMinutes: 5,
+          automationStartupGraceSeconds: 30,
           autoReviewEnabled: false,
           loaded: true,
         };

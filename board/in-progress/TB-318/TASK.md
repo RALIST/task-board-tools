@@ -8,6 +8,9 @@
 **Tags:** gui,board-switch,loading,ux
 **GroomedBy:** codex
 **GroomStatus:** success
+**AgentStatus:** failed
+**ImplementedBy:** codex
+**ImplementStatus:** failed
 **Branch:** —
 
 ## Goal
@@ -69,4 +72,13 @@ When the GUI opens a different board, make the selected board feel active immedi
 - 2026-05-21: Edited agentstatus=success, groomed-by=codex, groom-status=success, implemented-by=none, implement-status=none
 - 2026-05-21: Edited agentstatus=success, groomed-by=codex, groom-status=success
 - 2026-05-21: Committed — moved to ready
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Moved to ready
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=failed, implemented-by=codex, implement-status=failed
 

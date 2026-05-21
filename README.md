@@ -36,6 +36,7 @@ ln -sf "$(pwd)/tb" ~/.local/bin/tb
 # Create a board in another project.
 cd /your/project
 tb init                                # creates ./board and .tb.yaml
+tb init . --install-skills=all         # optional Claude + Codex project skills
 tb create "First task" -m core -p P1   # adds board/backlog/PR-1/TASK.md
 tb ls                                  # see the backlog
 tb ready 1                             # commit it to the ready column (triage-gated)

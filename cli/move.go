@@ -291,8 +291,12 @@ func resolveMoveSource(boardDir, taskID, targetStatus string) (taskRef, bool, er
 // that wants WIP enforcement: pre-flight calls outside the lock stay for
 // fast-fail UX, but this guard is the authoritative check.
 func wipLimitGuard() moveGuardFunc {
+	return wipLimitGuardForMode(false)
+}
+
+func wipLimitGuardForMode(strictOverride bool) moveGuardFunc {
 	return func(boardDir, _ string, _, targetStatus string) error {
-		return enforceWipLimit(targetStatus, boardDir)
+		return enforceWipLimitForMode(targetStatus, boardDir, strictOverride)
 	}
 }
 

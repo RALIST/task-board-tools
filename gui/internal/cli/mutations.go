@@ -379,10 +379,21 @@ func (c *Client) Move(ctx context.Context, id, status string) error {
 // goal), so this wrapper passes ID through verbatim and lets the CLI
 // reject malformed tasks with a validation-shaped MutationError.
 func (c *Client) Ready(ctx context.Context, id string) error {
+	return c.ready(ctx, id, false)
+}
+
+func (c *Client) ReadyStrictWIP(ctx context.Context, id string) error {
+	return c.ready(ctx, id, true)
+}
+
+func (c *Client) ready(ctx context.Context, id string, strictWIP bool) error {
 	if strings.TrimSpace(id) == "" {
 		return &MutationError{Kind: ErrKindValidation, Op: "ready", Stderr: "task id is required"}
 	}
 	args := []string{"ready", id}
+	if strictWIP {
+		args = []string{"ready", "--strict-wip", id}
+	}
 	_, err := c.Run(ctx, args...)
 	return wrapMutation("ready", args, err)
 }

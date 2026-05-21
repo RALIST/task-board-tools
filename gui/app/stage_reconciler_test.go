@@ -355,6 +355,18 @@ func TestStageReconciler_WIPBlockedRepairsBackOff(t *testing.T) {
 			key:        "TB-8|auto-groom-ready",
 		},
 		{
+			name:       "ready warn limit blocks groom promotion",
+			config:     "board: board\nprefix: TB\nwip_limit_ready: 1\nwip_enforcement: warn\n",
+			taskStatus: "backlog",
+			taskID:     "TB-12",
+			metadata:   reconcileMetadata("**Agent:** claude", "**AgentStatus:** success"),
+			runMode:    agent.ModeGroom,
+			runStatus:  agent.StatusSuccess,
+			initiator:  agent.InitiatorAutoGroom,
+			fillStatus: "ready",
+			key:        "TB-12|auto-groom-ready",
+		},
+		{
 			name:       "in-progress limit blocks implement pull",
 			config:     "board: board\nprefix: TB\nwip_limit_in_progress: 1\nwip_enforcement: strict\n",
 			taskStatus: "ready",

@@ -23,7 +23,16 @@ func cmdReady(args []string) {
 		fmt.Fprintln(os.Stderr, "Usage: tb ready <ID>\n\nExample: tb ready 123\n\nPromotes a task from backlog to ready (the canonical kanban commitment column).\nThe task must pass the same gate as `tb triage` (priority + non-placeholder goal).")
 		os.Exit(1)
 	}
-	msg, err := promoteToReady(normalizeTaskID(args[0]))
+	strictWIP := false
+	if args[0] == "--strict-wip" {
+		strictWIP = true
+		args = args[1:]
+	}
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: tb ready <ID>")
+		os.Exit(1)
+	}
+	msg, err := promoteToReadyWithOptions(normalizeTaskID(args[0]), readyOptions{strictWIP: strictWIP})
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -44,6 +53,14 @@ func cmdReady(args []string) {
 // the worst case is rejecting a task someone else just groomed, which the
 // retry will fix.
 func promoteToReady(taskID string) (string, error) {
+	return promoteToReadyWithOptions(taskID, readyOptions{})
+}
+
+type readyOptions struct {
+	strictWIP bool
+}
+
+func promoteToReadyWithOptions(taskID string, opts readyOptions) (string, error) {
 	boardDir := cfg.BoardDir
 
 	ref, err := resolveTaskRef(boardDir, taskID, allStatusDirs)
@@ -69,11 +86,11 @@ func promoteToReady(taskID string) (string, error) {
 		return "", fmt.Errorf("%s is not ready — needs grooming: %s. Fix with `tb edit %s` (or `tb triage` to see the full list).", taskID, joinReasons(reasons), taskID)
 	}
 
-	if err := enforceWipLimit("ready", boardDir); err != nil {
+	if err := enforceWipLimitForMode("ready", boardDir, opts.strictWIP); err != nil {
 		return "", err
 	}
 
-	guard := composeGuards(expectedSourceGuard("backlog"), wipLimitGuard())
+	guard := composeGuards(expectedSourceGuard("backlog"), wipLimitGuardForMode(opts.strictWIP))
 	result, err := moveTaskOnBoardWithGuard(boardDir, taskID, "ready", guard, func(string) string {
 		return "Committed — moved to ready"
 	})
@@ -227,6 +244,10 @@ func pickNextReadyTask(boardDir string) (string, bool, error) {
 // taking the board lock or, if already inside the lock, accept the small
 // TOCTOU window (concurrent CLI mutations are serialized by .board.lock).
 func enforceWipLimit(status, boardDir string) error {
+	return enforceWipLimitForMode(status, boardDir, false)
+}
+
+func enforceWipLimitForMode(status, boardDir string, strictOverride bool) error {
 	limit, ok := cfg.wipLimitFor(status)
 	if !ok {
 		return nil
@@ -238,7 +259,7 @@ func enforceWipLimit(status, boardDir string) error {
 	if len(tasks) < limit {
 		return nil
 	}
-	if cfg.WipEnforcement == "strict" {
+	if strictOverride || cfg.WipEnforcement == "strict" {
 		return fmt.Errorf("WIP limit reached for %s (%d/%d) — strict mode blocks this move. Finish or move a task out before adding another, or change wip_enforcement to 'warn' in .tb.yaml.", status, len(tasks), limit)
 	}
 	fmt.Fprintf(os.Stderr, "warning: WIP limit reached for %s (%d/%d tasks)\n", status, len(tasks), limit)

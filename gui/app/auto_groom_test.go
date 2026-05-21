@@ -62,12 +62,16 @@ func (c *fakeClock) advance(d time.Duration) {
 // triageWorthyBody returns a backlog task body that's deliberately
 // missing Priority so `tb triage` flags it.
 func triageWorthyBody(id, agentName string) string {
+	agentLine := ""
+	if agentName != "" {
+		agentLine = "**Agent:** " + agentName + "\n"
+	}
 	return "# " + id + ": Triage candidate\n" +
 		"\n" +
 		"**Type:** feature\n" +
 		"**Size:** M\n" +
 		"**Branch:** —\n" +
-		"**Agent:** " + agentName + "\n" +
+		agentLine +
 		"\n" +
 		"## Goal\n\nReal goal — the missing priority is what triggers triage.\n" +
 		"\n" +
@@ -77,9 +81,16 @@ func triageWorthyBody(id, agentName string) string {
 }
 
 func newAutoGroomFixture(t *testing.T, agentName string) *autoGroomFixture {
+	return newAutoGroomFixtureWithConfig(t, agentName, "board: board\nprefix: TB\n")
+}
+
+func newAutoGroomFixtureWithConfig(t *testing.T, agentName, boardConfig string) *autoGroomFixture {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX-only board flock")
+	}
+	if !strings.HasSuffix(boardConfig, "\n") {
+		boardConfig += "\n"
 	}
 	tbBinary := buildTbForIntegration(t)
 
@@ -91,7 +102,7 @@ func newAutoGroomFixture(t *testing.T, agentName string) *autoGroomFixture {
 		}
 	}
 	if err := os.WriteFile(filepath.Join(root, ".tb.yaml"),
-		[]byte("board: board\nprefix: TB\n"), 0o644); err != nil {
+		[]byte(boardConfig), 0o644); err != nil {
 		t.Fatalf(".tb.yaml: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(boardDir, ".next-id"), []byte("2\n"), 0o644); err != nil {
@@ -184,13 +195,18 @@ func newAutoGroomFixture(t *testing.T, agentName string) *autoGroomFixture {
 // race the synchronous scan we're about to run.
 func (f *autoGroomFixture) runScanSync() {
 	f.t.Helper()
+	f.stopDebounce()
+	f.coord.scan(context.Background(), f.boardDir)
+}
+
+func (f *autoGroomFixture) stopDebounce() {
+	f.t.Helper()
 	f.coord.mu.Lock()
 	if f.coord.debounceTimer != nil {
 		f.coord.debounceTimer.Stop()
 		f.coord.debounceTimer = nil
 	}
 	f.coord.mu.Unlock()
-	f.coord.scan(context.Background(), f.boardDir)
 }
 
 func (f *autoGroomFixture) countEmits(name string) int {
@@ -208,6 +224,15 @@ func (f *autoGroomFixture) writeBacklogTask(id, agentName string) {
 	f.t.Helper()
 	path := filepath.Join(f.boardDir, "backlog", id+".md")
 	if err := os.WriteFile(path, []byte(triageWorthyBody(id, agentName)), 0o644); err != nil {
+		f.t.Fatalf("write %s: %v", path, err)
+	}
+	f.board.clearTriageCache()
+}
+
+func (f *autoGroomFixture) writeTask(status string, spec readyTaskSpec) {
+	f.t.Helper()
+	path := filepath.Join(f.boardDir, status, spec.ID+".md")
+	if err := os.WriteFile(path, []byte(readyTaskBody(spec)), 0o644); err != nil {
 		f.t.Fatalf("write %s: %v", path, err)
 	}
 	f.board.clearTriageCache()
@@ -488,6 +513,83 @@ func TestAutoGroomCoordinator_DedupeByHash(t *testing.T) {
 	}
 }
 
+func TestAutoGroomCoordinator_WarnModeReadyWIPPreflightSkipsBeforeQueue(t *testing.T) {
+	f := newAutoGroomFixtureWithConfig(t, "claude",
+		"board: board\nprefix: TB\nwip_limit_ready: 1\nwip_enforcement: warn\n",
+	)
+	f.writeBacklogTask("TB-1", "")
+	f.writeTask("ready", readyTaskSpec{ID: "TB-99", Agent: "claude"})
+	f.enableAutoGroom(t, "claude")
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+
+	f.runScanSync()
+
+	if got := f.countEmits("auto-groom:queued"); got != 0 {
+		t.Fatalf("auto-groom:queued = %d, want 0", got)
+	}
+	if _, err := os.Stat(filepath.Join(f.boardDir, "backlog", "TB-1.md")); err != nil {
+		t.Fatalf("TB-1 should remain in backlog: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(f.boardDir, "backlog", "TB-1.md"))
+	if err != nil {
+		t.Fatalf("read TB-1: %v", err)
+	}
+	for _, banned := range []string{"**Agent:**", "**AgentStatus:**"} {
+		if strings.Contains(string(body), banned) {
+			t.Fatalf("WIP preflight should not write %s before queueing:\n%s", banned, body)
+		}
+	}
+	if _, err := os.Stat(agent.StatePath(f.boardDir, "TB-1")); !os.IsNotExist(err) {
+		t.Fatalf("WIP preflight should not create JSONL state, err=%v", err)
+	}
+	status := f.coord.Status()
+	if reason, ok := status.LastSkipReasons["TB-1"]; !ok || reason != "ready WIP limit full" {
+		t.Fatalf("skip reason = %q (have=%v), want ready WIP limit full", reason, ok)
+	}
+}
+
+func TestAutoGroomCoordinator_StartupGraceDelaysActivationScan(t *testing.T) {
+	f := newAutoGroomFixture(t, "claude")
+	f.enableAutoGroom(t, "claude")
+	if err := f.coord.ActivateWithStartupGrace(context.Background(), f.boardDir, 80*time.Millisecond); err != nil {
+		t.Fatalf("ActivateWithStartupGrace: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if got := f.countEmits("auto-groom:queued"); got != 0 {
+		t.Fatalf("queued during startup grace = %d, want 0", got)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		f.waitForActiveDrained(5 * time.Second)
+		if got := countEmitsByName(f.emitter, "auto-groom:queued", "TB-1"); got == 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("auto-groom did not queue after grace; events=%+v", f.emitter.snapshot())
+}
+
+func TestAutoGroomCoordinator_ZeroReadyWIPLimitDoesNotBlockQueue(t *testing.T) {
+	f := newAutoGroomFixtureWithConfig(t, "claude",
+		"board: board\nprefix: TB\nwip_limit_ready: 0\nwip_enforcement: warn\n",
+	)
+	f.writeTask("ready", readyTaskSpec{ID: "TB-99", Agent: "claude"})
+	f.enableAutoGroom(t, "claude")
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+
+	f.runScanSync()
+	f.waitForActiveDrained(5 * time.Second)
+
+	if got := countEmitsByName(f.emitter, "auto-groom:queued", "TB-1"); got != 1 {
+		t.Fatalf("auto-groom:queued count = %d, want 1\nevents: %+v", got, f.emitter.snapshot())
+	}
+}
+
 func TestAutoGroomCoordinator_SettleWindowDefersUntilExpiry(t *testing.T) {
 	f := newAutoGroomFixture(t, "claude")
 	if err := f.settings.SetAutoGroomEnabled(true); err != nil {
@@ -582,6 +684,119 @@ func TestAutoGroomCoordinator_OnAgentRunFinishedPromotesWhenClean(t *testing.T) 
 	}
 	t2, _ := f.board.GetTask(context.Background(), "TB-1")
 	t.Fatalf("task did not promote to ready; current status=%q", t2.Metadata.Status)
+}
+
+func TestAutoGroomCoordinator_PostGroomReadyWIPFullSkipsPromotion(t *testing.T) {
+	f := newAutoGroomFixtureWithConfig(t, "claude",
+		"board: board\nprefix: TB\nwip_limit_ready: 1\nwip_enforcement: warn\n",
+	)
+	f.writeTask("ready", readyTaskSpec{ID: "TB-99", Agent: "claude"})
+	f.enableAutoGroom(t, "claude")
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	f.stopDebounce()
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatal("no board client")
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{
+		Priority: "P1",
+		Module:   "core",
+	}); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	f.board.clearTriageCache()
+
+	f.coord.OnAgentRunFinished(map[string]any{
+		"mode":    agent.ModeGroom.String(),
+		"status":  string(agent.StatusSuccess),
+		"task_id": "TB-1",
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		task, err := f.board.GetTask(context.Background(), "TB-1")
+		if err == nil && task.Metadata.Status != "backlog" {
+			break
+		}
+		if countEmitsByName(f.emitter, "auto-groom:guarded-skip", "TB-1") > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	task, err := f.board.GetTask(context.Background(), "TB-1")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Metadata.Status != "backlog" {
+		t.Fatalf("ready WIP full should leave task in backlog, got %q", task.Metadata.Status)
+	}
+	if got := countEmitsByName(f.emitter, "auto-groom:guarded-skip", "TB-1"); got != 1 {
+		t.Fatalf("guarded-skip emits = %d, want 1\nevents: %+v", got, f.emitter.snapshot())
+	}
+	if got := countEmitsByName(f.emitter, "auto-groom:promote-failed", "TB-1"); got != 0 {
+		t.Fatalf("promote-failed emits = %d, want 0", got)
+	}
+	status := f.coord.Status()
+	if reason, ok := status.LastSkipReasons["TB-1"]; !ok || reason != "ready WIP limit full" {
+		t.Fatalf("skip reason = %q (have=%v), want ready WIP limit full", reason, ok)
+	}
+}
+
+func TestAutoGroomCoordinator_StrictWIPRaceFallsBackToReadyFailure(t *testing.T) {
+	f := newAutoGroomFixtureWithConfig(t, "claude",
+		"board: board\nprefix: TB\nwip_limit_ready: 1\nwip_enforcement: strict\n",
+	)
+	f.enableAutoGroom(t, "claude")
+	if err := f.coord.Activate(context.Background(), f.boardDir); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	f.stopDebounce()
+	c := f.board.snapshot()
+	if c == nil {
+		t.Fatal("no board client")
+	}
+	if err := c.Edit(context.Background(), "TB-1", cli.EditInput{
+		Priority: "P1",
+		Module:   "core",
+	}); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	f.board.clearTriageCache()
+	f.coord.beforeReadyForTesting = func(taskID string) {
+		if taskID != "TB-1" {
+			return
+		}
+		f.writeTask("ready", readyTaskSpec{ID: "TB-99", Agent: "claude"})
+	}
+
+	f.coord.OnAgentRunFinished(map[string]any{
+		"mode":    agent.ModeGroom.String(),
+		"status":  string(agent.StatusSuccess),
+		"task_id": "TB-1",
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if countEmitsByName(f.emitter, "auto-groom:promote-failed", "TB-1") > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(f.boardDir, "backlog", "TB-1.md")); err != nil {
+		t.Fatalf("TB-1 should remain backlog after strict ready race: %v", err)
+	}
+	if got := countEmitsByName(f.emitter, "auto-groom:promote-failed", "TB-1"); got != 1 {
+		t.Fatalf("promote-failed emits = %d, want 1\nevents: %+v", got, f.emitter.snapshot())
+	}
+	if got := countEmitsByName(f.emitter, "auto-groom:queued", "TB-1"); got != 0 {
+		t.Fatalf("queued emits = %d, want 0", got)
+	}
+	status := f.coord.Status()
+	if reason, ok := status.LastSkipReasons["TB-1"]; !ok || !strings.HasPrefix(reason, "promote-failed:") {
+		t.Fatalf("skip reason = %q (have=%v), want promote-failed", reason, ok)
+	}
 }
 
 func TestAutoGroomCoordinator_OnAgentRunFinishedIgnoresStaleBoard(t *testing.T) {

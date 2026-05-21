@@ -51,6 +51,15 @@ func (b *fakeBoard) set(t AgentTask) {
 	b.mu.Unlock()
 }
 
+func (b *fakeBoard) replace(tasks ...AgentTask) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tasks = map[string]AgentTask{}
+	for _, t := range tasks {
+		b.tasks[t.ID] = t
+	}
+}
+
 // fakeAgent records every RunQueuedAgentSync call. The optional onRun
 // hook lets a test block or simulate work.
 type fakeAgent struct {
@@ -150,6 +159,69 @@ func TestDaemon_Activate_RunsRecoveryThenScan(t *testing.T) {
 		t.Errorf("first call: %q, want TB-1", a.calls[0])
 	}
 	a.mu.Unlock()
+}
+
+func TestDaemon_StartupGraceDelaysOnlyQueueScan(t *testing.T) {
+	b := newFakeBoard(AgentTask{ID: "TB-1", Agent: "claude", AgentStatus: "queued"})
+	a := &fakeAgent{}
+	rec := &fakeRecovery{}
+	d := New(Options{Board: b, Agent: a, Recovery: rec, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+
+	if err := d.ActivateWithStartupGrace(context.Background(), "/tmp/fake", 80*time.Millisecond); err != nil {
+		t.Fatalf("ActivateWithStartupGrace: %v", err)
+	}
+	if rec.calls.Load() != 1 {
+		t.Fatalf("recovery calls = %d, want immediate 1", rec.calls.Load())
+	}
+	time.Sleep(30 * time.Millisecond)
+	if got := a.callCount(); got != 0 {
+		t.Fatalf("startup scan ran during grace: calls=%d", got)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if a.callCount() == 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("startup scan did not run after grace; calls=%d", a.callCount())
+}
+
+func TestDaemon_StartupGraceCoalescesWatcherRescanAndCancelsOldBoard(t *testing.T) {
+	b := newFakeBoard(AgentTask{ID: "TB-A", Agent: "claude", AgentStatus: "queued"})
+	a := &fakeAgent{}
+	d := New(Options{Board: b, Agent: a, MaxWorkers: 1})
+	t.Cleanup(func() { _ = d.Close() })
+
+	if err := d.ActivateWithStartupGrace(context.Background(), "/tmp/fake-a", 80*time.Millisecond); err != nil {
+		t.Fatalf("ActivateWithStartupGrace A: %v", err)
+	}
+	if n, err := d.RescanActive(context.Background()); err != nil || n != 0 {
+		t.Fatalf("rescan during grace = %d, %v; want 0, nil", n, err)
+	}
+	if err := d.Deactivate(); err != nil {
+		t.Fatalf("Deactivate A: %v", err)
+	}
+	b.replace(AgentTask{ID: "TB-B", Agent: "claude", AgentStatus: "queued"})
+	if err := d.Activate(context.Background(), "/tmp/fake-b"); err != nil {
+		t.Fatalf("Activate B: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if a.callCount() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if got := a.calls; len(got) != 1 || got[0] != "TB-B" {
+		t.Fatalf("calls = %v, want exactly [TB-B]", got)
+	}
 }
 
 type fakeRecovery struct {

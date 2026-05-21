@@ -8,6 +8,12 @@
 **Tags:** init,templates,skills,claude,codex
 **GroomedBy:** codex
 **GroomStatus:** success
+**AgentStatus:** success
+**ImplementedBy:** codex
+**ImplementStatus:** success
+**ReviewRef:** working-tree
+**ReviewedBy:** codex
+**ReviewStatus:** success
 **Branch:** —
 
 ## Goal
@@ -44,6 +50,32 @@ Related work: TB-273 covers the broader interactive `tb init` flow and already i
 - [ ] Manual smoke: in a throwaway repo, run the default interactive flow and an explicit scripted flow; verify `tb ls` works, the selected skill files exist at the documented destinations, rerunning `tb init` is a no-op when bytes match, and customized skill files are not overwritten silently.
 - [ ] Verification includes `cd cli && go test ./...`, rebuilding `cd cli && go build -o tb .`, and relinking the local `tb` binary used by this repo.
 
+## Review Target
+
+Implementation scope:
+- `tb init` supports `--install-skills=auto|all|claude|codex|none`.
+- Interactive init can prompt for project skill install; scripted init remains non-interactive unless flag explicitly installs.
+- Claude skill installs to `.claude/skills/task-board/SKILL.md`; Codex skill installs to `.agents/skills/task-board/SKILL.md` from current rendered task-board skill template.
+- Byte-identical files are no-op; customized files are preserved with prompt/skip or `.bak` backup behavior.
+- CLI help, README, and CLI README describe behavior.
+
+Verification:
+- cd cli && go test ./...
+- cd cli && go build -o tb .
+- relinked /Users/ralist/go/bin/tb and /Users/ralist/.local/bin/tb
+- throwaway init smoke with --install-skills=all and no-op rerun
+- git diff --check
+
+## Review Findings
+
+Second review: Critical issues none. Important issues none.
+
+Verification passed:
+- cd cli && go test ./...
+- cd cli && go build -o tb .
+- explicit init skill smoke passed: selected project skill files created, rerun no-op, local tb relinked
+- git diff --check
+
 ## Related Tasks
 
 - **TB-273** — Broader interactive `tb init` work; coordinate to avoid duplicate implementations.
@@ -66,4 +98,27 @@ Related work: TB-273 covers the broader interactive `tb init` flow and already i
 - 2026-05-20: Edited agentstatus=success, groom-status=success
 - 2026-05-20: Committed — moved to ready
 - 2026-05-20: Edited agentstatus=success, groomed-by=codex, groom-status=success
+- 2026-05-21: Pulled into in-progress
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=lost, implemented-by=codex, implement-status=lost
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=interrupted
+- 2026-05-21: Edited agentstatus=queued
+- 2026-05-21: Edited agentstatus=running
+- 2026-05-21: Edited agentstatus=success, implemented-by=codex, implement-status=success, reviewref=working-tree
+- 2026-05-21: Edited review-target
+- 2026-05-21: Submitted to code-review
+- 2026-05-21: Passed code review
+- 2026-05-21: Edited reviewed-by=codex, review-status=success
 

@@ -32,11 +32,13 @@
 | TB-204 | Show epic progress | 0/0 | gui/frontend |
 | TB-205 | Setup ESLint and dead-code check for frontend | 1/1 | tooling |
 
-## In Progress (0/3)
+## In Progress (3/3 ⚠)
 
 | ID | Title | Priority | Module | Branch |
 |----|-------|----------|--------|--------|
-| — | — | — | — | — |
+| TB-313 | GUI: virtualize large kanban columns | P2 | gui | — |
+| TB-318 | GUI: show loading state during board switch | P2 | gui | — |
+| TB-320 | GUI: make startup grace header a live countdown | P2 | gui/frontend | — |
 
 ## Code Review (0/3)
 
@@ -44,23 +46,17 @@
 |----|-------|----------|--------|--------|
 | — | — | — | — | — |
 
-## Ready (13/10 ⚠)
+## Ready (7/10)
 
 | ID | Title | Type | Priority | Size | Module |
 |----|-------|------|----------|------|--------|
-| TB-269 | Docs: define staged autonomous agent workflow | improvement | P1 | S | docs |
 | TB-292 | Epic: mirror project settings between GUI and .tb.yaml | feature | P2 | XL | gui |
 | TB-293 | Config: add GUI project settings to .tb.yaml schema | feature | P2 | M | cli |
 | TB-294 | GUI backend: persist project settings in .tb.yaml | feature | P2 | M | gui |
 | TB-295 | GUI settings panel mirrors project .tb.yaml | feature | P2 | M | gui |
-| TB-301 | GUI: add startup grace before automation pickup | bug | P2 | M | gui |
 | TB-303 | Epic: remove generic AgentStatus field | tech-debt | P2 | XL | workflow |
-| TB-304 | Auto-groom: respect ready WIP limit | bug | P2 | M | gui |
-| TB-305 | CLI: install project task-board skills during init | improvement | P2 | M | cli |
-| TB-306 | Generated conventions and skill should omit autonomous flows | bug | P2 | M | cli |
-| TB-313 | GUI: virtualize large kanban columns | improvement | P2 | M | gui |
+| TB-310 | Docs and board cleanup for AgentStatus removal | tech-debt | P2 | M | docs |
 | TB-317 | CLI: add --agent-status filter for running agent tasks | feature | P2 | S | cli |
-| TB-318 | GUI: show loading state during board switch | bug | P2 | M | gui |
 
 ## Backlog
 
@@ -100,10 +96,12 @@
 | TB-307 | CLI: replace AgentStatus metadata with per-mode status fields | tech-debt | P2 | M | cli |
 | TB-308 | GUI: run lifecycle uses per-mode statuses only | tech-debt | P2 | L | gui |
 | TB-309 | Frontend: remove generic AgentStatus display dependency | improvement | P2 | M | gui-frontend |
-| TB-310 | Docs and board cleanup for AgentStatus removal | tech-debt | P2 | M | docs |
 | TB-311 | Manual smoke board-switch cancellation in desktop GUI | spike | P2 | S | gui |
 | TB-314 | GUI: opening a board can start queued agent runs during smoke/load tests | bug | P1 | M | gui |
 | TB-316 | Profile GUI idle CPU usage | bug | P1 | S | gui |
+| TB-319 | CLI: clear review-failed when submitting retried in-progress work | bug | P1 | S | workflow |
+| TB-321 | GUI: board view misses live running automation tasks | bug | P1 | M | gui/frontend |
+| TB-322 | check if app closing kills agnets | bug | P2 | M |  |
 
 ## Recently Done
 
@@ -111,7 +109,11 @@
 |----|-------|------|--------|
 | TB-315 | Auto-groom and auto-resume must respect worker budget | bug | gui |
 | TB-312 | GUI: Open project selection does not switch board | bug | gui |
+| TB-306 | Generated conventions and skill should omit autonomous flows | bug | cli |
+| TB-305 | CLI: install project task-board skills during init | improvement | cli |
+| TB-304 | Auto-groom: respect ready WIP limit | bug | gui |
 | TB-302 | GUI board switch cancels old-board auto-runs cleanly | bug | gui |
+| TB-301 | GUI: add startup grace before automation pickup | bug | gui |
 | TB-300 | Auto-implement: respect WIP and CPU worker budget | bug | gui |
 | TB-297 | Remove auto-implement filter from settings UI | tech-debt | gui |
 | TB-296 | Refactor GUI header: condense controls so they fit on one row | improvement | gui |
@@ -124,6 +126,7 @@
 | TB-272 | CLI: add managed review pass flow | feature | workflow |
 | TB-271 | Fix Codex post-tool hook timeout | bug | tooling |
 | TB-270 | Align agent prompts with staged kanban workflow | improvement | agent |
+| TB-269 | Docs: define staged autonomous agent workflow | improvement | docs |
 | TB-268 | Review-failed handoff clears retry-blocking agent state | bug | workflow |
 | TB-267 | Auto-implement: respect epic child order | feature | gui |
 | TB-266 | Daemon: reconcile autonomous stage transitions | improvement | gui |
@@ -154,8 +157,3 @@
 | TB-229 | CLI: reconcile .tb.yaml with annotated config template | improvement | cli |
 | TB-228 | CLI: make init refresh existing boards by default | improvement | cli |
 | TB-227 | CLI: refresh generated board docs for existing boards | improvement | cli |
-| TB-226 | CLI: preserve literal command examples in task creation | bug | cli |
-| TB-225 | Ask user to init board from GUI when he tries to open folder without initialized tb status | feature | gui |
-| TB-224 | Support task-root attachments | improvement | cli/gui |
-| TB-223 | Audit secondary docs for stale layout/status | improvement | docs |
-| TB-222 | Refresh README for current repo layout | improvement | docs |

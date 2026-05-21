@@ -66,6 +66,7 @@ const fakeStore = vi.hoisted(() => {
     periodicRecoveryEnabled: true,
     autoGroomEnabled: false,
     autoGroomSettleMinutes: 5,
+    automationStartupGraceSeconds: 30,
     autoImplementEnabled: false,
     autoReviewEnabled: false,
     autoImplementQuery: {
@@ -108,6 +109,7 @@ vi.mock('$lib/stores/preferences', () => ({
     setPeriodicRecoveryEnabled: vi.fn().mockResolvedValue(undefined),
     setAutoGroomEnabled: vi.fn().mockResolvedValue(undefined),
     setAutoGroomSettleMinutes: vi.fn().mockResolvedValue(undefined),
+    setAutomationStartupGraceSeconds: vi.fn().mockResolvedValue(undefined),
     setAutoImplementEnabled: (v: boolean) => mocks.setAutoImplementEnabled(v),
     setAutoImplementQuery: (v: unknown) => mocks.setAutoImplementQuery(v),
     setAutoReviewEnabled: (v: boolean) => mocks.setAutoReviewEnabled(v),
