@@ -22,6 +22,7 @@ const (
 	reconcileTransitionAutoGroomReady      = "auto-groom-ready"
 	reconcileTransitionAutoImplementStart  = "auto-implement-start"
 	reconcileTransitionAutoImplementSubmit = "auto-implement-submit"
+	reconcileTransitionImplementNeedsUser  = "implement-needs-user-ready"
 	reconcileTransitionReviewFailedReady   = "review-failed-ready"
 )
 
@@ -124,9 +125,6 @@ func (r *StageReconciler) reconcileTask(ctx context.Context, id string, snap Boa
 		return err
 	}
 	t := detail.Metadata
-	if isReconcileProtectedStatus(t.AgentStatus) {
-		return nil
-	}
 
 	boardDir, err := r.board.resolveBoardDir(ctx)
 	if err != nil {
@@ -135,6 +133,13 @@ func (r *StageReconciler) reconcileTask(ctx context.Context, id string, snap Boa
 	run, hasRun, err := latestReconcileRun(boardDir, t.ID)
 	if err != nil {
 		r.logger.Debug("stage reconciliation: cannot read run history", "task", t.ID, "err", err)
+	}
+
+	if err := r.reconcileImplementNeedsUser(ctx, boardDir, detail, run, hasRun, snap); err != nil {
+		return err
+	}
+	if isReconcileProtectedStatus(t.AgentStatus) {
+		return nil
 	}
 
 	if err := r.reconcileAutoGroom(ctx, boardDir, t, run, hasRun, snap); err != nil {
@@ -211,6 +216,30 @@ func (r *StageReconciler) reconcileAutoImplementSubmit(ctx context.Context, boar
 			return errors.New(reason)
 		}
 		return r.board.SubmitReview(ctx, t.ID)
+	})
+}
+
+func (r *StageReconciler) reconcileImplementNeedsUser(ctx context.Context, boardDir string, detail TaskDetail, run reconcileRun, hasRun bool, snap BoardSnapshot) error {
+	t := detail.Metadata
+	if t.Status != "in-progress" || t.AgentStatus != "needs-user" {
+		return nil
+	}
+	if !hasRun || !run.Finished || run.Mode != agent.ModeImplement {
+		return nil
+	}
+	if run.Status != agent.StatusSuccess && run.Status != agent.StatusFailed {
+		return nil
+	}
+	attention, ok := markdownSectionBody(detail.Body, "## User Attention")
+	if !ok || strings.TrimSpace(attention) == "" {
+		return nil
+	}
+	fp := reconcileFingerprint("needs-user", t.ID, run.RunID, string(run.Status), hashString(attention), wipFingerprint(snap, "ready"))
+	return r.attemptRepair(ctx, boardDir, t.ID, reconcileTransitionImplementNeedsUser, fp, "move needs-user handoff to ready", func() error {
+		if blocked, reason := wipStrictBlocked(snap, "ready"); blocked {
+			return errors.New(reason)
+		}
+		return r.board.MoveTask(ctx, t.ID, "ready")
 	})
 }
 

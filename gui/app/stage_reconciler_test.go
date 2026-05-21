@@ -131,6 +131,15 @@ func reconcileMetadata(extra ...string) string {
 	return strings.Join(lines, "\n")
 }
 
+func reconcileUserAttentionBody() string {
+	return "## Goal\n\nImplement the thing.\n\n## Acceptance Criteria\n\n- [ ] one\n\n## User Attention\n\n" +
+		"- **Reason:** unclear requirement\n" +
+		"- **Question/Action:** choose an option\n" +
+		"- **Attempted context:** read docs and source\n" +
+		"- **Unblock condition:** answer recorded and status cleared\n\n" +
+		"## Log\n\n- 2026-05-20: Created\n"
+}
+
 func (f *stageReconcileFixture) appendRun(id, runID string, mode agent.Mode, initiator string, status agent.Status, openStarted bool) {
 	f.t.Helper()
 	if err := agent.AppendEvent(f.boardDir, id, agent.Event{
@@ -272,6 +281,123 @@ func TestStageReconciler_AutoImplementMissingReviewRefBacksOff(t *testing.T) {
 	}
 	if entry.Attempts != 1 {
 		t.Fatalf("skip attempts = %d, want 1 after same-fingerprint retry", entry.Attempts)
+	}
+}
+
+func TestStageReconciler_ImplementNeedsUserMovesInProgressTaskToReady(t *testing.T) {
+	f := newStageReconcileFixture(t, "")
+	body := reconcileUserAttentionBody()
+	f.writeTask("in-progress", "TB-13", reconcileMetadata(
+		"**Agent:** claude",
+		"**AgentStatus:** needs-user",
+	), body)
+	f.appendRun("TB-13", "r_needs_user", agent.ModeImplement, agent.InitiatorUser, agent.StatusSuccess, false)
+
+	if err := f.rec.ReconcileTask(context.Background(), "TB-13"); err != nil {
+		t.Fatalf("ReconcileTask: %v", err)
+	}
+	f.requireStatus("TB-13", "ready")
+	f.requireNotStatus("TB-13", "in-progress")
+	detail, err := f.board.GetTask(context.Background(), "TB-13")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if detail.Metadata.AgentStatus != "needs-user" {
+		t.Fatalf("AgentStatus = %q, want needs-user", detail.Metadata.AgentStatus)
+	}
+	if !strings.Contains(detail.Body, "## User Attention") ||
+		!strings.Contains(detail.Body, "choose an option") ||
+		!strings.Contains(detail.Body, "status cleared") {
+		t.Fatalf("User Attention section was not preserved:\n%s", detail.Body)
+	}
+}
+
+func TestStageReconciler_ImplementNeedsUserWarnWIPStillMovesToReady(t *testing.T) {
+	f := newStageReconcileFixture(t, "board: board\nprefix: TB\nwip_limit_ready: 1\nwip_enforcement: warn\n")
+	f.writeTask("ready", "TB-901", reconcileMetadata(), "")
+	f.writeTask("in-progress", "TB-14", reconcileMetadata(
+		"**Agent:** claude",
+		"**AgentStatus:** needs-user",
+	), reconcileUserAttentionBody())
+	f.appendRun("TB-14", "r_needs_user_warn", agent.ModeImplement, agent.InitiatorAutoImplement, agent.StatusFailed, false)
+
+	if err := f.rec.ReconcileTask(context.Background(), "TB-14"); err != nil {
+		t.Fatalf("ReconcileTask: %v", err)
+	}
+	f.requireStatus("TB-14", "ready")
+	f.requireNotStatus("TB-14", "in-progress")
+}
+
+func TestStageReconciler_ImplementNeedsUserStrictReadyWIPBacksOff(t *testing.T) {
+	f := newStageReconcileFixture(t, "board: board\nprefix: TB\nwip_limit_ready: 1\nwip_enforcement: strict\n")
+	f.writeTask("ready", "TB-901", reconcileMetadata(), "")
+	f.writeTask("in-progress", "TB-15", reconcileMetadata(
+		"**Agent:** claude",
+		"**AgentStatus:** needs-user",
+	), reconcileUserAttentionBody())
+	f.appendRun("TB-15", "r_needs_user_strict", agent.ModeImplement, agent.InitiatorAutoImplement, agent.StatusSuccess, false)
+
+	if err := f.rec.ReconcileTask(context.Background(), "TB-15"); err != nil {
+		t.Fatalf("first ReconcileTask: %v", err)
+	}
+	if err := f.rec.ReconcileTask(context.Background(), "TB-15"); err != nil {
+		t.Fatalf("second ReconcileTask: %v", err)
+	}
+	f.requireStatus("TB-15", "in-progress")
+	detail, err := f.board.GetTask(context.Background(), "TB-15")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if detail.Metadata.AgentStatus != "needs-user" {
+		t.Fatalf("AgentStatus = %q, want needs-user", detail.Metadata.AgentStatus)
+	}
+	if !strings.Contains(detail.Body, "## User Attention") {
+		t.Fatalf("User Attention section was not preserved:\n%s", detail.Body)
+	}
+	entry, ok := f.skipEntries()["TB-15|implement-needs-user-ready"]
+	if !ok {
+		t.Fatalf("missing durable needs-user WIP skip: %+v", f.skipEntries())
+	}
+	if !strings.Contains(entry.Reason, "WIP limit") {
+		t.Fatalf("skip reason = %q, want WIP limit", entry.Reason)
+	}
+	if entry.Attempts != 1 {
+		t.Fatalf("skip attempts = %d, want 1", entry.Attempts)
+	}
+}
+
+func TestStageReconciler_NonImplementNeedsUserHandoffsStayPut(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     string
+		id         string
+		mode       agent.Mode
+		runStatus  agent.Status
+		wantStatus string
+	}{
+		{name: "backlog groom", status: "backlog", id: "TB-16", mode: agent.ModeGroom, runStatus: agent.StatusSuccess, wantStatus: "backlog"},
+		{name: "code-review review", status: "code-review", id: "TB-17", mode: agent.ModeReview, runStatus: agent.StatusSuccess, wantStatus: "code-review"},
+		{name: "done implement", status: "done", id: "TB-18", mode: agent.ModeImplement, runStatus: agent.StatusSuccess, wantStatus: "done"},
+		{name: "archive implement", status: "archive", id: "TB-19", mode: agent.ModeImplement, runStatus: agent.StatusSuccess, wantStatus: "archive"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newStageReconcileFixture(t, "")
+			f.writeTask(tt.status, tt.id, reconcileMetadata(
+				"**Agent:** claude",
+				"**AgentStatus:** needs-user",
+			), reconcileUserAttentionBody())
+			f.appendRun(tt.id, "r_"+tt.id, tt.mode, agent.InitiatorUser, tt.runStatus, false)
+
+			if err := f.rec.ReconcileTask(context.Background(), tt.id); err != nil {
+				t.Fatalf("ReconcileTask: %v", err)
+			}
+			f.requireStatus(tt.id, tt.wantStatus)
+			if tt.wantStatus != "ready" {
+				f.requireNotStatus(tt.id, "ready")
+			}
+		})
 	}
 }
 

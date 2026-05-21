@@ -172,6 +172,28 @@ func (r *successRunner) Run(ctx context.Context, in agent.RunInput) (agent.RunRe
 	return agent.RunResult{ExitCode: 0}, nil
 }
 
+type needsUserRunner struct {
+	client *cli.Client
+}
+
+func (r *needsUserRunner) Name() string { return "claude" }
+func (r *needsUserRunner) Run(ctx context.Context, in agent.RunInput) (agent.RunResult, error) {
+	if in.OnStarted != nil {
+		in.OnStarted(99996, 99996)
+	}
+	attention := "- **Reason:** unclear requirement\n" +
+		"- **Specific question or action:** choose next step\n" +
+		"- **Attempted context:** daemon smoke test\n" +
+		"- **Unblock condition:** clear AgentStatus after response\n"
+	if err := r.client.Edit(ctx, in.TaskID, cli.EditInput{UserAttention: attention}); err != nil {
+		return agent.RunResult{ExitCode: 1, Err: err}, err
+	}
+	if err := r.client.Edit(ctx, in.TaskID, cli.EditInput{AgentStatus: "needs-user"}); err != nil {
+		return agent.RunResult{ExitCode: 1, Err: err}, err
+	}
+	return agent.RunResult{ExitCode: 0}, nil
+}
+
 // TestDaemon_F51_CLIQueuesTriggerRun is the F5.1 end-to-end acceptance:
 // from the terminal, `tb edit X --agent-status queued` (no JSONL
 // AppendEvent) triggers the daemon to pick the task up via the watcher
@@ -238,6 +260,78 @@ func TestDaemon_F51_CLIQueuesTriggerRun(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "**AgentStatus:** success") {
 		t.Fatalf("AgentStatus not success:\n%s", out)
+	}
+}
+
+func TestDaemon_ImplementNeedsUserHandoffMovesToReady(t *testing.T) {
+	runner := &needsUserRunner{}
+	d, _, boardDir, c := daemonIntegrationFixtureWithStorageAndOptions(t, runner, false, func(opts *daemon.Options) {
+		opts.Reconciler = NewStageReconciler(opts.Board.(*boardAdapter).b, nil)
+	})
+	runner.client = c
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	for _, status := range []string{"ready", "code-review"} {
+		if err := os.MkdirAll(filepath.Join(boardDir, status), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", status, err)
+		}
+	}
+	if err := c.Move(ctx, "TB-1", "in-progress"); err != nil {
+		t.Fatalf("move in-progress: %v", err)
+	}
+	if err := d.Activate(ctx, boardDir); err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	if err := agent.AppendEvent(boardDir, "TB-1", agent.Event{
+		TS:        time.Now().UTC().Format(time.RFC3339),
+		RunID:     "r_needs_user_daemon",
+		TaskID:    "TB-1",
+		Event:     agent.EvQueued,
+		Agent:     "claude",
+		Mode:      agent.ModeImplement.String(),
+		Initiator: agent.InitiatorAutoImplement,
+	}); err != nil {
+		t.Fatalf("append queued: %v", err)
+	}
+	if err := c.Edit(ctx, "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("edit queued: %v", err)
+	}
+	if ok, err := d.Enqueue("TB-1"); err != nil || !ok {
+		t.Fatalf("enqueue: ok=%v err=%v", ok, err)
+	}
+
+	waitForCondition(t, 5*time.Second, func() bool {
+		_, err := os.Stat(filepath.Join(boardDir, "ready", "TB-1.md"))
+		return err == nil
+	})
+	if _, err := os.Stat(filepath.Join(boardDir, "in-progress", "TB-1.md")); !os.IsNotExist(err) {
+		t.Fatalf("task should leave in-progress: %v", err)
+	}
+	out, err := c.Run(context.Background(), "show", "TB-1")
+	if err != nil {
+		t.Fatalf("tb show: %v", err)
+	}
+	body := string(out)
+	if !strings.Contains(body, "**AgentStatus:** needs-user") {
+		t.Fatalf("AgentStatus not preserved:\n%s", body)
+	}
+	if !strings.Contains(body, "## User Attention") || !strings.Contains(body, "choose next step") {
+		t.Fatalf("User Attention not preserved:\n%s", body)
+	}
+
+	if ok, err := d.EnqueueIfReady(ctx, "TB-1"); err != nil || ok {
+		t.Fatalf("ready needs-user task should not enqueue: ok=%v err=%v", ok, err)
+	}
+	if err := c.Edit(ctx, "TB-1", cli.EditInput{AgentStatus: "none"}); err != nil {
+		t.Fatalf("clear needs-user: %v", err)
+	}
+	if err := c.Edit(ctx, "TB-1", cli.EditInput{AgentStatus: "queued"}); err != nil {
+		t.Fatalf("queue after clear: %v", err)
+	}
+	if ok, err := d.EnqueueIfReady(ctx, "TB-1"); err != nil || !ok {
+		t.Fatalf("cleared ready task should enqueue again: ok=%v err=%v", ok, err)
 	}
 }
 

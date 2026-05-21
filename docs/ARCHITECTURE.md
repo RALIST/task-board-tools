@@ -372,6 +372,8 @@ Auto-implement operates only on committed `ready` tasks. It is off by default, r
 
 The coordinator owns the canonical `ready -> in-progress` pull/start transition before the implement run does work. The implementation agent owns the code/doc/test change, final verification, and review submission metadata. Before moving to `code-review`, the task must have both human-readable review target prose and non-empty machine-readable `ReviewRef`.
 
+If a finished implement-mode run leaves a task in `in-progress` with `AgentStatus: needs-user` and the structured `## User Attention` marker, terminal handling or deterministic reconciliation moves it back to `ready` without clearing the section or status. This frees the in-progress WIP slot while preserving the human handoff; automation must still skip the task until the user clears the status. The structured marker is the exception to the "no arbitrary prose inference" rule below.
+
 Epic ordering is the first hard dependency policy for auto-implement. A child task with `**Parent:** <epic>` must not be selected while any lower numeric same-parent child is still unfinished. Active earlier siblings in `backlog`, `ready`, `in-progress`, or `code-review` block later children; blocking `AgentStatus` values such as `needs-user`, `interrupted`, or `cancelled` also block. Missing or unparseable earlier siblings are treated as diagnostics, not silently ignored. Archived siblings are closed work for this rule because archive is reserved for obsolete, superseded, duplicate, or intentionally dropped tasks.
 
 ### Auto-review
